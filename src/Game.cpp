@@ -4,10 +4,15 @@
 Game::Game() : playerHealth(100), enemyHealth(50), running(false) {}
 
 void Game::init() {
-    // Initialize starting deck
+    // Initialize starting deck (10 cards total)
+    playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
+    playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
+    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
+    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
+    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
     playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
     playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
     
@@ -68,8 +73,8 @@ void Game::run() {
     std::cout << "Welcome to Roguelike Cardgame!\n";
     std::cout << "Type 'help' for commands.\n";
     
+    displayStatus();
     while (running) {
-        render();
         std::cout << "> ";
         handleInput();
         update();
