@@ -2,12 +2,13 @@
 #define GAME_H
 
 #include "Deck.h"
+#include "Enemy.h"
 
 class Game {
 private:
     Deck playerDeck;
+    Enemy enemy;
     int playerHealth;
-    int enemyHealth;
     bool running;
 
 public:

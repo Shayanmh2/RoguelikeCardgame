@@ -10,5 +10,6 @@ add_executable(cardgame
     src/main.cpp
     src/Card.cpp
     src/Deck.cpp
+    src/Enemy.cpp
     src/Game.cpp
 )

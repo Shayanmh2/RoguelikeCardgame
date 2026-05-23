@@ -1,7 +1,7 @@
 #include "Game.h"
 #include <iostream>
 
-Game::Game() : playerHealth(100), enemyHealth(50), running(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), running(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -32,7 +32,8 @@ void Game::init() {
 
 void Game::displayStatus() const {
     std::cout << "\n----------------------------------------\n";
-    std::cout << "Player Health: " << playerHealth << " | Enemy Health: " << enemyHealth << "\n";
+    std::cout << "Player Health: " << playerHealth << " | ";
+    enemy.displayStatus();
     std::cout << "----------------------------------------\n";
     playerDeck.displayDeck();
 }
