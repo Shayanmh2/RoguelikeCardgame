@@ -9,7 +9,12 @@ private:
     Deck playerDeck;
     Enemy enemy;
     int playerHealth;
+    int playerArmor;
     bool running;
+    
+    int calculateDamage(int attackValue, int defenseValue) const;
+    void playerAttack(int cardValue);
+    void playerDefend(int cardValue);
 
 public:
     Game();
