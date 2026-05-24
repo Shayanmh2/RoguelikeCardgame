@@ -1,7 +1,7 @@
 #include "Game.h"
 #include <iostream>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), running(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), running(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -32,10 +32,28 @@ void Game::init() {
 
 void Game::displayStatus() const {
     std::cout << "\n----------------------------------------\n";
-    std::cout << "Player Health: " << playerHealth << " | ";
+    std::cout << "Player Health: " << playerHealth << " | Armor: " << playerArmor << " | ";
     enemy.displayStatus();
     std::cout << "----------------------------------------\n";
     playerDeck.displayDeck();
+}
+
+int Game::calculateDamage(int attackValue, int defenseValue) const {
+    int damage = attackValue - defenseValue;
+    return (damage < 0) ? 0 : damage;
+}
+
+void Game::playerAttack(int cardValue) {
+    int damageDealt = calculateDamage(cardValue, enemy.getBaseDefense());
+    enemy.takeDamage(damageDealt);
+    std::cout << "You attacked for " << damageDealt << " damage! (Attack: " << cardValue 
+              << " - Defense: " << enemy.getBaseDefense() << ")\n";
+    std::cout << "Enemy Health: " << enemy.getHealth() << "/" << enemy.getMaxHealth() << "\n";
+}
+
+void Game::playerDefend(int cardValue) {
+    playerArmor += cardValue;
+    std::cout << "You gained " << cardValue << " armor! (Total armor: " << playerArmor << ")\n";
 }
 
 void Game::handleInput() {
@@ -49,7 +67,7 @@ void Game::handleInput() {
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, draw, quit\n";
+        std::cout << "Commands: hand, status, draw, attack VALUE, defend VALUE, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
@@ -57,6 +75,12 @@ void Game::handleInput() {
         } catch (const std::exception& e) {
             std::cout << e.what() << "\n";
         }
+    } else if (input.substr(0, 6) == "attack") {
+        int value = std::stoi(input.substr(7));
+        playerAttack(value);
+    } else if (input.substr(0, 6) == "defend") {
+        int value = std::stoi(input.substr(7));
+        playerDefend(value);
     }
 }
 
