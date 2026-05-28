@@ -23,6 +23,9 @@ public:
     int deckSize() const;
     int discardSize() const;
     
+    const Card& getCardFromHand(int index) const;
+    Card playCard(int index);
+    
     void displayHand() const;
     void displayDeck() const;
 };

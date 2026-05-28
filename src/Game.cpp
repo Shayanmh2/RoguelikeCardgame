@@ -73,6 +73,30 @@ void Game::playerDefend(int cardValue, int cost) {
     std::cout << "You gained " << cardValue << " armor! (Total armor: " << playerArmor << ")\n";
 }
 
+void Game::playCardFromHand(int index) {
+    try {
+        const Card& card = playerDeck.getCardFromHand(index - 1);
+        
+        if (!spendEnergy(card.getCost())) return;
+        
+        Card playedCard = playerDeck.playCard(index - 1);
+        
+        std::cout << "Played: [" << playedCard.getName() << "] (Cost: " << playedCard.getCost() << ")\n";
+        
+        if (playedCard.getType() == CardType::ATTACK) {
+            int damageDealt = calculateDamage(playedCard.getValue(), enemy.getBaseDefense());
+            enemy.takeDamage(damageDealt);
+            std::cout << "  Dealt " << damageDealt << " damage to enemy! (Enemy HP: " 
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
+        } else if (playedCard.getType() == CardType::DEFEND) {
+            playerArmor += playedCard.getValue();
+            std::cout << "  Gained " << playedCard.getValue() << " armor! (Total: " << playerArmor << ")\n";
+        }
+    } catch (const std::out_of_range& e) {
+        std::cout << "Invalid card index! Use 'hand' to see your cards.\n";
+    }
+}
+
 void Game::handleInput() {
     std::string input;
     std::getline(std::cin, input);
@@ -84,7 +108,7 @@ void Game::handleInput() {
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, draw, attack VALUE COST, defend VALUE COST, rest, quit\n";
+        std::cout << "Commands: hand, status, draw, play INDEX, rest, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
@@ -92,16 +116,9 @@ void Game::handleInput() {
         } catch (const std::exception& e) {
             std::cout << e.what() << "\n";
         }
-    } else if (input.substr(0, 6) == "attack") {
-        int spacePos = input.find(' ', 7);
-        int value = std::stoi(input.substr(7, spacePos - 7));
-        int cost = std::stoi(input.substr(spacePos + 1));
-        playerAttack(value, cost);
-    } else if (input.substr(0, 6) == "defend") {
-        int spacePos = input.find(' ', 7);
-        int value = std::stoi(input.substr(7, spacePos - 7));
-        int cost = std::stoi(input.substr(spacePos + 1));
-        playerDefend(value, cost);
+    } else if (input.substr(0, 4) == "play") {
+        int index = std::stoi(input.substr(5));
+        playCardFromHand(index);
     } else if (input == "rest") {
         resetEnergy();
         std::cout << "You rested and restored energy to " << playerEnergy << "/" << maxEnergy << ".\n";

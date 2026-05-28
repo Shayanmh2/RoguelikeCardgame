@@ -19,6 +19,7 @@ private:
     void playerDefend(int cardValue, int cost);
     bool spendEnergy(int cost);
     void resetEnergy();
+    void playCardFromHand(int index);
 
 public:
     Game();
