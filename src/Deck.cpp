@@ -58,6 +58,23 @@ int Deck::discardSize() const {
     return discard.size();
 }
 
+const Card& Deck::getCardFromHand(int index) const {
+    if (index < 0 || index >= static_cast<int>(hand.size())) {
+        throw std::out_of_range("Invalid card index");
+    }
+    return hand[index];
+}
+
+Card Deck::playCard(int index) {
+    if (index < 0 || index >= static_cast<int>(hand.size())) {
+        throw std::out_of_range("Invalid card index");
+    }
+    Card card = hand[index];
+    hand.erase(hand.begin() + index);
+    discard.push_back(card);
+    return card;
+}
+
 void Deck::displayHand() const {
     std::cout << "--- Hand (" << hand.size() << " cards) ---\n";
     for (size_t i = 0; i < hand.size(); ++i) {
