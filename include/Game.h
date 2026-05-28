@@ -27,6 +27,8 @@ private:
     void resetArmor();
     void displayTurnInfo() const;
     bool checkGameOver();
+    void displayGameOver();
+    bool handleGameOverInput();
 
 public:
     Game();

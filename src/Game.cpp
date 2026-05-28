@@ -155,18 +155,38 @@ void Game::endPlayerTurn() {
 
 bool Game::checkGameOver() {
     if (playerHealth <= 0) {
-        std::cout << "\n========== YOU LOST ==========\n";
-        std::cout << "You were defeated!\n";
-        running = false;
         return true;
     }
     if (!enemy.isAlive()) {
-        std::cout << "\n========== YOU WON! ==========\n";
-        std::cout << "Enemy defeated! Victory!\n";
-        running = false;
         return true;
     }
     return false;
+}
+
+void Game::displayGameOver() {
+    if (playerHealth <= 0) {
+        std::cout << "\n========== YOU LOST ==========\n";
+        std::cout << "You were defeated! Better luck next time.\n";
+    } else if (!enemy.isAlive()) {
+        std::cout << "\n========== YOU WON! ==========\n";
+        std::cout << "Enemy defeated! Onward to the next encounter!\n";
+    }
+}
+
+bool Game::handleGameOverInput() {
+    std::string input;
+    std::cout << "\n[play] Play again or [quit]?\n";
+    std::cout << "> ";
+    std::getline(std::cin, input);
+    
+    if (input == "play") {
+        return true;
+    } else if (input == "quit") {
+        return false;
+    } else {
+        std::cout << "Invalid choice. Please enter 'play' or 'quit'.\n";
+        return handleGameOverInput();
+    }
 }
 
 void Game::handleInput() {
@@ -222,8 +242,32 @@ void Game::run() {
     while (running) {
         std::cout << "> ";
         handleInput();
+        
+        if (checkGameOver()) {
+            displayGameOver();
+            if (handleGameOverInput()) {
+                // Reset for replay
+                playerHealth = 100;
+                playerArmor = 0;
+                playerEnergy = 3;
+                maxEnergy = 3;
+                turnNumber = 1;
+                playerTurnActive = true;
+                
+                // Reinitialize deck and enemy
+                playerDeck = Deck();
+                enemy = Enemy("Enemy", 50, 8, 4);
+                init();
+                
+                displayStatus();
+                displayTurnInfo();
+            } else {
+                running = false;
+            }
+        }
+        
         update();
     }
     
-    std::cout << "how could you stop playing?\n";
+    std::cout << "Thanks for playing!\n";
 }
