@@ -12,6 +12,8 @@ private:
     int playerArmor;
     int playerEnergy;
     int maxEnergy;
+    int turnNumber;
+    bool playerTurnActive;
     bool running;
     
     int calculateDamage(int attackValue, int defenseValue) const;
@@ -21,6 +23,10 @@ private:
     void resetEnergy();
     void playCardFromHand(int index);
     void enemyTurn();
+    void endPlayerTurn();
+    void resetArmor();
+    void displayTurnInfo() const;
+    bool checkGameOver();
 
 public:
     Game();
