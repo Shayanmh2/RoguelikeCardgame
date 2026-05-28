@@ -10,11 +10,15 @@ private:
     Enemy enemy;
     int playerHealth;
     int playerArmor;
+    int playerEnergy;
+    int maxEnergy;
     bool running;
     
     int calculateDamage(int attackValue, int defenseValue) const;
-    void playerAttack(int cardValue);
-    void playerDefend(int cardValue);
+    void playerAttack(int cardValue, int cost);
+    void playerDefend(int cardValue, int cost);
+    bool spendEnergy(int cost);
+    void resetEnergy();
 
 public:
     Game();
