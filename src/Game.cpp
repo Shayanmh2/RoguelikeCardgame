@@ -1,7 +1,7 @@
 #include "Game.h"
 #include <iostream>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), running(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), running(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -32,7 +32,7 @@ void Game::init() {
 
 void Game::displayStatus() const {
     std::cout << "\n----------------------------------------\n";
-    std::cout << "Player Health: " << playerHealth << " | Armor: " << playerArmor << " | ";
+    std::cout << "Player Health: " << playerHealth << " | Armor: " << playerArmor << " | Energy: " << playerEnergy << "/" << maxEnergy << " | ";
     enemy.displayStatus();
     std::cout << "----------------------------------------\n";
     playerDeck.displayDeck();
@@ -43,7 +43,22 @@ int Game::calculateDamage(int attackValue, int defenseValue) const {
     return (damage < 0) ? 0 : damage;
 }
 
-void Game::playerAttack(int cardValue) {
+bool Game::spendEnergy(int cost) {
+    if (playerEnergy < cost) {
+        std::cout << "Not enough energy! Need " << cost << " but only have " << playerEnergy << ".\n";
+        return false;
+    }
+    playerEnergy -= cost;
+    return true;
+}
+
+void Game::resetEnergy() {
+    playerEnergy = maxEnergy;
+}
+
+void Game::playerAttack(int cardValue, int cost) {
+    if (!spendEnergy(cost)) return;
+    
     int damageDealt = calculateDamage(cardValue, enemy.getBaseDefense());
     enemy.takeDamage(damageDealt);
     std::cout << "You attacked for " << damageDealt << " damage! (Attack: " << cardValue 
@@ -51,7 +66,9 @@ void Game::playerAttack(int cardValue) {
     std::cout << "Enemy Health: " << enemy.getHealth() << "/" << enemy.getMaxHealth() << "\n";
 }
 
-void Game::playerDefend(int cardValue) {
+void Game::playerDefend(int cardValue, int cost) {
+    if (!spendEnergy(cost)) return;
+    
     playerArmor += cardValue;
     std::cout << "You gained " << cardValue << " armor! (Total armor: " << playerArmor << ")\n";
 }
@@ -67,7 +84,7 @@ void Game::handleInput() {
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, draw, attack VALUE, defend VALUE, quit\n";
+        std::cout << "Commands: hand, status, draw, attack VALUE COST, defend VALUE COST, rest, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
@@ -76,11 +93,18 @@ void Game::handleInput() {
             std::cout << e.what() << "\n";
         }
     } else if (input.substr(0, 6) == "attack") {
-        int value = std::stoi(input.substr(7));
-        playerAttack(value);
+        int spacePos = input.find(' ', 7);
+        int value = std::stoi(input.substr(7, spacePos - 7));
+        int cost = std::stoi(input.substr(spacePos + 1));
+        playerAttack(value, cost);
     } else if (input.substr(0, 6) == "defend") {
-        int value = std::stoi(input.substr(7));
-        playerDefend(value);
+        int spacePos = input.find(' ', 7);
+        int value = std::stoi(input.substr(7, spacePos - 7));
+        int cost = std::stoi(input.substr(spacePos + 1));
+        playerDefend(value, cost);
+    } else if (input == "rest") {
+        resetEnergy();
+        std::cout << "You rested and restored energy to " << playerEnergy << "/" << maxEnergy << ".\n";
     }
 }
 
