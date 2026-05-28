@@ -1,5 +1,6 @@
 #include "Game.h"
 #include <iostream>
+#include <random>
 
 Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), running(false) {}
 
@@ -97,6 +98,37 @@ void Game::playCardFromHand(int index) {
     }
 }
 
+void Game::enemyTurn() {
+    // Simple 50/50 AI: attack or defend
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dist(0, 1);
+    int choice = dist(gen);
+
+    if (!enemy.isAlive()) return;
+
+    if (choice == 0) {
+        // Attack
+        int atk = enemy.getBaseAttack();
+        int actualDamage = atk - playerArmor;
+        if (actualDamage < 0) actualDamage = 0;
+        // Reduce player's armor by the attack amount
+        playerArmor -= atk;
+        if (playerArmor < 0) playerArmor = 0;
+
+        playerHealth -= actualDamage;
+        if (playerHealth < 0) playerHealth = 0;
+
+        std::cout << "Enemy attacks for " << actualDamage << " damage!\n";
+        std::cout << "Player Health: " << playerHealth << "\n";
+    } else {
+        // Defend
+        int amt = enemy.getBaseDefense();
+        enemy.gainArmor(amt);
+        std::cout << "Enemy defends and gains " << amt << " armor.\n";
+    }
+}
+
 void Game::handleInput() {
     std::string input;
     std::getline(std::cin, input);
@@ -122,6 +154,11 @@ void Game::handleInput() {
     } else if (input == "rest") {
         resetEnergy();
         std::cout << "You rested and restored energy to " << playerEnergy << "/" << maxEnergy << ".\n";
+    } else if (input == "end") {
+        // End player's turn: enemy acts, then reset energy for player
+        enemyTurn();
+        resetEnergy();
+        std::cout << "-- New turn: Energy restored to " << playerEnergy << "/" << maxEnergy << " --\n";
     }
 }
 
