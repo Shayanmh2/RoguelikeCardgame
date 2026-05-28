@@ -2,7 +2,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), running(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -129,6 +129,46 @@ void Game::enemyTurn() {
     }
 }
 
+void Game::displayTurnInfo() const {
+    std::cout << "\n========== TURN " << turnNumber << " ==========\n";
+    if (playerTurnActive) {
+        std::cout << "Player's Turn - Your move!\n";
+    }
+}
+
+void Game::resetArmor() {
+    playerArmor = 0;
+    enemy.resetArmor();
+}
+
+void Game::endPlayerTurn() {
+    playerTurnActive = false;
+    std::cout << "\n--- Enemy's Turn ---\n";
+    enemyTurn();
+    resetArmor();
+    turnNumber++;
+    playerTurnActive = true;
+    resetEnergy();
+    std::cout << "\n--- Your Turn ---\n";
+    std::cout << "Energy restored to " << playerEnergy << "/" << maxEnergy << ".\n";
+}
+
+bool Game::checkGameOver() {
+    if (playerHealth <= 0) {
+        std::cout << "\n========== YOU LOST ==========\n";
+        std::cout << "You were defeated!\n";
+        running = false;
+        return true;
+    }
+    if (!enemy.isAlive()) {
+        std::cout << "\n========== YOU WON! ==========\n";
+        std::cout << "Enemy defeated! Victory!\n";
+        running = false;
+        return true;
+    }
+    return false;
+}
+
 void Game::handleInput() {
     std::string input;
     std::getline(std::cin, input);
@@ -140,7 +180,7 @@ void Game::handleInput() {
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, draw, play INDEX, rest, quit\n";
+        std::cout << "Commands: hand, status, draw, play INDEX, end, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
@@ -151,14 +191,14 @@ void Game::handleInput() {
     } else if (input.substr(0, 4) == "play") {
         int index = std::stoi(input.substr(5));
         playCardFromHand(index);
-    } else if (input == "rest") {
-        resetEnergy();
-        std::cout << "You rested and restored energy to " << playerEnergy << "/" << maxEnergy << ".\n";
+        checkGameOver();
     } else if (input == "end") {
-        // End player's turn: enemy acts, then reset energy for player
-        enemyTurn();
-        resetEnergy();
-        std::cout << "-- New turn: Energy restored to " << playerEnergy << "/" << maxEnergy << " --\n";
+        if (!playerTurnActive) {
+            std::cout << "It's not your turn!\n";
+            return;
+        }
+        endPlayerTurn();
+        checkGameOver();
     }
 }
 
@@ -177,6 +217,8 @@ void Game::run() {
     std::cout << "Type 'help' for commands.\n";
     
     displayStatus();
+    displayTurnInfo();
+    
     while (running) {
         std::cout << "> ";
         handleInput();
