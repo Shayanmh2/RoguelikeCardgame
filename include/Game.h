@@ -3,18 +3,22 @@
 
 #include "Deck.h"
 #include "Enemy.h"
+#include "Run.h"
 
 class Game {
 private:
     Deck playerDeck;
     Enemy enemy;
+    Run currentRun;
     int playerHealth;
+    int maxPlayerHealth;
     int playerArmor;
     int playerEnergy;
     int maxEnergy;
     int turnNumber;
     bool playerTurnActive;
     bool running;
+    bool inEncounter;
     
     int calculateDamage(int attackValue, int defenseValue) const;
     void playerAttack(int cardValue, int cost);
@@ -29,6 +33,10 @@ private:
     bool checkGameOver();
     void displayGameOver();
     bool handleGameOverInput();
+    void startEncounter();
+    void nextEncounter();
+    void handleEncounterWin();
+    void displayRunStats() const;
 
 public:
     Game();
