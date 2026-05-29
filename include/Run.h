@@ -1,6 +1,8 @@
 #ifndef RUN_H
 #define RUN_H
 
+#include <string>
+
 class Run {
 private:
     int currentEncounter;
@@ -25,7 +27,9 @@ public:
     int getEnemyAttack() const;
     int getEnemyDefense() const;
     
+    std::string getDifficultyTier() const;
     void displayRunStats() const;
+    void displayEncounterDifficulty() const;
 };
 
 #endif
