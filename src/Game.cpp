@@ -2,7 +2,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), playerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -230,37 +230,96 @@ void Game::render() const {
     displayStatus();
 }
 
+void Game::startEncounter() {
+    // Set up enemy for current encounter with scaled stats
+    int health = currentRun.getEnemyHealth();
+    int attack = currentRun.getEnemyAttack();
+    int defense = currentRun.getEnemyDefense();
+    
+    enemy = Enemy("Enemy", health, attack, defense);
+    inEncounter = true;
+    turnNumber = 1;
+    playerTurnActive = true;
+    playerArmor = 0;
+    playerEnergy = 3;
+    
+    currentRun.displayRunStats();
+    std::cout << "\n========== ENCOUNTER " << currentRun.getCurrentEncounter() << " ==========\n";
+    displayStatus();
+    displayTurnInfo();
+}
+
+void Game::nextEncounter() {
+    // Load next encounter
+    currentRun.nextEncounter();
+    startEncounter();
+}
+
+void Game::handleEncounterWin() {
+    currentRun.winEncounter();
+    std::cout << "\n========== ENCOUNTER WON! ==========\n";
+    std::cout << "Enemies Defeated: " << currentRun.getEncountersWon() << "\n";
+    std::cout << "Proceed to next encounter? [continue] or [end run]?\n";
+    std::cout << "> ";
+    
+    std::string input;
+    std::getline(std::cin, input);
+    
+    if (input == "continue") {
+        nextEncounter();
+    } else {
+        inEncounter = false;
+        currentRun.loseRun();
+    }
+}
+
+void Game::displayRunStats() const {
+    currentRun.displayRunStats();
+}
+
 void Game::run() {
     init();
     
     std::cout << "Welcome to Roguelike Cardgame!\n";
     std::cout << "Type 'help' for commands.\n";
     
-    displayStatus();
-    displayTurnInfo();
+    currentRun.startRun();
+    startEncounter();
     
     while (running) {
         std::cout << "> ";
         handleInput();
         
         if (checkGameOver()) {
-            displayGameOver();
+            if (enemy.isAlive()) {
+                // Player lost
+                displayGameOver();
+                std::cout << "\n========== RUN ENDED ==========\n";
+                currentRun.displayRunStats();
+                currentRun.loseRun();
+                inEncounter = false;
+            } else {
+                // Player won encounter
+                handleEncounterWin();
+                if (inEncounter) {
+                    // Continue to next encounter, loop continues
+                    continue;
+                }
+            }
+            
+            // Run ended, offer new run
             if (handleGameOverInput()) {
-                // Reset for replay
-                playerHealth = 100;
+                playerHealth = maxPlayerHealth;
                 playerArmor = 0;
                 playerEnergy = 3;
-                maxEnergy = 3;
                 turnNumber = 1;
                 playerTurnActive = true;
-                
-                // Reinitialize deck and enemy
                 playerDeck = Deck();
-                enemy = Enemy("Enemy", 50, 8, 4);
                 init();
                 
-                displayStatus();
-                displayTurnInfo();
+                currentRun = Run();
+                currentRun.startRun();
+                startEncounter();
             } else {
                 running = false;
             }
