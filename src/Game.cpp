@@ -245,6 +245,7 @@ void Game::startEncounter() {
     
     currentRun.displayRunStats();
     std::cout << "\n========== ENCOUNTER " << currentRun.getCurrentEncounter() << " ==========\n";
+    currentRun.displayEncounterDifficulty();
     displayStatus();
     displayTurnInfo();
 }
