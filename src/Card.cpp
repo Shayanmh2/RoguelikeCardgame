@@ -16,6 +16,15 @@ CardType Card::getType() const {
     return type;
 }
 
+std::string Card::getTypeString() const {
+    switch(type) {
+        case CardType::ATTACK: return "ATTACK";
+        case CardType::DEFEND: return "DEFEND";
+        case CardType::SPECIAL: return "SPECIAL";
+        default: return "UNKNOWN";
+    }
+}
+
 int Card::getCost() const {
     return cost;
 }

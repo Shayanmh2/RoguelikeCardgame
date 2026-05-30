@@ -13,4 +13,5 @@ add_executable(cardgame
     src/Enemy.cpp
     src/Game.cpp
     src/Run.cpp
+    src/RewardPool.cpp
 )
