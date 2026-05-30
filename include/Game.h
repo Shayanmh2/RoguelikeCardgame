@@ -5,6 +5,7 @@
 #include "Enemy.h"
 #include "Run.h"
 #include "RewardPool.h"
+#include "RunStats.h"
 
 class Game {
 private:
@@ -12,6 +13,7 @@ private:
     Enemy enemy;
     Run currentRun;
     RewardPool rewardPool;
+    RunStats runStats;
     int playerHealth;
     int maxPlayerHealth;
     int playerArmor;

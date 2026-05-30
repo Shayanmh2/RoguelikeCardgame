@@ -302,6 +302,7 @@ void Game::offerCardReward() {
     }
     
     playerDeck.addCard(rewards[choiceIndex]);
+    runStats.addCardToRun();
     std::cout << "\n✓ Added " << rewards[choiceIndex].getName() << " to your deck!\n";
 }
 
@@ -328,6 +329,12 @@ void Game::run() {
                 displayGameOver();
                 std::cout << "\n========== RUN ENDED ==========\n";
                 currentRun.displayRunStats();
+                
+                // Track run completion
+                int encounters = currentRun.getEncountersWon();
+                runStats.completeRun(encounters);
+                runStats.displayRunSummary(encounters);
+                
                 currentRun.loseRun();
                 inEncounter = false;
             } else {
@@ -349,11 +356,13 @@ void Game::run() {
                 playerDeck = Deck();
                 init();
                 
+                runStats.resetRunStats();
                 currentRun = Run();
                 currentRun.startRun();
                 startEncounter();
             } else {
                 running = false;
+                runStats.displayCumulativeStats();
             }
         }
         
