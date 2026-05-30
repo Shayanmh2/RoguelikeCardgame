@@ -4,12 +4,14 @@
 #include "Deck.h"
 #include "Enemy.h"
 #include "Run.h"
+#include "RewardPool.h"
 
 class Game {
 private:
     Deck playerDeck;
     Enemy enemy;
     Run currentRun;
+    RewardPool rewardPool;
     int playerHealth;
     int maxPlayerHealth;
     int playerArmor;
@@ -37,6 +39,7 @@ private:
     void nextEncounter();
     void handleEncounterWin();
     void displayRunStats() const;
+    void offerCardReward();
 
 public:
     Game();

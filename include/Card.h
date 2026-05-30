@@ -23,6 +23,7 @@ public:
     std::string getName() const;
     std::string getDescription() const;
     CardType getType() const;
+    std::string getTypeString() const;
     int getCost() const;
     int getValue() const;
     

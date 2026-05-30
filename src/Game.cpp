@@ -260,7 +260,12 @@ void Game::handleEncounterWin() {
     currentRun.winEncounter();
     std::cout << "\n========== ENCOUNTER WON! ==========\n";
     std::cout << "Enemies Defeated: " << currentRun.getEncountersWon() << "\n";
-    std::cout << "Proceed to next encounter? [continue] or [end run]?\n";
+    
+    // Offer card reward
+    offerCardReward();
+    
+    // Ask to continue
+    std::cout << "\nProceed to next encounter? [continue] or [end run]?\n";
     std::cout << "> ";
     
     std::string input;
@@ -272,6 +277,32 @@ void Game::handleEncounterWin() {
         inEncounter = false;
         currentRun.loseRun();
     }
+}
+
+void Game::offerCardReward() {
+    // Generate 3 reward cards
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter());
+    
+    rewardPool.displayRewardChoices(rewards);
+    
+    std::string choice;
+    std::getline(std::cin, choice);
+    
+    int choiceIndex = -1;
+    try {
+        choiceIndex = std::stoi(choice) - 1;
+    } catch (...) {
+        std::cout << "Invalid choice. Skipping reward.\n";
+        return;
+    }
+    
+    if (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
+        std::cout << "Invalid choice. Skipping reward.\n";
+        return;
+    }
+    
+    playerDeck.addCard(rewards[choiceIndex]);
+    std::cout << "\n✓ Added " << rewards[choiceIndex].getName() << " to your deck!\n";
 }
 
 void Game::displayRunStats() const {
