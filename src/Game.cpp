@@ -17,10 +17,14 @@ void Game::init() {
     playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
     playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
     
+    // Apply upgrades (bonus starting cards)
+    applyUpgrades();
+    
     playerDeck.shuffle();
     
-    // Draw initialized hand
-    for (int i = 0; i < 5; ++i) {
+    // Draw initialized hand + extra draw bonus
+    int drawCount = 5 + upgrades.getDrawBonus();
+    for (int i = 0; i < drawCount; ++i) {
         try {
             playerDeck.drawCard();
         } catch (const std::exception& e) {
@@ -36,6 +40,16 @@ void Game::displayStatus() const {
     std::cout << "Player Health: " << playerHealth << " | Armor: " << playerArmor << " | Energy: " << playerEnergy << "/" << maxEnergy << " | ";
     enemy.displayStatus();
     std::cout << "----------------------------------------\n";
+    
+    // Display active upgrade bonuses if any
+    int damageBonus = upgrades.getDamageBonus();
+    int armorBonus = upgrades.getArmorBonus();
+    if (damageBonus > 0 || armorBonus > 0) {
+        if (damageBonus > 0) std::cout << "[Damage Bonus: +" << damageBonus << "] ";
+        if (armorBonus > 0) std::cout << "[Armor Bonus: +" << armorBonus << "] ";
+        std::cout << "\n";
+    }
+    
     playerDeck.displayDeck();
 }
 
@@ -85,13 +99,15 @@ void Game::playCardFromHand(int index) {
         std::cout << "Played: [" << playedCard.getName() << "] (Cost: " << playedCard.getCost() << ")\n";
         
         if (playedCard.getType() == CardType::ATTACK) {
-            int damageDealt = calculateDamage(playedCard.getValue(), enemy.getBaseDefense());
+            int bonusDamage = playedCard.getValue() + upgrades.getDamageBonus();
+            int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
             enemy.takeDamage(damageDealt);
             std::cout << "  Dealt " << damageDealt << " damage to enemy! (Enemy HP: " 
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
         } else if (playedCard.getType() == CardType::DEFEND) {
-            playerArmor += playedCard.getValue();
-            std::cout << "  Gained " << playedCard.getValue() << " armor! (Total: " << playerArmor << ")\n";
+            int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus();
+            playerArmor += bonusArmor;
+            std::cout << "  Gained " << bonusArmor << " armor! (Total: " << playerArmor << ")\n";
         }
     } catch (const std::out_of_range& e) {
         std::cout << "Invalid card index! Use 'hand' to see your cards.\n";
@@ -280,8 +296,9 @@ void Game::handleEncounterWin() {
 }
 
 void Game::offerCardReward() {
-    // Generate 3 reward cards
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter());
+    // Generate 3 reward cards with rarity boost if active
+    bool rarityBoost = upgrades.isActive(6);  // Rarity Boost upgrade (index 6)
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost);
     
     rewardPool.displayRewardChoices(rewards);
     
@@ -306,6 +323,32 @@ void Game::offerCardReward() {
     std::cout << "\n✓ Added " << rewards[choiceIndex].getName() << " to your deck!\n";
 }
 
+void Game::applyUpgrades() {
+    // Apply starting strike cards from upgrade
+    if (upgrades.isActive(1)) {  // Extra Strike upgrade
+        playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
+        playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
+    }
+    
+    // Apply health bonus
+    int healthBonus = upgrades.getHealthBonus();
+    maxPlayerHealth += healthBonus;
+    playerHealth = maxPlayerHealth;
+
+    // Apply energy bonus
+    int energyBonus = upgrades.getEnergyBonus();
+    maxEnergy += energyBonus;
+    playerEnergy = maxEnergy;
+}
+
+void Game::selectUpgrades() {
+    // Check for newly unlocked upgrades
+    upgrades.checkAndUnlockUpgrades(runStats.getTotalEncountersWon(), runStats.getTotalCardsCollected());
+    
+    // Show upgrade selection
+    upgrades.selectActiveUpgrades();
+}
+
 void Game::displayRunStats() const {
     currentRun.displayRunStats();
 }
@@ -314,7 +357,11 @@ void Game::run() {
     init();
     
     std::cout << "Welcome to Roguelike Cardgame!\n";
-    std::cout << "Type 'help' for commands.\n";
+    std::cout << "Type 'help' for commands.\n\n";
+    
+    // Initialize upgrades for first run
+    upgrades.checkAndUnlockUpgrades(0, 0);
+    upgrades.displayUpgradeInfo();
     
     currentRun.startRun();
     startEncounter();
@@ -348,9 +395,15 @@ void Game::run() {
             
             // Run ended, offer new run
             if (handleGameOverInput()) {
+                // Show upgrade selection before new run
+                selectUpgrades();
+                
+                // Reset for new run
+                maxPlayerHealth = 100;  // Reset before applying upgrades
                 playerHealth = maxPlayerHealth;
                 playerArmor = 0;
                 playerEnergy = 3;
+                maxEnergy = 3;
                 turnNumber = 1;
                 playerTurnActive = true;
                 playerDeck = Deck();
@@ -359,6 +412,8 @@ void Game::run() {
                 runStats.resetRunStats();
                 currentRun = Run();
                 currentRun.startRun();
+                
+                upgrades.displayUpgradeInfo();
                 startEncounter();
             } else {
                 running = false;

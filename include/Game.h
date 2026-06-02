@@ -6,6 +6,7 @@
 #include "Run.h"
 #include "RewardPool.h"
 #include "RunStats.h"
+#include "UpgradeSystem.h"
 
 class Game {
 private:
@@ -14,6 +15,7 @@ private:
     Run currentRun;
     RewardPool rewardPool;
     RunStats runStats;
+    UpgradeSystem upgrades;
     int playerHealth;
     int maxPlayerHealth;
     int playerArmor;
@@ -42,6 +44,8 @@ private:
     void handleEncounterWin();
     void displayRunStats() const;
     void offerCardReward();
+    void applyUpgrades();
+    void selectUpgrades();
 
 public:
     Game();
