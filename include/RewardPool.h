@@ -18,7 +18,7 @@ public:
     std::vector<Card> generateRewardChoices(int count = 3);
     
     // Weighted card selection (can bias towards rare cards at higher tiers)
-    std::vector<Card> generateWeightedRewards(int encounterNumber, int count = 3);
+    std::vector<Card> generateWeightedRewards(int encounterNumber, int count = 3, bool rarityBoost = false);
     
     void displayRewardChoices(const std::vector<Card>& choices);
 };

@@ -51,7 +51,7 @@ std::vector<Card> RewardPool::generateRewardChoices(int count) {
     return choices;
 }
 
-std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count) {
+std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -59,6 +59,7 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     
     // Higher encounters have higher chance of rare cards
     int rareChance = 20 + (encounterNumber * 5);  // 20% at enc 1, 75% at enc 11+
+    if (rarityBoost) rareChance += 20;  // +20% if Rarity Boost upgrade is active
     if (rareChance > 80) rareChance = 80;
     
     std::vector<Card> allCards;

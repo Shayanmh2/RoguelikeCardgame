@@ -1,0 +1,40 @@
+#ifndef UPGRADESYSTEM_H
+#define UPGRADESYSTEM_H
+
+#include "Upgrade.h"
+#include <vector>
+
+class UpgradeSystem {
+private:
+    std::vector<Upgrade> allUpgrades;
+    std::vector<bool> unlockedUpgrades;  // parallel to allUpgrades
+    std::vector<bool> activeUpgrades;    // parallel to allUpgrades
+    
+    void initializeUpgrades();
+    
+public:
+    UpgradeSystem();
+    
+    // Unlock upgrades based on achievements
+    void checkAndUnlockUpgrades(int totalEncounters, int totalCards);
+    
+    // Selection screen
+    void displayUnlockedUpgrades();
+    void selectActiveUpgrades();
+    
+    // Apply upgrades to game state
+    int getHealthBonus() const;
+    int getDamageBonus() const;
+    int getArmorBonus() const;
+    int getEnergyBonus() const;
+    int getDrawBonus() const;
+    bool isRarityBoostActive() const;
+    
+    // Check if upgrade is unlocked
+    bool isUnlocked(int index) const;
+    bool isActive(int index) const;
+    
+    void displayUpgradeInfo() const;
+};
+
+#endif
