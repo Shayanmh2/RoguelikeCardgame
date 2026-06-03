@@ -2,7 +2,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -115,33 +115,64 @@ void Game::playCardFromHand(int index) {
 }
 
 void Game::enemyTurn() {
-    // Simple 50/50 AI: attack or defend
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dist(0, 1);
-    int choice = dist(gen);
-
     if (!enemy.isAlive()) return;
 
-    if (choice == 0) {
-        // Attack
-        int atk = enemy.getBaseAttack();
-        int actualDamage = atk - playerArmor;
-        if (actualDamage < 0) actualDamage = 0;
-        // Reduce player's armor by the attack amount
-        playerArmor -= atk;
-        if (playerArmor < 0) playerArmor = 0;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> rollDist(0, 99);
+    int roll = rollDist(gen);
 
+    auto doAttack = [&](int atk, bool pierceHalfArmor){
+        int effectiveArmor = pierceHalfArmor ? (playerArmor / 2) : playerArmor;
+        int actualDamage = atk - effectiveArmor;
+        if (actualDamage < 0) actualDamage = 0;
+        // Reduce player's armor by attack (or half if pierced)
+        playerArmor -= (pierceHalfArmor ? atk/2 : atk);
+        if (playerArmor < 0) playerArmor = 0;
         playerHealth -= actualDamage;
         if (playerHealth < 0) playerHealth = 0;
-
         std::cout << "Enemy attacks for " << actualDamage << " damage!\n";
         std::cout << "Player Health: " << playerHealth << "\n";
-    } else {
-        // Defend
-        int amt = enemy.getBaseDefense();
+    };
+
+    auto doDefend = [&](int amt){
         enemy.gainArmor(amt);
         std::cout << "Enemy defends and gains " << amt << " armor.\n";
+    };
+
+    EnemyType t = enemy.getType();
+    int atk = enemy.getBaseAttack();
+    int def = enemy.getBaseDefense();
+
+    switch (t) {
+        case EnemyType::MELEE:
+            if (roll < 70) doAttack(atk, false);
+            else doDefend(def);
+            break;
+        case EnemyType::RANGED:
+            if (roll < 60) doAttack(atk, true); // pierce half armor
+            else doDefend(std::max(1, def - 1));
+            break;
+        case EnemyType::TANK:
+            if (roll < 65) doDefend(def + 3);
+            else doAttack(std::max(1, atk - 2), false);
+            break;
+        case EnemyType::CASTER:
+            // If low health, higher chance to heal
+            if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 60) {
+                int healAmt = 8 + (def / 2);
+                enemy.heal(healAmt);
+                std::cout << "Enemy casts heal and recovers " << healAmt << " HP!\n";
+                std::cout << "Enemy Health: " << enemy.getHealth() << "/" << enemy.getMaxHealth() << "\n";
+            } else if (roll < 65) {
+                doDefend(std::max(1, def - 1));
+            } else {
+                doAttack(atk + 1, false);
+            }
+            break;
+        default:
+            // Fallback to simple attack
+            doAttack(atk, false);
     }
 }
 
@@ -252,12 +283,31 @@ void Game::startEncounter() {
     int attack = currentRun.getEnemyAttack();
     int defense = currentRun.getEnemyDefense();
     
-    enemy = Enemy("Enemy", health, attack, defense);
+    // Choose enemy type (cycle by encounter for variety)
+    int enc = currentRun.getCurrentEncounter();
+    int typeIndex = (enc - 1) % 4;
+    EnemyType etype;
+    switch (typeIndex) {
+        case 0: etype = EnemyType::MELEE; break;
+        case 1: etype = EnemyType::RANGED; break;
+        case 2: etype = EnemyType::TANK; break;
+        case 3: etype = EnemyType::CASTER; break;
+        default: etype = EnemyType::MELEE; break;
+    }
+    
+    // Generate unique name based on type and encounter
+    std::string name = Enemy::generateName(etype, enc);
+    
+    // Add type label for flavor
+    std::string typeLabel = (etype == EnemyType::MELEE) ? "Melee" : (etype == EnemyType::RANGED) ? "Ranged" : (etype == EnemyType::TANK) ? "Tank" : "Caster";
+    name += " (" + typeLabel + ")";
+
+    enemy = Enemy(name, health, attack, defense, etype);
     inEncounter = true;
     turnNumber = 1;
     playerTurnActive = true;
     playerArmor = 0;
-    playerEnergy = 3;
+    playerEnergy = maxEnergy;
     
     currentRun.displayRunStats();
     std::cout << "\n========== ENCOUNTER " << currentRun.getCurrentEncounter() << " ==========\n";

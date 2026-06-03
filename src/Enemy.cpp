@@ -1,8 +1,11 @@
 #include "Enemy.h"
 #include <iostream>
+#include <vector>
 
-Enemy::Enemy(std::string n, int hp, int atk, int def) 
-    : name(n), health(hp), maxHealth(hp), baseAttack(atk), baseDefense(def), armor(0) {}
+Enemy::Enemy(std::string n, int hp, int atk, int def, EnemyType t)
+    : name(n), health(hp), maxHealth(hp), baseAttack(atk), baseDefense(def), armor(0), type(t) {}
+
+EnemyType Enemy::getType() const { return type; }
 
 std::string Enemy::getName() const {
     return name;
@@ -65,4 +68,32 @@ bool Enemy::isAlive() const {
 void Enemy::displayStatus() const {
     std::cout << name << " - Health: " << health << "/" << maxHealth 
               << " | Armor: " << armor << " | Attack: " << baseAttack << " | Defense: " << baseDefense << "\n";
+}
+
+std::string Enemy::generateName(EnemyType type, int encounter) {
+    // Unique themed names per type, with tier-based prefixes for higher encounters
+    std::string prefix = "";
+    if (encounter > 10) prefix = "Tyrant ";
+    else if (encounter > 5) prefix = "Greater ";
+    
+    switch (type) {
+        case EnemyType::MELEE: {
+            std::vector<std::string> names = {"Goblin", "Orc", "Bandit", "Brute", "Warrior", "Barbarian", "Gladiator", "Enforcer"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        case EnemyType::RANGED: {
+            std::vector<std::string> names = {"Archer", "Scout", "Ranger", "Marksman", "Hunter", "Sniper", "Bowmaster", "Sharpshooter"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        case EnemyType::TANK: {
+            std::vector<std::string> names = {"Knight", "Guardian", "Paladin", "Colossus", "Fortress", "Sentinel", "Bastion", "Warden"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        case EnemyType::CASTER: {
+            std::vector<std::string> names = {"Wizard", "Sage", "Sorcerer", "Warlock", "Enchanter", "Mystic", "Archon", "Spellmaster"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        default:
+            return prefix + "Enemy";
+    }
 }
