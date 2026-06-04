@@ -1,55 +1,58 @@
 #include "RewardPool.h"
 #include <random>
 #include <iostream>
+#include <filesystem>
 
 RewardPool::RewardPool() {
     initializeCardPool();
 }
 
 void RewardPool::initializeCardPool() {
-    // Common cards (frequently available, low cost)
-    commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-    commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-    commonCards.push_back(Card("Block", "Gain 8 armor", CardType::DEFEND, 2, 8));
-    commonCards.push_back(Card("Block", "Gain 8 armor", CardType::DEFEND, 2, 8));
-    commonCards.push_back(Card("Lunge", "Deal 6 damage", CardType::ATTACK, 1, 6));
-    commonCards.push_back(Card("Lunge", "Deal 6 damage", CardType::ATTACK, 1, 6));
-    commonCards.push_back(Card("Brace", "Gain 6 armor", CardType::DEFEND, 1, 6));
-    commonCards.push_back(Card("Brace", "Gain 6 armor", CardType::DEFEND, 1, 6));
-    commonCards.push_back(Card("Jab", "Deal 4 damage (quick)", CardType::ATTACK, 1, 4));
-    commonCards.push_back(Card("Jab", "Deal 4 damage (quick)", CardType::ATTACK, 1, 4));
-    commonCards.push_back(Card("Dodge", "Gain 4 armor (evasion)", CardType::DEFEND, 1, 4));
-    commonCards.push_back(Card("Dodge", "Gain 4 armor (evasion)", CardType::DEFEND, 1, 4));
+    // Try to load from config file
+    std::string configPath = "config/cards.json";
     
-    // Rare cards (expensive, powerful, strategic)
-    rareCards.push_back(Card("Power Attack", "Deal 12 damage", CardType::ATTACK, 3, 12));
-    rareCards.push_back(Card("Power Attack", "Deal 12 damage", CardType::ATTACK, 3, 12));
-    rareCards.push_back(Card("Iron Skin", "Gain 12 armor", CardType::DEFEND, 3, 12));
-    rareCards.push_back(Card("Iron Skin", "Gain 12 armor", CardType::DEFEND, 3, 12));
-    rareCards.push_back(Card("Combo", "Deal 8 damage (special)", CardType::SPECIAL, 2, 8));
-    rareCards.push_back(Card("Fortify", "Gain 10 armor (special)", CardType::SPECIAL, 2, 10));
-    rareCards.push_back(Card("Cleave", "Deal 15 damage", CardType::ATTACK, 3, 15));
-    rareCards.push_back(Card("Cleave", "Deal 15 damage", CardType::ATTACK, 3, 15));
-    rareCards.push_back(Card("Rampart", "Gain 15 armor", CardType::DEFEND, 3, 15));
-    rareCards.push_back(Card("Rampart", "Gain 15 armor", CardType::DEFEND, 3, 15));
-    rareCards.push_back(Card("Execute", "Deal 10 damage", CardType::ATTACK, 2, 10));
-    rareCards.push_back(Card("Execute", "Deal 10 damage", CardType::ATTACK, 2, 10));
-    rareCards.push_back(Card("Fortification", "Gain 14 armor", CardType::DEFEND, 2, 14));
-    rareCards.push_back(Card("Onslaught", "Deal 9 damage", CardType::ATTACK, 2, 9));
-    rareCards.push_back(Card("Onslaught", "Deal 9 damage", CardType::ATTACK, 2, 9));
-    rareCards.push_back(Card("Riposte", "Deal 7 damage (counter)", CardType::ATTACK, 1, 7));
-    rareCards.push_back(Card("Riposte", "Deal 7 damage (counter)", CardType::ATTACK, 1, 7));
-    rareCards.push_back(Card("Deflect", "Gain 7 armor (redirect)", CardType::DEFEND, 1, 7));
-    rareCards.push_back(Card("Deflect", "Gain 7 armor (redirect)", CardType::DEFEND, 1, 7));
-    rareCards.push_back(Card("Whirlwind", "Deal 11 damage", CardType::ATTACK, 3, 11));
-    rareCards.push_back(Card("Last Stand", "Gain 13 armor", CardType::DEFEND, 3, 13));
-    rareCards.push_back(Card("Slash", "Deal 6 damage (fast)", CardType::ATTACK, 1, 6));
-    rareCards.push_back(Card("Shield Bash", "Deal 5 damage + gain 5 armor", CardType::SPECIAL, 2, 5));
+    // Check if config file exists
+    if (std::filesystem::exists(configPath)) {
+        std::cout << "Loading cards from " << configPath << "...\n";
+        
+        auto commonData = ConfigLoader::loadCommonCards(configPath);
+        auto rareData = ConfigLoader::loadRareCards(configPath);
+        
+        // Convert ConfigLoader data to Card objects
+        for (const auto& data : commonData) {
+            CardType type = CardType::ATTACK;
+            if (data.type == "DEFEND") type = CardType::DEFEND;
+            else if (data.type == "SPECIAL") type = CardType::SPECIAL;
+            
+            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value));
+        }
+        
+        for (const auto& data : rareData) {
+            CardType type = CardType::ATTACK;
+            if (data.type == "DEFEND") type = CardType::DEFEND;
+            else if (data.type == "SPECIAL") type = CardType::SPECIAL;
+            
+            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value));
+        }
+        
+        std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
+    } else {
+        std::cout << "Warning: config/cards.json not found. Using default cards.\n";
+        
+        // Fallback to hardcoded cards
+        commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
+        commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
+        commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
+        commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
+        commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
+        commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
+        
+        rareCards.push_back(Card("Power Strike", "Deal 12 damage", CardType::ATTACK, 3, 12));
+        rareCards.push_back(Card("Iron Skin", "Gain 12 armor", CardType::DEFEND, 3, 12));
+        rareCards.push_back(Card("Cleave", "Deal 15 damage", CardType::ATTACK, 3, 15));
+    }
 }
+
 
 std::vector<Card> RewardPool::generateRewardChoices(int count) {
     std::vector<Card> choices;
