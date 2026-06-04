@@ -1,0 +1,167 @@
+{
+  "commonCards": [
+    {
+      "name": "Strike",
+      "description": "Deal 5 damage.",
+      "type": "ATTACK",
+      "cost": 1,
+      "value": 5
+    },
+    {
+      "name": "Bash",
+      "description": "Deal 8 damage.",
+      "type": "ATTACK",
+      "cost": 2,
+      "value": 8
+    },
+    {
+      "name": "Defend",
+      "description": "Gain 5 armor.",
+      "type": "DEFEND",
+      "cost": 1,
+      "value": 5
+    },
+    {
+      "name": "Lunge",
+      "description": "Deal 6 damage.",
+      "type": "ATTACK",
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Brace",
+      "description": "Gain 6 armor.",
+      "type": "DEFEND",
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Jab",
+      "description": "Deal 3 damage.",
+      "type": "ATTACK",
+      "cost": 1,
+      "value": 3
+    },
+    {
+      "name": "Dodge",
+      "description": "Gain 4 armor.",
+      "type": "DEFEND",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Pummel",
+      "description": "Deal 7 damage.",
+      "type": "ATTACK",
+      "cost": 2,
+      "value": 7
+    }
+  ],
+  "rareCards": [
+    {
+      "name": "Power Strike",
+      "description": "Deal 12 damage.",
+      "type": "ATTACK",
+      "cost": 3,
+      "value": 12
+    },
+    {
+      "name": "Iron Skin",
+      "description": "Gain 12 armor.",
+      "type": "DEFEND",
+      "cost": 3,
+      "value": 12
+    },
+    {
+      "name": "Whirlwind",
+      "description": "Deal 9 damage.",
+      "type": "ATTACK",
+      "cost": 2,
+      "value": 9
+    },
+    {
+      "name": "Parry",
+      "description": "Gain 8 armor.",
+      "type": "DEFEND",
+      "cost": 2,
+      "value": 8
+    },
+    {
+      "name": "Uppercut",
+      "description": "Deal 10 damage.",
+      "type": "ATTACK",
+      "cost": 2,
+      "value": 10
+    },
+    {
+      "name": "Shield Wall",
+      "description": "Gain 10 armor.",
+      "type": "DEFEND",
+      "cost": 2,
+      "value": 10
+    },
+    {
+      "name": "Combo Strike",
+      "description": "Deal 11 damage.",
+      "type": "ATTACK",
+      "cost": 3,
+      "value": 11
+    },
+    {
+      "name": "Fortify",
+      "description": "Gain 9 armor.",
+      "type": "DEFEND",
+      "cost": 2,
+      "value": 9
+    },
+    {
+      "name": "Cleave",
+      "description": "Deal 14 damage.",
+      "type": "ATTACK",
+      "cost": 4,
+      "value": 14
+    },
+    {
+      "name": "Bastion",
+      "description": "Gain 14 armor.",
+      "type": "DEFEND",
+      "cost": 4,
+      "value": 14
+    },
+    {
+      "name": "Finishing Blow",
+      "description": "Deal 15 damage.",
+      "type": "ATTACK",
+      "cost": 4,
+      "value": 15
+    },
+    {
+      "name": "Guardian",
+      "description": "Gain 11 armor.",
+      "type": "DEFEND",
+      "cost": 3,
+      "value": 11
+    },
+    {
+      "name": "Onslaught",
+      "description": "Deal 13 damage.",
+      "type": "ATTACK",
+      "cost": 3,
+      "value": 13
+    },
+    {
+      "name": "Retaliate",
+      "description": "Gain 7 armor.",
+      "type": "DEFEND",
+      "cost": 1,
+      "value": 7
+    },
+    {
+      "name": "Bloodlust",
+      "description": "Deal 16 damage.",
+      "type": "ATTACK",
+      "cost": 5,
+      "value": 16
+    }
+  ]
+}

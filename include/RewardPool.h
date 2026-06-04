@@ -2,6 +2,7 @@
 #define REWARDPOOL_H
 
 #include "Card.h"
+#include "ConfigLoader.h"
 #include <vector>
 
 class RewardPool {

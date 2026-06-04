@@ -17,4 +17,5 @@ add_executable(cardgame
     src/RunStats.cpp
     src/Upgrade.cpp
     src/UpgradeSystem.cpp
+    src/ConfigLoader.cpp
 )

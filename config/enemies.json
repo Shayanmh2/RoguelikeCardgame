@@ -1,0 +1,74 @@
+{
+  "enemyTypes": [
+    {
+      "type": "MELEE",
+      "baseAttackProbability": 70,
+      "baseDefendProbability": 30,
+      "description": "Aggressive warrior that prefers melee combat",
+      "names": [
+        "Goblin",
+        "Orc",
+        "Barbarian",
+        "Warrior",
+        "Brute",
+        "Savage",
+        "Berserker",
+        "Raider"
+      ]
+    },
+    {
+      "type": "RANGED",
+      "baseAttackProbability": 60,
+      "baseDefendProbability": 40,
+      "description": "Archer that pierces half armor",
+      "names": [
+        "Archer",
+        "Marksman",
+        "Scout",
+        "Ranger",
+        "Gunner",
+        "Sniper",
+        "Bowmaster",
+        "Sharpshooter"
+      ]
+    },
+    {
+      "type": "TANK",
+      "baseAttackProbability": 35,
+      "baseDefendProbability": 65,
+      "description": "Heavy defender that builds armor",
+      "names": [
+        "Knight",
+        "Guardian",
+        "Sentinel",
+        "Paladin",
+        "Ironborn",
+        "Warden",
+        "Fortress",
+        "Colossus"
+      ]
+    },
+    {
+      "type": "CASTER",
+      "baseAttackProbability": 35,
+      "baseDefendProbability": 65,
+      "healThreshold": 33,
+      "description": "Magical opponent that can heal",
+      "names": [
+        "Mage",
+        "Sorcerer",
+        "Wizard",
+        "Enchanter",
+        "Necromancer",
+        "Warlock",
+        "Mystic",
+        "Archmage"
+      ]
+    }
+  ],
+  "tierPrefixes": {
+    "normal": "",
+    "high": "Greater",
+    "nightmare": "Tyrant"
+  }
+}
