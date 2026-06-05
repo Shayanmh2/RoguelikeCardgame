@@ -1,4 +1,5 @@
 #include "Deck.h"
+#include "UIHelper.h"
 #include <algorithm>
 #include <random>
 #include <iostream>
@@ -76,15 +77,18 @@ Card Deck::playCard(int index) {
 }
 
 void Deck::displayHand() const {
-    std::cout << "--- Hand (" << hand.size() << " cards) ---\n";
+    UIHelper::printCardHeader(hand.size());
     for (size_t i = 0; i < hand.size(); ++i) {
-        std::cout << i + 1 << ". ";
-        hand[i].display();
+        UIHelper::printCardRow(i + 1, hand[i].getTypeString(), hand[i].getName(), 
+                               hand[i].getCost(), hand[i].getValue(), hand[i].getDescription());
     }
+    UIHelper::printBoxEnd();
 }
 
 void Deck::displayDeck() const {
-    std::cout << "--- Deck Status ---\n"
-              << "Deck: " << cards.size() << " | Hand: " << hand.size()
+    UIHelper::printLine(60, '=');
+    std::cout << "DECK STATUS\n";
+    std::cout << "  Cards: " << cards.size() << " | Hand: " << hand.size() 
               << " | Discard: " << discard.size() << "\n";
+    UIHelper::printLine(60, '=');
 }

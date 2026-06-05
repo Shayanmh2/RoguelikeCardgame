@@ -68,6 +68,15 @@ std::string Run::getDifficultyTier() const {
     }
 }
 
+std::string Run::getEncounterDifficulty() const {
+    return getDifficultyTier();
+}
+
+std::string Run::getEncounterTier() const {
+    int tier = (currentEncounter - 1) / 5;
+    return "Tier " + std::to_string(tier + 1);
+}
+
 void Run::displayEncounterDifficulty() const {
     std::cout << "Difficulty: " << getDifficultyTier();
     int tier = (currentEncounter - 1) / 5;
