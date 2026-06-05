@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "UIHelper.h"
 #include <iostream>
 #include <random>
 
@@ -36,18 +37,18 @@ void Game::init() {
 }
 
 void Game::displayStatus() const {
-    std::cout << "\n----------------------------------------\n";
-    std::cout << "Player Health: " << playerHealth << " | Armor: " << playerArmor << " | Energy: " << playerEnergy << "/" << maxEnergy << " | ";
-    enemy.displayStatus();
-    std::cout << "----------------------------------------\n";
+    UIHelper::printCombatStatus(playerHealth, maxPlayerHealth, playerArmor, playerEnergy, maxEnergy,
+                                 enemy.getName(), enemy.getHealth(), enemy.getMaxHealth(), 
+                                 enemy.getArmor(), enemy.getBaseAttack(), enemy.getBaseDefense());
     
     // Display active upgrade bonuses if any
     int damageBonus = upgrades.getDamageBonus();
     int armorBonus = upgrades.getArmorBonus();
     if (damageBonus > 0 || armorBonus > 0) {
-        if (damageBonus > 0) std::cout << "[Damage Bonus: +" << damageBonus << "] ";
-        if (armorBonus > 0) std::cout << "[Armor Bonus: +" << armorBonus << "] ";
-        std::cout << "\n";
+        std::cout << "ACTIVE BONUSES: ";
+        if (damageBonus > 0) std::cout << "Damage +" << damageBonus << " ";
+        if (armorBonus > 0) std::cout << "Armor +" << armorBonus << " ";
+        std::cout << "\n\n";
     }
     
     playerDeck.displayDeck();
@@ -212,10 +213,10 @@ bool Game::checkGameOver() {
 
 void Game::displayGameOver() {
     if (playerHealth <= 0) {
-        std::cout << "\n========== YOU LOST ==========\n";
+        UIHelper::printGameOverScreen(false, currentRun.getEncountersWon(), runStats.getTotalCardsCollected());
         std::cout << "You were defeated! Better luck next time.\n";
     } else if (!enemy.isAlive()) {
-        std::cout << "\n========== YOU WON! ==========\n";
+        UIHelper::printGameOverScreen(true, currentRun.getEncountersWon(), runStats.getTotalCardsCollected());
         std::cout << "Enemy defeated! Onward to the next encounter!\n";
     }
 }
@@ -310,8 +311,12 @@ void Game::startEncounter() {
     playerEnergy = maxEnergy;
     
     currentRun.displayRunStats();
-    std::cout << "\n========== ENCOUNTER " << currentRun.getCurrentEncounter() << " ==========\n";
-    currentRun.displayEncounterDifficulty();
+    
+    // Get difficulty info
+    std::string difficulty = currentRun.getEncounterDifficulty();
+    std::string tierLabel = currentRun.getEncounterTier();
+    UIHelper::printEncounterHeader(currentRun.getCurrentEncounter(), difficulty, tierLabel);
+    
     displayStatus();
     displayTurnInfo();
 }
@@ -406,8 +411,7 @@ void Game::displayRunStats() const {
 void Game::run() {
     init();
     
-    std::cout << "Welcome to Roguelike Cardgame!\n";
-    std::cout << "Type 'help' for commands.\n\n";
+    UIHelper::printTitle();
     
     // Initialize upgrades for first run
     upgrades.checkAndUnlockUpgrades(0, 0);

@@ -18,4 +18,5 @@ add_executable(cardgame
     src/Upgrade.cpp
     src/UpgradeSystem.cpp
     src/ConfigLoader.cpp
+    src/UIHelper.cpp
 )

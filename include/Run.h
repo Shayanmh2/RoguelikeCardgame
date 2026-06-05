@@ -28,6 +28,8 @@ public:
     int getEnemyDefense() const;
     
     std::string getDifficultyTier() const;
+    std::string getEncounterDifficulty() const;
+    std::string getEncounterTier() const;
     void displayRunStats() const;
     void displayEncounterDifficulty() const;
 };
