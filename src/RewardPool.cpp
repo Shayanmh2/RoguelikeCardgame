@@ -58,22 +58,19 @@ std::vector<Card> RewardPool::generateRewardChoices(int count) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
-    
-    // Combine pools
+
     std::vector<Card> allCards;
     allCards.insert(allCards.end(), commonCards.begin(), commonCards.end());
     allCards.insert(allCards.end(), rareCards.begin(), rareCards.end());
-    
-    // Pick random cards without replacement
-    std::uniform_int_distribution<> dis(0, allCards.size() - 1);
-    
-    for (int i = 0; i < count && allCards.size() > 0; ++i) {
+
+    for (int i = 0; i < count && !allCards.empty(); ++i) {
+        // Recreate distribution each iteration so size stays valid after erasing
+        std::uniform_int_distribution<> dis(0, (int)allCards.size() - 1);
         int index = dis(gen);
         choices.push_back(allCards[index]);
-        // Remove selected card to avoid duplicates
         allCards.erase(allCards.begin() + index);
     }
-    
+
     return choices;
 }
 
@@ -81,25 +78,29 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> rareDis(0, 100);
-    
-    // Higher encounters have higher chance of rare cards
-    int rareChance = 20 + (encounterNumber * 5);  // 20% at enc 1, 75% at enc 11+
-    if (rarityBoost) rareChance += 20;  // +20% if Rarity Boost upgrade is active
+
+    int rareChance = 20 + (encounterNumber * 5);
+    if (rarityBoost) rareChance += 20;
     if (rareChance > 80) rareChance = 80;
-    
-    std::vector<Card> allCards;
-    allCards.insert(allCards.end(), commonCards.begin(), commonCards.end());
-    allCards.insert(allCards.end(), rareCards.begin(), rareCards.end());
-    
-    std::uniform_int_distribution<> cardDis(0, allCards.size() - 1);
-    
-    for (int i = 0; i < count && allCards.size() > 0; ++i) {
-        int index = cardDis(gen);
-        choices.push_back(allCards[index]);
-        allCards.erase(allCards.begin() + index);
+
+    // Local copies so we can remove without touching the pool
+    std::vector<Card> commonPool = commonCards;
+    std::vector<Card> rarePool = rareCards;
+
+    std::uniform_int_distribution<> rollDis(1, 100);
+
+    for (int i = 0; i < count; ++i) {
+        bool pickRare = !rarePool.empty() && (rollDis(gen) <= rareChance || commonPool.empty());
+        std::vector<Card>& pool = pickRare ? rarePool : commonPool;
+
+        if (pool.empty()) break;
+
+        std::uniform_int_distribution<> idxDis(0, (int)pool.size() - 1);
+        int index = idxDis(gen);
+        choices.push_back(pool[index]);
+        pool.erase(pool.begin() + index);
     }
-    
+
     return choices;
 }
 

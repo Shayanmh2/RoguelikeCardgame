@@ -41,7 +41,7 @@ bool Run::isRunActive() const {
 int Run::getEnemyHealth() const {
     int tier = (currentEncounter - 1) / 5;
     int tierMultiplier = 1 + (tier * 15);  // Each tier adds 15% more health
-    int baseHealth = 50 + (currentEncounter - 1) * 8;
+    int baseHealth = 25 + (currentEncounter - 1) * 6;  // Lowered from 50 to 25, scaling reduced from 8 to 6
     return (baseHealth * (100 + tierMultiplier)) / 100;
 }
 

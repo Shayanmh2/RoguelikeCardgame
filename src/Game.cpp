@@ -23,16 +23,6 @@ void Game::init() {
     
     playerDeck.shuffle();
     
-    // Draw initialized hand + extra draw bonus
-    int drawCount = 5 + upgrades.getDrawBonus();
-    for (int i = 0; i < drawCount; ++i) {
-        try {
-            playerDeck.drawCard();
-        } catch (const std::exception& e) {
-            std::cerr << e.what() << "\n";
-        }
-    }
-    
     running = true;
 }
 
@@ -180,7 +170,9 @@ void Game::enemyTurn() {
 void Game::displayTurnInfo() const {
     std::cout << "\n========== TURN " << turnNumber << " ==========\n";
     if (playerTurnActive) {
-        std::cout << "Player's Turn - Your move!\n";
+        std::cout << "Player's Turn - You have " << playerEnergy << " energy (can play " << playerEnergy 
+                  << " card" << (playerEnergy != 1 ? "s" : "") << ")\n";
+        std::cout << "Type 'end' to end your turn and let enemy act.\n";
     }
 }
 
@@ -197,8 +189,17 @@ void Game::endPlayerTurn() {
     turnNumber++;
     playerTurnActive = true;
     resetEnergy();
-    std::cout << "\n--- Your Turn ---\n";
-    std::cout << "Energy restored to " << playerEnergy << "/" << maxEnergy << ".\n";
+
+    // Discard remaining hand cards and draw a fresh hand for next turn
+    playerDeck.resetDeck();
+    int drawCount = 5 + upgrades.getDrawBonus();
+    for (int i = 0; i < drawCount; ++i) {
+        try { playerDeck.drawCard(); } catch (...) { break; }
+    }
+
+    std::cout << "\n--- Your Turn (Turn " << turnNumber << ") ---\n";
+    std::cout << "Energy: " << playerEnergy << "/" << maxEnergy << " | Drew " << drawCount << " cards.\n";
+    playerDeck.displayHand();
 }
 
 bool Game::checkGameOver() {
@@ -257,9 +258,20 @@ void Game::handleInput() {
             std::cout << e.what() << "\n";
         }
     } else if (input.substr(0, 4) == "play") {
-        int index = std::stoi(input.substr(5));
-        playCardFromHand(index);
-        checkGameOver();
+        try {
+            int index = std::stoi(input.substr(5));
+            playCardFromHand(index);
+            checkGameOver();
+
+            // Auto-end turn if out of energy
+            if (playerEnergy <= 0 && playerTurnActive) {
+                std::cout << "\n[No energy left - ending your turn automatically]\n";
+                endPlayerTurn();
+                checkGameOver();
+            }
+        } catch (const std::exception&) {
+            std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
+        }
     } else if (input == "end") {
         if (!playerTurnActive) {
             std::cout << "It's not your turn!\n";
@@ -279,6 +291,13 @@ void Game::render() const {
 }
 
 void Game::startEncounter() {
+    // Reset deck: move any leftover hand/discard back so drawCard() can reshuffle them
+    playerDeck.resetDeck();
+    int drawCount = 5 + upgrades.getDrawBonus();
+    for (int i = 0; i < drawCount; ++i) {
+        try { playerDeck.drawCard(); } catch (...) { break; }
+    }
+
     // Set up enemy for current encounter with scaled stats
     int health = currentRun.getEnemyHealth();
     int attack = currentRun.getEnemyAttack();
@@ -445,6 +464,10 @@ void Game::run() {
                     // Continue to next encounter, loop continues
                     continue;
                 }
+                // Player voluntarily ended the run — record stats now
+                int encounters = currentRun.getEncountersWon();
+                runStats.completeRun(encounters);
+                runStats.displayRunSummary(encounters);
             }
             
             // Run ended, offer new run
