@@ -40,16 +40,26 @@ void RewardPool::initializeCardPool() {
         std::cout << "Warning: config/cards.json not found. Using default cards.\n";
         
         // Fallback to hardcoded cards
-        commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-        commonCards.push_back(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-        commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-        commonCards.push_back(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-        commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-        commonCards.push_back(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-        
-        rareCards.push_back(Card("Power Strike", "Deal 12 damage", CardType::ATTACK, 3, 12));
-        rareCards.push_back(Card("Iron Skin", "Gain 12 armor", CardType::DEFEND, 3, 12));
-        rareCards.push_back(Card("Cleave", "Deal 15 damage", CardType::ATTACK, 3, 15));
+        commonCards.push_back(Card("Strike",       "Deal 5 damage",         CardType::ATTACK,  1, 5));
+        commonCards.push_back(Card("Strike",       "Deal 5 damage",         CardType::ATTACK,  1, 5));
+        commonCards.push_back(Card("Defend",       "Gain 5 armor",          CardType::DEFEND,  1, 5));
+        commonCards.push_back(Card("Defend",       "Gain 5 armor",          CardType::DEFEND,  1, 5));
+        commonCards.push_back(Card("Bash",         "Deal 8 damage",         CardType::ATTACK,  2, 8));
+        commonCards.push_back(Card("Bash",         "Deal 8 damage",         CardType::ATTACK,  2, 8));
+        // Common SPECIAL cards
+        commonCards.push_back(Card("Poison Dart",  "Apply 3 Poison stacks", CardType::SPECIAL, 1, 3, CardEffect::POISON));
+        commonCards.push_back(Card("Torch",        "Apply 2 Burn (5 dmg x2 turns)", CardType::SPECIAL, 1, 2, CardEffect::BURN));
+        commonCards.push_back(Card("Stun Strike",  "Stun enemy for 1 turn", CardType::SPECIAL, 2, 1, CardEffect::STUN));
+        commonCards.push_back(Card("Weaken",       "Apply 3 Weak (-2 atk x3 turns)", CardType::SPECIAL, 1, 3, CardEffect::WEAK));
+
+        rareCards.push_back(Card("Power Strike",   "Deal 12 damage",        CardType::ATTACK,  3, 12));
+        rareCards.push_back(Card("Iron Skin",      "Gain 12 armor",         CardType::DEFEND,  3, 12));
+        rareCards.push_back(Card("Cleave",         "Deal 15 damage",        CardType::ATTACK,  3, 15));
+        // Rare SPECIAL cards
+        rareCards.push_back(Card("Toxic Cloud",    "Apply 6 Poison stacks", CardType::SPECIAL, 2, 6, CardEffect::POISON));
+        rareCards.push_back(Card("Inferno",        "Apply 4 Burn (5 dmg x4 turns)", CardType::SPECIAL, 3, 4, CardEffect::BURN));
+        rareCards.push_back(Card("Paralysis",      "Stun enemy for 1 turn", CardType::SPECIAL, 3, 1, CardEffect::STUN));
+        rareCards.push_back(Card("Shatter",        "Apply 5 Weak (-2 atk x5 turns)", CardType::SPECIAL, 2, 5, CardEffect::WEAK));
     }
 }
 

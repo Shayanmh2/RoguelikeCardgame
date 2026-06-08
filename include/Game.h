@@ -6,6 +6,7 @@
 #include "Run.h"
 #include "RewardPool.h"
 #include "RunStats.h"
+#include "StatusEffect.h"
 #include "UpgradeSystem.h"
 
 class Game {
@@ -16,6 +17,7 @@ private:
     RewardPool rewardPool;
     RunStats runStats;
     UpgradeSystem upgrades;
+    StatusEffects playerStatus;
     int playerHealth;
     int maxPlayerHealth;
     int playerArmor;
@@ -32,6 +34,7 @@ private:
     bool spendEnergy(int cost);
     void resetEnergy();
     void playCardFromHand(int index);
+    void applyCardEffect(const Card& card);
     void enemyTurn();
     void endPlayerTurn();
     void resetArmor();

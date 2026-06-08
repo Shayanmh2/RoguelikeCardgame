@@ -33,17 +33,16 @@ int Enemy::getArmor() const {
 
 void Enemy::takeDamage(int damage) {
     int actualDamage = damage - armor;
-    if (actualDamage < 0) {
-        actualDamage = 0;
-    }
+    if (actualDamage < 0) actualDamage = 0;
     armor -= damage;
-    if (armor < 0) {
-        armor = 0;
-    }
+    if (armor < 0) armor = 0;
     health -= actualDamage;
-    if (health < 0) {
-        health = 0;
-    }
+    if (health < 0) health = 0;
+}
+
+void Enemy::takeDamageRaw(int damage) {
+    health -= damage;
+    if (health < 0) health = 0;
 }
 
 void Enemy::heal(int amount) {
@@ -60,6 +59,15 @@ void Enemy::gainArmor(int amount) {
 void Enemy::resetArmor() {
     armor = 0;
 }
+
+void Enemy::applyStatus(StatusType type, int amount) { statusEffects.apply(type, amount); }
+int  Enemy::processPoison()  { return statusEffects.processPoison(); }
+int  Enemy::processBurn()    { return statusEffects.processBurn(); }
+bool Enemy::processStun()    { return statusEffects.processStun(); }
+int  Enemy::getWeakPenalty() const { return statusEffects.getWeakPenalty(); }
+void Enemy::processWeak()    { statusEffects.processWeak(); }
+bool Enemy::hasStatusEffects() const { return statusEffects.hasAny(); }
+void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
 
 bool Enemy::isAlive() const {
     return health > 0;
