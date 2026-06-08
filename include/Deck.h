@@ -28,6 +28,10 @@ public:
     
     void displayHand() const;
     void displayDeck() const;
+    void displayAllCards() const;
+
+    int totalCards() const;
+    bool upgradeCardAt(int index);
 };
 
 #endif

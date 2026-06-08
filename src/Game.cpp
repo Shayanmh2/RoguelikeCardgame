@@ -346,14 +346,62 @@ void Game::nextEncounter() {
     startEncounter();
 }
 
+void Game::restSite() {
+    std::cout << "\n========== REST SITE ==========\n";
+    int healAmount = maxPlayerHealth * 30 / 100;
+    std::cout << "  [rest]  - Heal " << healAmount << " HP  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
+    std::cout << "  [forge] - Upgrade a card (+3 value, -1 cost)\n";
+    std::cout << "  [skip]  - Press on without resting\n";
+    std::cout << "> ";
+
+    std::string input;
+    std::getline(std::cin, input);
+
+    if (input == "rest") {
+        playerHealth = std::min(maxPlayerHealth, playerHealth + healAmount);
+        std::cout << "You rest and recover " << healAmount << " HP. (HP: " << playerHealth << "/" << maxPlayerHealth << ")\n";
+    } else if (input == "forge") {
+        if (playerDeck.totalCards() == 0) {
+            std::cout << "Your deck is empty — nothing to upgrade.\n";
+            return;
+        }
+        playerDeck.displayAllCards();
+        std::cout << "Choose a card to upgrade (1-" << playerDeck.totalCards() << ") or 0 to cancel:\n> ";
+        std::string choice;
+        std::getline(std::cin, choice);
+        try {
+            int idx = std::stoi(choice) - 1;
+            if (idx < 0) {
+                std::cout << "Cancelled.\n";
+            } else if (playerDeck.upgradeCardAt(idx)) {
+                std::cout << "Card upgraded!\n";
+            } else {
+                std::cout << "Invalid choice.\n";
+            }
+        } catch (...) {
+            std::cout << "Invalid input.\n";
+        }
+    } else if (input == "skip") {
+        std::cout << "You press on without resting.\n";
+    } else {
+        std::cout << "Invalid choice. Type rest, forge, or skip.\n";
+        restSite();
+    }
+
+    std::cout << "================================\n";
+}
+
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
     std::cout << "\n========== ENCOUNTER WON! ==========\n";
     std::cout << "Enemies Defeated: " << currentRun.getEncountersWon() << "\n";
-    
+
     // Offer card reward
     offerCardReward();
-    
+
+    // Offer rest site
+    restSite();
+
     // Ask to continue
     std::cout << "\nProceed to next encounter? [continue] or [end run]?\n";
     std::cout << "> ";

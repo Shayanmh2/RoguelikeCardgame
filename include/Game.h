@@ -42,6 +42,7 @@ private:
     void startEncounter();
     void nextEncounter();
     void handleEncounterWin();
+    void restSite();
     void displayRunStats() const;
     void offerCardReward();
     void applyUpgrades();
