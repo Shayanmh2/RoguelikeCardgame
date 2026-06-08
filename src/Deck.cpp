@@ -88,7 +88,42 @@ void Deck::displayHand() const {
 void Deck::displayDeck() const {
     UIHelper::printLine(60, '=');
     std::cout << "DECK STATUS\n";
-    std::cout << "  Cards: " << cards.size() << " | Hand: " << hand.size() 
+    std::cout << "  Cards: " << cards.size() << " | Hand: " << hand.size()
               << " | Discard: " << discard.size() << "\n";
     UIHelper::printLine(60, '=');
+}
+
+void Deck::displayAllCards() const {
+    UIHelper::printCardHeader(totalCards());
+    int idx = 1;
+    for (const auto& c : cards)
+        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
+    for (const auto& c : hand)
+        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
+    for (const auto& c : discard)
+        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
+    UIHelper::printBoxEnd();
+}
+
+int Deck::totalCards() const {
+    return (int)(cards.size() + hand.size() + discard.size());
+}
+
+bool Deck::upgradeCardAt(int index) {
+    if (index < 0) return false;
+    if (index < (int)cards.size()) {
+        cards[index].upgrade();
+        return true;
+    }
+    index -= (int)cards.size();
+    if (index < (int)hand.size()) {
+        hand[index].upgrade();
+        return true;
+    }
+    index -= (int)hand.size();
+    if (index < (int)discard.size()) {
+        discard[index].upgrade();
+        return true;
+    }
+    return false;
 }
