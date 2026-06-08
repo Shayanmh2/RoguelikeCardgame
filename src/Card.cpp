@@ -1,8 +1,8 @@
 #include "Card.h"
 #include <iostream>
 
-Card::Card(std::string n, std::string desc, CardType t, int c, int v)
-    : name(n), description(desc), type(t), cost(c), value(v), upgraded(false) {}
+Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e)
+    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgraded(false) {}
 
 std::string Card::getName() const {
     return name;
@@ -31,6 +31,10 @@ int Card::getCost() const {
 
 int Card::getValue() const {
     return value;
+}
+
+CardEffect Card::getEffect() const {
+    return effect;
 }
 
 bool Card::isUpgraded() const {

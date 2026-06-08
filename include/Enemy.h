@@ -1,6 +1,7 @@
 #ifndef ENEMY_H
 #define ENEMY_H
 
+#include "StatusEffect.h"
 #include <string>
 
 enum class EnemyType { MELEE, RANGED, TANK, CASTER };
@@ -14,6 +15,7 @@ private:
     int baseDefense;
     int armor;
     EnemyType type;
+    StatusEffects statusEffects;
 
 public:
     Enemy(std::string n, int hp, int atk, int def, EnemyType t = EnemyType::MELEE);
@@ -25,15 +27,26 @@ public:
     int getBaseAttack() const;
     int getBaseDefense() const;
     int getArmor() const;
-    
+
     void takeDamage(int damage);
+    void takeDamageRaw(int damage); // bypasses armor (for DOT effects)
     void heal(int amount);
     void gainArmor(int amount);
     void resetArmor();
-    
+
+    // Status effect interface
+    void applyStatus(StatusType type, int amount);
+    int  processPoison();
+    int  processBurn();
+    bool processStun();
+    int  getWeakPenalty() const;
+    void processWeak();
+    bool hasStatusEffects() const;
+    void displayStatusEffects(const std::string& prefix) const;
+
     bool isAlive() const;
     void displayStatus() const;
-    
+
     static std::string generateName(EnemyType type, int encounter);
 };
 

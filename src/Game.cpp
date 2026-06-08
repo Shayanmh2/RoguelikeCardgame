@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "UIHelper.h"
+#include <algorithm>
 #include <iostream>
 #include <random>
 
@@ -31,16 +32,20 @@ void Game::displayStatus() const {
                                  enemy.getName(), enemy.getHealth(), enemy.getMaxHealth(), 
                                  enemy.getArmor(), enemy.getBaseAttack(), enemy.getBaseDefense());
     
-    // Display active upgrade bonuses if any
+    // Status effects
+    playerStatus.display("  YOU:   ");
+    enemy.displayStatusEffects("  ENEMY: ");
+
+    // Active upgrade bonuses
     int damageBonus = upgrades.getDamageBonus();
     int armorBonus = upgrades.getArmorBonus();
     if (damageBonus > 0 || armorBonus > 0) {
-        std::cout << "ACTIVE BONUSES: ";
+        std::cout << "BONUSES: ";
         if (damageBonus > 0) std::cout << "Damage +" << damageBonus << " ";
-        if (armorBonus > 0) std::cout << "Armor +" << armorBonus << " ";
-        std::cout << "\n\n";
+        if (armorBonus > 0) std::cout << "Armor +"  << armorBonus  << " ";
+        std::cout << "\n";
     }
-    
+
     playerDeck.displayDeck();
 }
 
@@ -79,26 +84,55 @@ void Game::playerDefend(int cardValue, int cost) {
     std::cout << "You gained " << cardValue << " armor! (Total armor: " << playerArmor << ")\n";
 }
 
+void Game::applyCardEffect(const Card& card) {
+    int val = card.getValue();
+    switch (card.getEffect()) {
+        case CardEffect::POISON:
+            enemy.applyStatus(StatusType::POISON, val);
+            std::cout << "  Applied " << val << " Poison to enemy!\n";
+            break;
+        case CardEffect::BURN:
+            enemy.applyStatus(StatusType::BURN, val);
+            std::cout << "  Applied " << val << " Burn to enemy! (5 dmg/turn for " << val << " turns)\n";
+            break;
+        case CardEffect::STUN:
+            enemy.applyStatus(StatusType::STUN, 1);
+            std::cout << "  Enemy is STUNNED — they'll lose their next turn!\n";
+            break;
+        case CardEffect::WEAK:
+            enemy.applyStatus(StatusType::WEAK, val);
+            std::cout << "  Applied Weak " << val << " to enemy! (-2 attack for " << val << " turns)\n";
+            break;
+        default:
+            break;
+    }
+}
+
 void Game::playCardFromHand(int index) {
     try {
         const Card& card = playerDeck.getCardFromHand(index - 1);
-        
+
         if (!spendEnergy(card.getCost())) return;
-        
+
         Card playedCard = playerDeck.playCard(index - 1);
-        
+
         std::cout << "Played: [" << playedCard.getName() << "] (Cost: " << playedCard.getCost() << ")\n";
-        
+
         if (playedCard.getType() == CardType::ATTACK) {
-            int bonusDamage = playedCard.getValue() + upgrades.getDamageBonus();
+            int weakPenalty = playerStatus.getWeakPenalty();
+            int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() - weakPenalty);
             int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
             enemy.takeDamage(damageDealt);
-            std::cout << "  Dealt " << damageDealt << " damage to enemy! (Enemy HP: " 
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
+            std::cout << "  Dealt " << damageDealt << " damage to enemy! (Enemy HP: "
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")";
+            if (weakPenalty > 0) std::cout << " [Weakened -" << weakPenalty << "]";
+            std::cout << "\n";
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus();
             playerArmor += bonusArmor;
             std::cout << "  Gained " << bonusArmor << " armor! (Total: " << playerArmor << ")\n";
+        } else if (playedCard.getType() == CardType::SPECIAL) {
+            applyCardEffect(playedCard);
         }
     } catch (const std::out_of_range& e) {
         std::cout << "Invalid card index! Use 'hand' to see your cards.\n";
@@ -108,25 +142,50 @@ void Game::playCardFromHand(int index) {
 void Game::enemyTurn() {
     if (!enemy.isAlive()) return;
 
+    // Tick enemy status effects at the start of their turn
+    int poisonDmg = enemy.processPoison();
+    if (poisonDmg > 0) {
+        enemy.takeDamageRaw(poisonDmg);
+        std::cout << "Poison: enemy takes " << poisonDmg << " damage! ("
+                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << " HP)\n";
+        if (!enemy.isAlive()) return;
+    }
+    int burnDmg = enemy.processBurn();
+    if (burnDmg > 0) {
+        enemy.takeDamageRaw(burnDmg);
+        std::cout << "Burn: enemy takes " << burnDmg << " damage! ("
+                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << " HP)\n";
+        if (!enemy.isAlive()) return;
+    }
+    if (enemy.processStun()) {
+        std::cout << "Enemy is STUNNED and loses their turn!\n";
+        return;
+    }
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> rollDist(0, 99);
     int roll = rollDist(gen);
 
-    auto doAttack = [&](int atk, bool pierceHalfArmor){
+    // Apply WEAK penalty to attack, then tick it
+    int weakPenalty = enemy.getWeakPenalty();
+    enemy.processWeak();
+
+    auto doAttack = [&](int atk, bool pierceHalfArmor) {
+        atk = std::max(0, atk - weakPenalty);
         int effectiveArmor = pierceHalfArmor ? (playerArmor / 2) : playerArmor;
         int actualDamage = atk - effectiveArmor;
         if (actualDamage < 0) actualDamage = 0;
-        // Reduce player's armor by attack (or half if pierced)
-        playerArmor -= (pierceHalfArmor ? atk/2 : atk);
+        playerArmor -= (pierceHalfArmor ? atk / 2 : atk);
         if (playerArmor < 0) playerArmor = 0;
         playerHealth -= actualDamage;
         if (playerHealth < 0) playerHealth = 0;
-        std::cout << "Enemy attacks for " << actualDamage << " damage!\n";
-        std::cout << "Player Health: " << playerHealth << "\n";
+        std::cout << "Enemy attacks for " << actualDamage << " damage!";
+        if (weakPenalty > 0) std::cout << " [Weakened -" << weakPenalty << "]";
+        std::cout << "\nPlayer Health: " << playerHealth << "\n";
     };
 
-    auto doDefend = [&](int amt){
+    auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
         std::cout << "Enemy defends and gains " << amt << " armor.\n";
     };
@@ -141,28 +200,39 @@ void Game::enemyTurn() {
             else doDefend(def);
             break;
         case EnemyType::RANGED:
-            if (roll < 60) doAttack(atk, true); // pierce half armor
-            else doDefend(std::max(1, def - 1));
+            if (roll < 60) {
+                doAttack(atk, true); // pierce half armor
+            } else if (roll < 80) {
+                doDefend(std::max(1, def - 1));
+            } else {
+                // Ranged enemies occasionally apply Weak
+                playerStatus.apply(StatusType::WEAK, 2);
+                std::cout << "Enemy fires a crippling shot! You are Weakened for 2 turns.\n";
+            }
             break;
         case EnemyType::TANK:
             if (roll < 65) doDefend(def + 3);
             else doAttack(std::max(1, atk - 2), false);
             break;
         case EnemyType::CASTER:
-            // If low health, higher chance to heal
             if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 60) {
                 int healAmt = 8 + (def / 2);
                 enemy.heal(healAmt);
-                std::cout << "Enemy casts heal and recovers " << healAmt << " HP!\n";
-                std::cout << "Enemy Health: " << enemy.getHealth() << "/" << enemy.getMaxHealth() << "\n";
-            } else if (roll < 65) {
-                doDefend(std::max(1, def - 1));
+                std::cout << "Enemy casts heal and recovers " << healAmt << " HP! ("
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
+            } else if (roll < 40) {
+                // Caster applies Poison
+                playerStatus.apply(StatusType::POISON, 3);
+                std::cout << "Enemy casts Poison Bolt! You are poisoned for 3 stacks.\n";
+            } else if (roll < 60) {
+                // Caster applies Burn
+                playerStatus.apply(StatusType::BURN, 2);
+                std::cout << "Enemy casts Fireball! You are burning for 2 turns.\n";
             } else {
                 doAttack(atk + 1, false);
             }
             break;
         default:
-            // Fallback to simple attack
             doAttack(atk, false);
     }
 }
@@ -190,6 +260,20 @@ void Game::endPlayerTurn() {
     playerTurnActive = true;
     resetEnergy();
 
+    // Tick player status effects (start of player's new turn)
+    int playerPoisonDmg = playerStatus.processPoison();
+    if (playerPoisonDmg > 0) {
+        playerHealth = std::max(0, playerHealth - playerPoisonDmg);
+        std::cout << "Poison: you take " << playerPoisonDmg << " damage! (HP: " << playerHealth << ")\n";
+    }
+    int playerBurnDmg = playerStatus.processBurn();
+    if (playerBurnDmg > 0) {
+        playerHealth = std::max(0, playerHealth - playerBurnDmg);
+        std::cout << "Burn: you take " << playerBurnDmg << " damage! (HP: " << playerHealth << ")\n";
+    }
+    // WEAK ticks at end of player turn (after all attacks are resolved)
+    playerStatus.processWeak();
+
     // Discard remaining hand cards and draw a fresh hand for next turn
     playerDeck.resetDeck();
     int drawCount = 5 + upgrades.getDrawBonus();
@@ -199,6 +283,7 @@ void Game::endPlayerTurn() {
 
     std::cout << "\n--- Your Turn (Turn " << turnNumber << ") ---\n";
     std::cout << "Energy: " << playerEnergy << "/" << maxEnergy << " | Drew " << drawCount << " cards.\n";
+    playerStatus.display("Status: ");
     playerDeck.displayHand();
 }
 
@@ -328,6 +413,7 @@ void Game::startEncounter() {
     playerTurnActive = true;
     playerArmor = 0;
     playerEnergy = maxEnergy;
+    playerStatus.reset();
     
     currentRun.displayRunStats();
     

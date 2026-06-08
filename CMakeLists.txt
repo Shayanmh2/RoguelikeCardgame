@@ -15,6 +15,7 @@ add_executable(cardgame
     src/Run.cpp
     src/RewardPool.cpp
     src/RunStats.cpp
+    src/StatusEffect.cpp
     src/Upgrade.cpp
     src/UpgradeSystem.cpp
     src/ConfigLoader.cpp
