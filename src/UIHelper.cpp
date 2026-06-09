@@ -67,6 +67,15 @@ void UIHelper::printEncounterHeader(int encounterNum, const std::string& difficu
     printLine(60, '-');
 }
 
+void UIHelper::printBossHeader(int encounterNum, const std::string& bossName) {
+    printLine(60, '*');
+    printCentered("!!! BOSS ENCOUNTER !!!", 60);
+    printCentered("Encounter " + std::to_string(encounterNum), 60);
+    printLine(60, '*');
+    printCentered(bossName, 60);
+    printLine(60, '*');
+}
+
 void UIHelper::printCombatStatus(int playerHP, int playerMaxHP, int playerArmor, int playerEnergy, int maxEnergy,
                                   const std::string& enemyName, int enemyHP, int enemyMaxHP, int enemyArmor,
                                   int enemyAttack, int enemyDefense) {

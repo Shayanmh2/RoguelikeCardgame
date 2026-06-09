@@ -46,6 +46,9 @@ private:
     void nextEncounter();
     void handleEncounterWin();
     void restSite();
+    Enemy generateBossEnemy();
+    void  bossAction();
+    void  offerBossReward();
     void displayRunStats() const;
     void offerCardReward();
     void applyUpgrades();

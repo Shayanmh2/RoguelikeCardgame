@@ -114,6 +114,21 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     return choices;
 }
 
+std::vector<Card> RewardPool::generateRareRewards(int count) {
+    std::vector<Card> choices;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    std::vector<Card> pool = rareCards;
+    for (int i = 0; i < count && !pool.empty(); ++i) {
+        std::uniform_int_distribution<> dis(0, (int)pool.size() - 1);
+        int index = dis(gen);
+        choices.push_back(pool[index]);
+        pool.erase(pool.begin() + index);
+    }
+    return choices;
+}
+
 void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
     std::cout << "\n========== CARD REWARDS ==========\n";
     std::cout << "Choose 1 card to add to your deck:\n\n";

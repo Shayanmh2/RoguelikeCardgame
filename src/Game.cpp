@@ -162,6 +162,12 @@ void Game::enemyTurn() {
         return;
     }
 
+    // Bosses have their own AI
+    if (enemy.isBoss()) {
+        bossAction();
+        return;
+    }
+
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> rollDist(0, 99);
@@ -375,6 +381,142 @@ void Game::render() const {
     displayStatus();
 }
 
+Enemy Game::generateBossEnemy() {
+    int enc = currentRun.getCurrentEncounter();
+    int bossHealth  = currentRun.getEnemyHealth() * 3;
+    int bossAttack  = currentRun.getEnemyAttack() * 3 / 2;
+    int bossDefense = currentRun.getEnemyDefense() + 2;
+
+    std::string name;
+    EnemyType   etype;
+    BossType    btype;
+
+    switch (currentRun.getBossIndex()) {
+        case 1:
+            name  = "The Vile Witch";
+            etype = EnemyType::CASTER;
+            btype = BossType::VILE_WITCH;
+            break;
+        case 2:
+            name  = "The Warlord";
+            etype = EnemyType::MELEE;
+            btype = BossType::WARLORD;
+            break;
+        default: // 0, and fallback
+            name  = "The Stone Colossus";
+            etype = EnemyType::TANK;
+            btype = BossType::STONE_COLOSSUS;
+            break;
+    }
+
+    // Add tier suffix on repeat cycles
+    int cycle = (enc / 5 - 1) / 3;
+    if (cycle == 1) name = "Ancient " + name;
+    else if (cycle >= 2) name = "Eternal " + name;
+
+    Enemy boss(name, bossHealth, bossAttack, bossDefense, etype);
+    boss.setBossType(btype);
+    if (btype == BossType::STONE_COLOSSUS) boss.gainArmor(10);
+    return boss;
+}
+
+void Game::bossAction() {
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> rollDist(0, 99);
+    int roll = rollDist(gen);
+
+    int weakPenalty = enemy.getWeakPenalty();
+    enemy.processWeak();
+    int atk = std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack() - weakPenalty);
+
+    auto doAttack = [&](int damage, bool raw) {
+        if (raw) {
+            playerHealth = std::max(0, playerHealth - damage);
+            std::cout << "  BOSS slams for " << damage << " (ignores armor)! HP: "
+                      << playerHealth << "/" << maxPlayerHealth << "\n";
+        } else {
+            int actual = std::max(0, damage - playerArmor);
+            playerArmor = std::max(0, playerArmor - damage);
+            playerHealth = std::max(0, playerHealth - actual);
+            std::cout << "  BOSS strikes for " << actual << " damage! HP: "
+                      << playerHealth << "/" << maxPlayerHealth << "\n";
+        }
+        if (weakPenalty > 0) std::cout << "  [Weakened -" << weakPenalty << "]\n";
+    };
+
+    switch (enemy.getBossType()) {
+        case BossType::STONE_COLOSSUS:
+            if (roll < 15) {
+                std::cout << "Stone Colossus uses EARTHQUAKE SLAM!\n";
+                doAttack(15, true);
+            } else if (roll < 45) {
+                enemy.gainArmor(8);
+                std::cout << "Stone Colossus hardens! +" << 8 << " armor (" << enemy.getArmor() << " total)\n";
+            } else {
+                std::cout << "Stone Colossus strikes!\n";
+                doAttack(atk + 4, false);
+            }
+            break;
+
+        case BossType::VILE_WITCH:
+            if (roll < 30) {
+                std::cout << "Vile Witch attacks!\n";
+                doAttack(atk, false);
+            } else if (roll < 70) {
+                playerStatus.apply(StatusType::POISON, 4);
+                playerStatus.apply(StatusType::BURN, 2);
+                std::cout << "Vile Witch casts PLAGUE! You gain Poison 4 and Burn 2!\n";
+            } else if (roll < 85) {
+                int healAmt = 20;
+                enemy.heal(healAmt);
+                std::cout << "Vile Witch siphons life, healing " << healAmt << " HP! ("
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
+            } else {
+                playerStatus.apply(StatusType::POISON, 6);
+                std::cout << "Vile Witch casts TOXIC ERUPTION! You gain Poison 6!\n";
+            }
+            break;
+
+        case BossType::WARLORD:
+            if (roll < 15) {
+                playerStatus.apply(StatusType::WEAK, 3);
+                std::cout << "Warlord roars a BATTLECRY! You are Weakened 3!\n";
+            }
+            std::cout << "Warlord attacks!\n";
+            doAttack(atk, false);
+            if (enemy.getBonusAttack() < 6) {
+                enemy.addBonusAttack(1);
+                std::cout << "Warlord grows stronger! (total bonus +" << enemy.getBonusAttack() << " attack)\n";
+            }
+            break;
+
+        default:
+            doAttack(atk, false);
+    }
+}
+
+void Game::offerBossReward() {
+    std::cout << "\n========== BOSS REWARD ==========\n";
+    std::cout << "Choose 1 of 2 RARE cards:\n\n";
+    std::vector<Card> rewards = rewardPool.generateRareRewards(2);
+    rewardPool.displayRewardChoices(rewards);
+
+    std::string choice;
+    std::getline(std::cin, choice);
+
+    int choiceIndex = -1;
+    try { choiceIndex = std::stoi(choice) - 1; } catch (...) {}
+
+    if (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
+        std::cout << "Invalid choice. Skipping reward.\n";
+        return;
+    }
+    playerDeck.addCard(rewards[choiceIndex]);
+    runStats.addCardToRun();
+    std::cout << "\n[RARE] Added " << rewards[choiceIndex].getName() << " to your deck!\n";
+}
+
 void Game::startEncounter() {
     // Reset deck: move any leftover hand/discard back so drawCard() can reshuffle them
     playerDeck.resetDeck();
@@ -383,45 +525,48 @@ void Game::startEncounter() {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
 
-    // Set up enemy for current encounter with scaled stats
-    int health = currentRun.getEnemyHealth();
-    int attack = currentRun.getEnemyAttack();
-    int defense = currentRun.getEnemyDefense();
-    
-    // Choose enemy type (cycle by encounter for variety)
-    int enc = currentRun.getCurrentEncounter();
-    int typeIndex = (enc - 1) % 4;
-    EnemyType etype;
-    switch (typeIndex) {
-        case 0: etype = EnemyType::MELEE; break;
-        case 1: etype = EnemyType::RANGED; break;
-        case 2: etype = EnemyType::TANK; break;
-        case 3: etype = EnemyType::CASTER; break;
-        default: etype = EnemyType::MELEE; break;
-    }
-    
-    // Generate unique name based on type and encounter
-    std::string name = Enemy::generateName(etype, enc);
-    
-    // Add type label for flavor
-    std::string typeLabel = (etype == EnemyType::MELEE) ? "Melee" : (etype == EnemyType::RANGED) ? "Ranged" : (etype == EnemyType::TANK) ? "Tank" : "Caster";
-    name += " (" + typeLabel + ")";
+    if (currentRun.isBossEncounter()) {
+        enemy = generateBossEnemy();
+    } else {
+        int health  = currentRun.getEnemyHealth();
+        int attack  = currentRun.getEnemyAttack();
+        int defense = currentRun.getEnemyDefense();
 
-    enemy = Enemy(name, health, attack, defense, etype);
+        int enc = currentRun.getCurrentEncounter();
+        int typeIndex = (enc - 1) % 4;
+        EnemyType etype;
+        switch (typeIndex) {
+            case 0: etype = EnemyType::MELEE;  break;
+            case 1: etype = EnemyType::RANGED; break;
+            case 2: etype = EnemyType::TANK;   break;
+            case 3: etype = EnemyType::CASTER; break;
+            default: etype = EnemyType::MELEE; break;
+        }
+        std::string name = Enemy::generateName(etype, enc);
+        std::string typeLabel = (etype == EnemyType::MELEE) ? "Melee"
+                              : (etype == EnemyType::RANGED) ? "Ranged"
+                              : (etype == EnemyType::TANK)   ? "Tank" : "Caster";
+        name += " (" + typeLabel + ")";
+        enemy = Enemy(name, health, attack, defense, etype);
+    }
+
     inEncounter = true;
     turnNumber = 1;
     playerTurnActive = true;
     playerArmor = 0;
     playerEnergy = maxEnergy;
     playerStatus.reset();
-    
+
     currentRun.displayRunStats();
-    
-    // Get difficulty info
-    std::string difficulty = currentRun.getEncounterDifficulty();
-    std::string tierLabel = currentRun.getEncounterTier();
-    UIHelper::printEncounterHeader(currentRun.getCurrentEncounter(), difficulty, tierLabel);
-    
+
+    if (currentRun.isBossEncounter()) {
+        UIHelper::printBossHeader(currentRun.getCurrentEncounter(), enemy.getName());
+    } else {
+        UIHelper::printEncounterHeader(currentRun.getCurrentEncounter(),
+                                       currentRun.getEncounterDifficulty(),
+                                       currentRun.getEncounterTier());
+    }
+
     displayStatus();
     displayTurnInfo();
 }
@@ -482,8 +627,12 @@ void Game::handleEncounterWin() {
     std::cout << "\n========== ENCOUNTER WON! ==========\n";
     std::cout << "Enemies Defeated: " << currentRun.getEncountersWon() << "\n";
 
-    // Offer card reward
-    offerCardReward();
+    // Boss reward is always 2 rare cards; normal encounters use weighted rewards
+    if (enemy.isBoss()) {
+        offerBossReward();
+    } else {
+        offerCardReward();
+    }
 
     // Offer rest site
     restSite();

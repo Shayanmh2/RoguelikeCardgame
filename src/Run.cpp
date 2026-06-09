@@ -56,6 +56,14 @@ int Run::getEnemyDefense() const {
     return 4 + (currentEncounter - 1) / 3;
 }
 
+bool Run::isBossEncounter() const {
+    return currentEncounter % 5 == 0;
+}
+
+int Run::getBossIndex() const {
+    return ((currentEncounter / 5) - 1) % 3;
+}
+
 std::string Run::getDifficultyTier() const {
     int tier = (currentEncounter - 1) / 5;
     switch (tier) {
