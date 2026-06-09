@@ -4,7 +4,8 @@
 #include "StatusEffect.h"
 #include <string>
 
-enum class EnemyType { MELEE, RANGED, TANK, CASTER };
+enum class EnemyType  { MELEE, RANGED, TANK, CASTER };
+enum class BossType   { NONE, STONE_COLOSSUS, VILE_WITCH, WARLORD };
 
 class Enemy {
 private:
@@ -15,6 +16,8 @@ private:
     int baseDefense;
     int armor;
     EnemyType type;
+    BossType  bossType;
+    int       bonusAttack;   // used by Warlord rage
     StatusEffects statusEffects;
 
 public:
@@ -43,6 +46,13 @@ public:
     void processWeak();
     bool hasStatusEffects() const;
     void displayStatusEffects(const std::string& prefix) const;
+
+    // Boss interface
+    bool      isBoss() const;
+    BossType  getBossType() const;
+    void      setBossType(BossType bt);
+    int       getBonusAttack() const;
+    void      addBonusAttack(int amount);
 
     bool isAlive() const;
     void displayStatus() const;

@@ -3,7 +3,8 @@
 #include <vector>
 
 Enemy::Enemy(std::string n, int hp, int atk, int def, EnemyType t)
-    : name(n), health(hp), maxHealth(hp), baseAttack(atk), baseDefense(def), armor(0), type(t) {}
+    : name(n), health(hp), maxHealth(hp), baseAttack(atk), baseDefense(def),
+      armor(0), type(t), bossType(BossType::NONE), bonusAttack(0) {}
 
 EnemyType Enemy::getType() const { return type; }
 
@@ -59,6 +60,12 @@ void Enemy::gainArmor(int amount) {
 void Enemy::resetArmor() {
     armor = 0;
 }
+
+bool     Enemy::isBoss()          const { return bossType != BossType::NONE; }
+BossType Enemy::getBossType()     const { return bossType; }
+void     Enemy::setBossType(BossType bt) { bossType = bt; }
+int      Enemy::getBonusAttack()  const { return bonusAttack; }
+void     Enemy::addBonusAttack(int a)   { bonusAttack += a; }
 
 void Enemy::applyStatus(StatusType type, int amount) { statusEffects.apply(type, amount); }
 int  Enemy::processPoison()  { return statusEffects.processPoison(); }

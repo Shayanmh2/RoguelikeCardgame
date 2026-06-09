@@ -20,6 +20,7 @@ public:
     // Status display helpers
     static void printStatusHeader();
     static void printEncounterHeader(int encounterNum, const std::string& difficulty, const std::string& tierLabel);
+    static void printBossHeader(int encounterNum, const std::string& bossName);
     static void printCombatStatus(int playerHP, int playerMaxHP, int playerArmor, int playerEnergy, int maxEnergy,
                                    const std::string& enemyName, int enemyHP, int enemyMaxHP, int enemyArmor, 
                                    int enemyAttack, int enemyDefense);
