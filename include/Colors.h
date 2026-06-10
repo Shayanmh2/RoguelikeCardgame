@@ -1,0 +1,56 @@
+#pragma once
+#include <string>
+
+namespace Color {
+    // Reset / style
+    constexpr const char* RESET   = "\033[0m";
+    constexpr const char* BOLD    = "\033[1m";
+    constexpr const char* DIM     = "\033[2m";
+
+    // Bright colors (most readable on dark terminals)
+    constexpr const char* RED     = "\033[91m";
+    constexpr const char* GREEN   = "\033[92m";
+    constexpr const char* YELLOW  = "\033[93m";
+    constexpr const char* BLUE    = "\033[94m";
+    constexpr const char* MAGENTA = "\033[95m";
+    constexpr const char* CYAN    = "\033[96m";
+    constexpr const char* WHITE   = "\033[97m";
+
+    // Standard (slightly dimmer, good for backgrounds/labels)
+    constexpr const char* DRED    = "\033[31m";
+    constexpr const char* DGREEN  = "\033[32m";
+    constexpr const char* DYELLOW = "\033[33m";
+    constexpr const char* DBLUE   = "\033[34m";
+    constexpr const char* DMAGENTA= "\033[35m";
+    constexpr const char* DCYAN   = "\033[36m";
+
+    // Semantic aliases — use these in game code for consistency
+    constexpr const char* DAMAGE        = RED;      // player takes damage
+    constexpr const char* PLAYER_ATTACK = GREEN;    // player deals damage
+    constexpr const char* HEAL          = GREEN;
+    constexpr const char* ARMOR_CLR     = BLUE;
+    constexpr const char* ENERGY_CLR    = YELLOW;
+    constexpr const char* POISON_CLR    = DGREEN;
+    constexpr const char* BURN_CLR      = RED;
+    constexpr const char* STUN_CLR      = YELLOW;
+    constexpr const char* WEAK_CLR      = BLUE;
+    constexpr const char* BOSS_CLR      = MAGENTA;
+    constexpr const char* CARD_ATTACK   = RED;
+    constexpr const char* CARD_DEFEND   = BLUE;
+    constexpr const char* CARD_SPECIAL  = MAGENTA;
+    constexpr const char* CARD_NAME     = WHITE;
+    constexpr const char* SECTION       = CYAN;
+}
+
+inline std::string colorize(const std::string& text, const char* color) {
+    return std::string(color) + text + Color::RESET;
+}
+
+// Returns an ANSI color for an HP value relative to its maximum
+inline const char* hpColor(int hp, int maxHp) {
+    if (maxHp <= 0) return Color::WHITE;
+    int pct = hp * 100 / maxHp;
+    if (pct > 60) return Color::GREEN;
+    if (pct > 30) return Color::YELLOW;
+    return Color::RED;
+}

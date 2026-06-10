@@ -1,4 +1,5 @@
 #include "StatusEffect.h"
+#include "Colors.h"
 #include <iostream>
 
 StatusEffects::StatusEffects() : poison(0), burn(0), stun(0), weak(0) {}
@@ -44,10 +45,10 @@ void StatusEffects::processWeak() {
 void StatusEffects::display(const std::string& prefix) const {
     if (!hasAny()) return;
     std::cout << prefix;
-    if (poison > 0) std::cout << "[Poison " << poison << "] ";
-    if (burn   > 0) std::cout << "[Burn "   << burn   << "] ";
-    if (stun   > 0) std::cout << "[Stunned] ";
-    if (weak   > 0) std::cout << "[Weak "   << weak   << "] ";
+    if (poison > 0) std::cout << Color::POISON_CLR << "[Poison " << poison << "]" << Color::RESET << " ";
+    if (burn   > 0) std::cout << Color::BURN_CLR   << "[Burn "   << burn   << "]" << Color::RESET << " ";
+    if (stun   > 0) std::cout << Color::STUN_CLR   << "[Stunned]"                 << Color::RESET << " ";
+    if (weak   > 0) std::cout << Color::WEAK_CLR   << "[Weak "   << weak   << "]" << Color::RESET << " ";
     std::cout << "\n";
 }
 
