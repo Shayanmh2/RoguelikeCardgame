@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Colors.h"
 #include "UIHelper.h"
 #include <algorithm>
 #include <iostream>
@@ -89,19 +90,19 @@ void Game::applyCardEffect(const Card& card) {
     switch (card.getEffect()) {
         case CardEffect::POISON:
             enemy.applyStatus(StatusType::POISON, val);
-            std::cout << "  Applied " << val << " Poison to enemy!\n";
+            std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy!" << Color::RESET << "\n";
             break;
         case CardEffect::BURN:
             enemy.applyStatus(StatusType::BURN, val);
-            std::cout << "  Applied " << val << " Burn to enemy! (5 dmg/turn for " << val << " turns)\n";
+            std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! (5 dmg/turn for " << val << " turns)" << Color::RESET << "\n";
             break;
         case CardEffect::STUN:
             enemy.applyStatus(StatusType::STUN, 1);
-            std::cout << "  Enemy is STUNNED — they'll lose their next turn!\n";
+            std::cout << "  " << Color::STUN_CLR << "Enemy is STUNNED — they'll lose their next turn!" << Color::RESET << "\n";
             break;
         case CardEffect::WEAK:
             enemy.applyStatus(StatusType::WEAK, val);
-            std::cout << "  Applied Weak " << val << " to enemy! (-2 attack for " << val << " turns)\n";
+            std::cout << "  " << Color::WEAK_CLR << "Applied Weak " << val << " to enemy! (-2 attack for " << val << " turns)" << Color::RESET << "\n";
             break;
         default:
             break;
@@ -123,14 +124,18 @@ void Game::playCardFromHand(int index) {
             int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() - weakPenalty);
             int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
             enemy.takeDamage(damageDealt);
-            std::cout << "  Dealt " << damageDealt << " damage to enemy! (Enemy HP: "
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")";
-            if (weakPenalty > 0) std::cout << " [Weakened -" << weakPenalty << "]";
+            std::cout << "  " << Color::PLAYER_ATTACK << "Dealt " << damageDealt << " damage to enemy!"
+                      << Color::RESET << " (Enemy HP: "
+                      << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
+            if (weakPenalty > 0)
+                std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
             std::cout << "\n";
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus();
             playerArmor += bonusArmor;
-            std::cout << "  Gained " << bonusArmor << " armor! (Total: " << playerArmor << ")\n";
+            std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
+                      << Color::RESET << " (Total: " << Color::ARMOR_CLR << playerArmor << Color::RESET << ")\n";
         } else if (playedCard.getType() == CardType::SPECIAL) {
             applyCardEffect(playedCard);
         }
@@ -146,19 +151,23 @@ void Game::enemyTurn() {
     int poisonDmg = enemy.processPoison();
     if (poisonDmg > 0) {
         enemy.takeDamageRaw(poisonDmg);
-        std::cout << "Poison: enemy takes " << poisonDmg << " damage! ("
-                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << " HP)\n";
+        std::cout << Color::POISON_CLR << "Poison:" << Color::RESET
+                  << " enemy takes " << Color::PLAYER_ATTACK << poisonDmg << Color::RESET << " damage! ("
+                  << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
         if (!enemy.isAlive()) return;
     }
     int burnDmg = enemy.processBurn();
     if (burnDmg > 0) {
         enemy.takeDamageRaw(burnDmg);
-        std::cout << "Burn: enemy takes " << burnDmg << " damage! ("
-                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << " HP)\n";
+        std::cout << Color::BURN_CLR << "Burn:" << Color::RESET
+                  << " enemy takes " << Color::PLAYER_ATTACK << burnDmg << Color::RESET << " damage! ("
+                  << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
         if (!enemy.isAlive()) return;
     }
     if (enemy.processStun()) {
-        std::cout << "Enemy is STUNNED and loses their turn!\n";
+        std::cout << Color::STUN_CLR << "Enemy is STUNNED and loses their turn!" << Color::RESET << "\n";
         return;
     }
 
@@ -186,14 +195,16 @@ void Game::enemyTurn() {
         if (playerArmor < 0) playerArmor = 0;
         playerHealth -= actualDamage;
         if (playerHealth < 0) playerHealth = 0;
-        std::cout << "Enemy attacks for " << actualDamage << " damage!";
-        if (weakPenalty > 0) std::cout << " [Weakened -" << weakPenalty << "]";
-        std::cout << "\nPlayer Health: " << playerHealth << "\n";
+        std::cout << Color::DAMAGE << "Enemy attacks for " << actualDamage << " damage!" << Color::RESET;
+        if (weakPenalty > 0)
+            std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
+        std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
+                  << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
     };
 
     auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
-        std::cout << "Enemy defends and gains " << amt << " armor.\n";
+        std::cout << Color::ARMOR_CLR << "Enemy defends and gains " << amt << " armor." << Color::RESET << "\n";
     };
 
     EnemyType t = enemy.getType();
@@ -211,9 +222,8 @@ void Game::enemyTurn() {
             } else if (roll < 80) {
                 doDefend(std::max(1, def - 1));
             } else {
-                // Ranged enemies occasionally apply Weak
                 playerStatus.apply(StatusType::WEAK, 2);
-                std::cout << "Enemy fires a crippling shot! You are Weakened for 2 turns.\n";
+                std::cout << Color::WEAK_CLR << "Enemy fires a crippling shot! You are Weakened for 2 turns." << Color::RESET << "\n";
             }
             break;
         case EnemyType::TANK:
@@ -227,13 +237,11 @@ void Game::enemyTurn() {
                 std::cout << "Enemy casts heal and recovers " << healAmt << " HP! ("
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
             } else if (roll < 40) {
-                // Caster applies Poison
                 playerStatus.apply(StatusType::POISON, 3);
-                std::cout << "Enemy casts Poison Bolt! You are poisoned for 3 stacks.\n";
+                std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! You are poisoned for 3 stacks." << Color::RESET << "\n";
             } else if (roll < 60) {
-                // Caster applies Burn
                 playerStatus.apply(StatusType::BURN, 2);
-                std::cout << "Enemy casts Fireball! You are burning for 2 turns.\n";
+                std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
             } else {
                 doAttack(atk + 1, false);
             }
@@ -270,12 +278,18 @@ void Game::endPlayerTurn() {
     int playerPoisonDmg = playerStatus.processPoison();
     if (playerPoisonDmg > 0) {
         playerHealth = std::max(0, playerHealth - playerPoisonDmg);
-        std::cout << "Poison: you take " << playerPoisonDmg << " damage! (HP: " << playerHealth << ")\n";
+        std::cout << Color::POISON_CLR << "Poison:" << Color::RESET
+                  << " you take " << Color::DAMAGE << playerPoisonDmg << Color::RESET
+                  << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
+                  << playerHealth << Color::RESET << ")\n";
     }
     int playerBurnDmg = playerStatus.processBurn();
     if (playerBurnDmg > 0) {
         playerHealth = std::max(0, playerHealth - playerBurnDmg);
-        std::cout << "Burn: you take " << playerBurnDmg << " damage! (HP: " << playerHealth << ")\n";
+        std::cout << Color::BURN_CLR << "Burn:" << Color::RESET
+                  << " you take " << Color::DAMAGE << playerBurnDmg << Color::RESET
+                  << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
+                  << playerHealth << Color::RESET << ")\n";
     }
     // WEAK ticks at end of player turn (after all attacks are resolved)
     playerStatus.processWeak();
@@ -433,61 +447,75 @@ void Game::bossAction() {
     auto doAttack = [&](int damage, bool raw) {
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
-            std::cout << "  BOSS slams for " << damage << " (ignores armor)! HP: "
-                      << playerHealth << "/" << maxPlayerHealth << "\n";
+            std::cout << Color::BOLD << Color::DAMAGE << "  BOSS slams for " << damage
+                      << " (ignores armor)!" << Color::RESET
+                      << " HP: " << hpColor(playerHealth, maxPlayerHealth)
+                      << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         } else {
             int actual = std::max(0, damage - playerArmor);
             playerArmor = std::max(0, playerArmor - damage);
             playerHealth = std::max(0, playerHealth - actual);
-            std::cout << "  BOSS strikes for " << actual << " damage! HP: "
-                      << playerHealth << "/" << maxPlayerHealth << "\n";
+            std::cout << Color::BOLD << Color::DAMAGE << "  BOSS strikes for " << actual
+                      << " damage!" << Color::RESET
+                      << " HP: " << hpColor(playerHealth, maxPlayerHealth)
+                      << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         }
-        if (weakPenalty > 0) std::cout << "  [Weakened -" << weakPenalty << "]\n";
+        if (weakPenalty > 0)
+            std::cout << "  " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET << "\n";
     };
 
     switch (enemy.getBossType()) {
         case BossType::STONE_COLOSSUS:
             if (roll < 15) {
-                std::cout << "Stone Colossus uses EARTHQUAKE SLAM!\n";
+                std::cout << Color::BOLD << Color::MAGENTA << "Stone Colossus uses EARTHQUAKE SLAM!" << Color::RESET << "\n";
                 doAttack(15, true);
             } else if (roll < 45) {
                 enemy.gainArmor(8);
-                std::cout << "Stone Colossus hardens! +" << 8 << " armor (" << enemy.getArmor() << " total)\n";
+                std::cout << Color::MAGENTA << "Stone Colossus hardens!" << Color::RESET
+                          << " +" << Color::ARMOR_CLR << 8 << Color::RESET
+                          << " armor (" << enemy.getArmor() << " total)\n";
             } else {
-                std::cout << "Stone Colossus strikes!\n";
+                std::cout << Color::MAGENTA << "Stone Colossus strikes!" << Color::RESET << "\n";
                 doAttack(atk + 4, false);
             }
             break;
 
         case BossType::VILE_WITCH:
             if (roll < 30) {
-                std::cout << "Vile Witch attacks!\n";
+                std::cout << Color::MAGENTA << "Vile Witch attacks!" << Color::RESET << "\n";
                 doAttack(atk, false);
             } else if (roll < 70) {
                 playerStatus.apply(StatusType::POISON, 4);
                 playerStatus.apply(StatusType::BURN, 2);
-                std::cout << "Vile Witch casts PLAGUE! You gain Poison 4 and Burn 2!\n";
+                std::cout << Color::BOLD << Color::MAGENTA << "Vile Witch casts PLAGUE!" << Color::RESET
+                          << " You gain " << Color::POISON_CLR << "Poison 4" << Color::RESET
+                          << " and " << Color::BURN_CLR << "Burn 2" << Color::RESET << "!\n";
             } else if (roll < 85) {
                 int healAmt = 20;
                 enemy.heal(healAmt);
-                std::cout << "Vile Witch siphons life, healing " << healAmt << " HP! ("
-                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
+                std::cout << Color::MAGENTA << "Vile Witch siphons life, healing " << Color::HEAL
+                          << healAmt << " HP!" << Color::RESET << " ("
+                          << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             } else {
                 playerStatus.apply(StatusType::POISON, 6);
-                std::cout << "Vile Witch casts TOXIC ERUPTION! You gain Poison 6!\n";
+                std::cout << Color::BOLD << Color::MAGENTA << "Vile Witch casts TOXIC ERUPTION!" << Color::RESET
+                          << " You gain " << Color::POISON_CLR << "Poison 6" << Color::RESET << "!\n";
             }
             break;
 
         case BossType::WARLORD:
             if (roll < 15) {
                 playerStatus.apply(StatusType::WEAK, 3);
-                std::cout << "Warlord roars a BATTLECRY! You are Weakened 3!\n";
+                std::cout << Color::BOLD << Color::MAGENTA << "Warlord roars a BATTLECRY!" << Color::RESET
+                          << " You are " << Color::WEAK_CLR << "Weakened 3" << Color::RESET << "!\n";
             }
-            std::cout << "Warlord attacks!\n";
+            std::cout << Color::MAGENTA << "Warlord attacks!" << Color::RESET << "\n";
             doAttack(atk, false);
             if (enemy.getBonusAttack() < 6) {
                 enemy.addBonusAttack(1);
-                std::cout << "Warlord grows stronger! (total bonus +" << enemy.getBonusAttack() << " attack)\n";
+                std::cout << Color::MAGENTA << "Warlord grows stronger!" << Color::RESET
+                          << " (total bonus +" << Color::RED << enemy.getBonusAttack() << Color::RESET << " attack)\n";
             }
             break;
 
@@ -578,7 +606,7 @@ void Game::nextEncounter() {
 }
 
 void Game::restSite() {
-    std::cout << "\n========== REST SITE ==========\n";
+    std::cout << "\n" << Color::BOLD << Color::CYAN << "========== REST SITE ==========" << Color::RESET << "\n";
     int healAmount = maxPlayerHealth * 30 / 100;
     std::cout << "  [rest]  - Heal " << healAmount << " HP  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
     std::cout << "  [forge] - Upgrade a card (+3 value, -1 cost)\n";
@@ -590,7 +618,8 @@ void Game::restSite() {
 
     if (input == "rest") {
         playerHealth = std::min(maxPlayerHealth, playerHealth + healAmount);
-        std::cout << "You rest and recover " << healAmount << " HP. (HP: " << playerHealth << "/" << maxPlayerHealth << ")\n";
+        std::cout << Color::HEAL << "You rest and recover " << healAmount << " HP." << Color::RESET
+                  << " (HP: " << hpColor(playerHealth, maxPlayerHealth) << playerHealth << "/" << maxPlayerHealth << Color::RESET << ")\n";
     } else if (input == "forge") {
         if (playerDeck.totalCards() == 0) {
             std::cout << "Your deck is empty — nothing to upgrade.\n";
@@ -624,8 +653,8 @@ void Game::restSite() {
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
-    std::cout << "\n========== ENCOUNTER WON! ==========\n";
-    std::cout << "Enemies Defeated: " << currentRun.getEncountersWon() << "\n";
+    std::cout << "\n" << Color::BOLD << Color::GREEN << "========== ENCOUNTER WON! ==========" << Color::RESET << "\n";
+    std::cout << "Enemies Defeated: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
 
     // Boss reward is always 2 rare cards; normal encounters use weighted rewards
     if (enemy.isBoss()) {
