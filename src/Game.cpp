@@ -5,7 +5,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(2), maxEnergy(2), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -57,7 +57,8 @@ int Game::calculateDamage(int attackValue, int defenseValue) const {
 
 bool Game::spendEnergy(int cost) {
     if (playerEnergy < cost) {
-        std::cout << "Not enough energy! Need " << cost << " but only have " << playerEnergy << ".\n";
+        std::cout << Color::DAMAGE << "Not enough plays! Need " << cost
+                  << " but only have " << playerEnergy << " remaining." << Color::RESET << "\n";
         return false;
     }
     playerEnergy -= cost;
@@ -252,11 +253,10 @@ void Game::enemyTurn() {
 }
 
 void Game::displayTurnInfo() const {
-    std::cout << "\n========== TURN " << turnNumber << " ==========\n";
+    std::cout << "\n" << Color::BOLD << "========== TURN " << turnNumber << " ==========" << Color::RESET << "\n";
     if (playerTurnActive) {
-        std::cout << "Player's Turn - You have " << playerEnergy << " energy (can play " << playerEnergy 
-                  << " card" << (playerEnergy != 1 ? "s" : "") << ")\n";
-        std::cout << "Type 'end' to end your turn and let enemy act.\n";
+        std::cout << "Plays remaining: " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET
+                  << "  |  Type " << Color::DIM << "'end'" << Color::RESET << " to end your turn.\n";
     }
 }
 
@@ -301,8 +301,9 @@ void Game::endPlayerTurn() {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
 
-    std::cout << "\n--- Your Turn (Turn " << turnNumber << ") ---\n";
-    std::cout << "Energy: " << playerEnergy << "/" << maxEnergy << " | Drew " << drawCount << " cards.\n";
+    std::cout << "\n" << Color::BOLD << "--- Your Turn (Turn " << turnNumber << ") ---" << Color::RESET << "\n";
+    std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
+              << " | Drew " << drawCount << " cards.\n";
     playerStatus.display("Status: ");
     playerDeck.displayHand();
 }
@@ -368,9 +369,9 @@ void Game::handleInput() {
             playCardFromHand(index);
             checkGameOver();
 
-            // Auto-end turn if out of energy
+            // Auto-end turn if out of plays
             if (playerEnergy <= 0 && playerTurnActive) {
-                std::cout << "\n[No energy left - ending your turn automatically]\n";
+                std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
                 endPlayerTurn();
                 checkGameOver();
             }
@@ -791,8 +792,8 @@ void Game::run() {
                 maxPlayerHealth = 100;  // Reset before applying upgrades
                 playerHealth = maxPlayerHealth;
                 playerArmor = 0;
-                playerEnergy = 3;
-                maxEnergy = 3;
+                playerEnergy = 2;
+                maxEnergy = 2;
                 turnNumber = 1;
                 playerTurnActive = true;
                 playerDeck = Deck();

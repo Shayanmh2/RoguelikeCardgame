@@ -101,7 +101,7 @@ void UIHelper::printCombatStatus(int playerHP, int playerMaxHP, int playerArmor,
     std::cout << "  ARM: "
               << Color::ARMOR_CLR << playerArmor << Color::RESET
               << "  " << createArmorBar(playerArmor) << "\n";
-    std::cout << "  NRG: "
+    std::cout << "  PLAYS: "
               << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << "\n\n";
 
     // Enemy
