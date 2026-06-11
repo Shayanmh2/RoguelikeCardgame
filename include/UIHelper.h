@@ -33,4 +33,11 @@ public:
     // Title screen
     static void printTitle();
     static void printGameOverScreen(bool won, int encountersWon, int cardsCollected);
+
+    // Animated output — handles ANSI codes and UTF-8 characters correctly.
+    // msPerChar=0 prints instantly (useful for toggling from call sites).
+    static void typeWrite(const std::string& text, int msPerChar = 10);
+
+    // Sleep for ms milliseconds (cross-platform wrapper).
+    static void pause(int ms);
 };

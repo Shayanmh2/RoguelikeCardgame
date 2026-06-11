@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Audio.h"
 #include "Colors.h"
 #include "UIHelper.h"
 #include <algorithm>
@@ -125,6 +126,7 @@ void Game::playCardFromHand(int index) {
             int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() - weakPenalty);
             int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
             enemy.takeDamage(damageDealt);
+            Audio::playSFX("attack");
             std::cout << "  " << Color::PLAYER_ATTACK << "Dealt " << damageDealt << " damage to enemy!"
                       << Color::RESET << " (Enemy HP: "
                       << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -156,6 +158,7 @@ void Game::enemyTurn() {
                   << " enemy takes " << Color::PLAYER_ATTACK << poisonDmg << Color::RESET << " damage! ("
                   << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
+        UIHelper::pause(250);
         if (!enemy.isAlive()) return;
     }
     int burnDmg = enemy.processBurn();
@@ -165,10 +168,12 @@ void Game::enemyTurn() {
                   << " enemy takes " << Color::PLAYER_ATTACK << burnDmg << Color::RESET << " damage! ("
                   << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
+        UIHelper::pause(250);
         if (!enemy.isAlive()) return;
     }
     if (enemy.processStun()) {
-        std::cout << Color::STUN_CLR << "Enemy is STUNNED and loses their turn!" << Color::RESET << "\n";
+        UIHelper::typeWrite(std::string(Color::STUN_CLR) + "Enemy is STUNNED and loses their turn!" + Color::RESET + "\n");
+        UIHelper::pause(400);
         return;
     }
 
@@ -196,16 +201,19 @@ void Game::enemyTurn() {
         if (playerArmor < 0) playerArmor = 0;
         playerHealth -= actualDamage;
         if (playerHealth < 0) playerHealth = 0;
+        Audio::playSFX("hit");
         std::cout << Color::DAMAGE << "Enemy attacks for " << actualDamage << " damage!" << Color::RESET;
         if (weakPenalty > 0)
             std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
         std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
+        UIHelper::pause(200);
     };
 
     auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
         std::cout << Color::ARMOR_CLR << "Enemy defends and gains " << amt << " armor." << Color::RESET << "\n";
+        UIHelper::pause(150);
     };
 
     EnemyType t = enemy.getType();
@@ -267,7 +275,8 @@ void Game::resetArmor() {
 
 void Game::endPlayerTurn() {
     playerTurnActive = false;
-    std::cout << "\n--- Enemy's Turn ---\n";
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Enemy's Turn ---" + Color::RESET + "\n");
+    UIHelper::pause(350);
     enemyTurn();
     resetArmor();
     turnNumber++;
@@ -282,6 +291,7 @@ void Game::endPlayerTurn() {
                   << " you take " << Color::DAMAGE << playerPoisonDmg << Color::RESET
                   << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << Color::RESET << ")\n";
+        UIHelper::pause(250);
     }
     int playerBurnDmg = playerStatus.processBurn();
     if (playerBurnDmg > 0) {
@@ -290,6 +300,7 @@ void Game::endPlayerTurn() {
                   << " you take " << Color::DAMAGE << playerBurnDmg << Color::RESET
                   << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << Color::RESET << ")\n";
+        UIHelper::pause(250);
     }
     // WEAK ticks at end of player turn (after all attacks are resolved)
     playerStatus.processWeak();
@@ -301,7 +312,8 @@ void Game::endPlayerTurn() {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
 
-    std::cout << "\n" << Color::BOLD << "--- Your Turn (Turn " << turnNumber << ") ---" << Color::RESET << "\n";
+    UIHelper::pause(350);
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Your Turn (Turn " + std::to_string(turnNumber) + ") ---" + Color::RESET + "\n");
     std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
               << " | Drew " << drawCount << " cards.\n";
     playerStatus.display("Status: ");
@@ -320,6 +332,8 @@ bool Game::checkGameOver() {
 
 void Game::displayGameOver() {
     if (playerHealth <= 0) {
+        Audio::playSFX("lose");
+        UIHelper::pause(300);
         UIHelper::printGameOverScreen(false, currentRun.getEncountersWon(), runStats.getTotalCardsCollected());
         std::cout << "You were defeated! Better luck next time.\n";
     } else if (!enemy.isAlive()) {
@@ -448,6 +462,7 @@ void Game::bossAction() {
     auto doAttack = [&](int damage, bool raw) {
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
+            Audio::playSFX("hit");
             std::cout << Color::BOLD << Color::DAMAGE << "  BOSS slams for " << damage
                       << " (ignores armor)!" << Color::RESET
                       << " HP: " << hpColor(playerHealth, maxPlayerHealth)
@@ -456,6 +471,7 @@ void Game::bossAction() {
             int actual = std::max(0, damage - playerArmor);
             playerArmor = std::max(0, playerArmor - damage);
             playerHealth = std::max(0, playerHealth - actual);
+            Audio::playSFX("hit");
             std::cout << Color::BOLD << Color::DAMAGE << "  BOSS strikes for " << actual
                       << " damage!" << Color::RESET
                       << " HP: " << hpColor(playerHealth, maxPlayerHealth)
@@ -463,34 +479,40 @@ void Game::bossAction() {
         }
         if (weakPenalty > 0)
             std::cout << "  " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET << "\n";
+        UIHelper::pause(350);
     };
 
     switch (enemy.getBossType()) {
         case BossType::STONE_COLOSSUS:
             if (roll < 15) {
-                std::cout << Color::BOLD << Color::MAGENTA << "Stone Colossus uses EARTHQUAKE SLAM!" << Color::RESET << "\n";
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Stone Colossus uses EARTHQUAKE SLAM!" + Color::RESET + "\n");
+                UIHelper::pause(300);
                 doAttack(15, true);
             } else if (roll < 45) {
                 enemy.gainArmor(8);
                 std::cout << Color::MAGENTA << "Stone Colossus hardens!" << Color::RESET
                           << " +" << Color::ARMOR_CLR << 8 << Color::RESET
                           << " armor (" << enemy.getArmor() << " total)\n";
+                UIHelper::pause(200);
             } else {
-                std::cout << Color::MAGENTA << "Stone Colossus strikes!" << Color::RESET << "\n";
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Stone Colossus strikes!" + Color::RESET + "\n");
+                UIHelper::pause(200);
                 doAttack(atk + 4, false);
             }
             break;
 
         case BossType::VILE_WITCH:
             if (roll < 30) {
-                std::cout << Color::MAGENTA << "Vile Witch attacks!" << Color::RESET << "\n";
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Vile Witch attacks!" + Color::RESET + "\n");
+                UIHelper::pause(200);
                 doAttack(atk, false);
             } else if (roll < 70) {
                 playerStatus.apply(StatusType::POISON, 4);
                 playerStatus.apply(StatusType::BURN, 2);
-                std::cout << Color::BOLD << Color::MAGENTA << "Vile Witch casts PLAGUE!" << Color::RESET
-                          << " You gain " << Color::POISON_CLR << "Poison 4" << Color::RESET
-                          << " and " << Color::BURN_CLR << "Burn 2" << Color::RESET << "!\n";
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts PLAGUE!" + Color::RESET
+                    + " You gain " + Color::POISON_CLR + "Poison 4" + Color::RESET
+                    + " and " + Color::BURN_CLR + "Burn 2" + Color::RESET + "!\n");
+                UIHelper::pause(350);
             } else if (roll < 85) {
                 int healAmt = 20;
                 enemy.heal(healAmt);
@@ -498,25 +520,30 @@ void Game::bossAction() {
                           << healAmt << " HP!" << Color::RESET << " ("
                           << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                UIHelper::pause(250);
             } else {
                 playerStatus.apply(StatusType::POISON, 6);
-                std::cout << Color::BOLD << Color::MAGENTA << "Vile Witch casts TOXIC ERUPTION!" << Color::RESET
-                          << " You gain " << Color::POISON_CLR << "Poison 6" << Color::RESET << "!\n";
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
+                    + " You gain " + Color::POISON_CLR + "Poison 6" + Color::RESET + "!\n");
+                UIHelper::pause(350);
             }
             break;
 
         case BossType::WARLORD:
             if (roll < 15) {
                 playerStatus.apply(StatusType::WEAK, 3);
-                std::cout << Color::BOLD << Color::MAGENTA << "Warlord roars a BATTLECRY!" << Color::RESET
-                          << " You are " << Color::WEAK_CLR << "Weakened 3" << Color::RESET << "!\n";
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Warlord roars a BATTLECRY!" + Color::RESET
+                    + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
+                UIHelper::pause(350);
             }
-            std::cout << Color::MAGENTA << "Warlord attacks!" << Color::RESET << "\n";
+            UIHelper::typeWrite(std::string(Color::MAGENTA) + "Warlord attacks!" + Color::RESET + "\n");
+            UIHelper::pause(200);
             doAttack(atk, false);
             if (enemy.getBonusAttack() < 6) {
                 enemy.addBonusAttack(1);
                 std::cout << Color::MAGENTA << "Warlord grows stronger!" << Color::RESET
                           << " (total bonus +" << Color::RED << enemy.getBonusAttack() << Color::RESET << " attack)\n";
+                UIHelper::pause(200);
             }
             break;
 
@@ -619,6 +646,7 @@ void Game::restSite() {
 
     if (input == "rest") {
         playerHealth = std::min(maxPlayerHealth, playerHealth + healAmount);
+        Audio::playSFX("heal");
         std::cout << Color::HEAL << "You rest and recover " << healAmount << " HP." << Color::RESET
                   << " (HP: " << hpColor(playerHealth, maxPlayerHealth) << playerHealth << "/" << maxPlayerHealth << Color::RESET << ")\n";
     } else if (input == "forge") {
@@ -635,6 +663,7 @@ void Game::restSite() {
             if (idx < 0) {
                 std::cout << "Cancelled.\n";
             } else if (playerDeck.upgradeCardAt(idx)) {
+                Audio::playSFX("upgrade");
                 std::cout << "Card upgraded!\n";
             } else {
                 std::cout << "Invalid choice.\n";
@@ -654,7 +683,10 @@ void Game::restSite() {
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
-    std::cout << "\n" << Color::BOLD << Color::GREEN << "========== ENCOUNTER WON! ==========" << Color::RESET << "\n";
+    Audio::playSFX("win");
+    UIHelper::pause(300);
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::GREEN + "========== ENCOUNTER WON! ==========" + Color::RESET + "\n");
+    UIHelper::pause(300);
     std::cout << "Enemies Defeated: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
 
     // Boss reward is always 2 rare cards; normal encounters use weighted rewards

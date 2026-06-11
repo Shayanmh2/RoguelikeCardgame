@@ -7,9 +7,9 @@
 #include <thread>
 #include <string>
 
-static std::atomic<bool> mp3Running{false};
+static std::atomic<bool> bgmRunning{false};
 
-// Returns the directory that contains the running exe (with trailing backslash).
+// Returns the directory containing the running exe (with trailing backslash).
 std::string Audio::exeDir() {
     char buf[MAX_PATH];
     GetModuleFileNameA(nullptr, buf, MAX_PATH);
@@ -22,9 +22,9 @@ static bool fileExists(const std::string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-// MP3 loop thread: opens, plays (blocking), closes, repeats.
-static void mp3Loop(const std::string& path) {
-    while (mp3Running) {
+// BGM thread: opens file with "bgm" MCI alias, plays (blocking), closes, repeats.
+static void bgmLoop(const std::string& path) {
+    while (bgmRunning) {
         std::string openCmd = "open \"" + path + "\" alias bgm";
         if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) break;
         mciSendStringA("play bgm wait", nullptr, 0, nullptr); // blocks until track ends
@@ -33,37 +33,42 @@ static void mp3Loop(const std::string& path) {
 }
 
 void Audio::playBGM() {
-    std::string dir = exeDir();
+    std::string soundsDir = exeDir() + "sounds\\";
 
-    // Prefer WAV — PlaySound loops seamlessly with zero gap.
-    std::string wav = dir + "bgm.wav";
-    if (fileExists(wav)) {
-        PlaySoundA(wav.c_str(), nullptr, SND_FILENAME | SND_LOOP | SND_ASYNC);
-        return;
-    }
+    // Prefer WAV, fall back to MP3 — both use the MCI thread loop.
+    std::string wav = soundsDir + "bgm.wav";
+    std::string mp3 = soundsDir + "bgm.mp3";
 
-    // Fall back to MP3 via MCI on a background thread.
-    std::string mp3 = dir + "bgm.mp3";
-    if (fileExists(mp3)) {
-        mp3Running = true;
-        std::thread(mp3Loop, mp3).detach();
-    }
-    // No file found — run silently.
+    std::string bgmPath;
+    if      (fileExists(wav)) bgmPath = wav;
+    else if (fileExists(mp3)) bgmPath = mp3;
+    else return; // no BGM file found — run silently
+
+    bgmRunning = true;
+    std::thread(bgmLoop, bgmPath).detach();
 }
 
 void Audio::stopBGM() {
-    // Stop WAV (no-op if not playing).
-    PlaySoundA(nullptr, nullptr, 0);
-
-    // Stop MP3 thread.
-    mp3Running = false;
+    bgmRunning = false;
     mciSendStringA("stop bgm", nullptr, 0, nullptr);
     mciSendStringA("close bgm", nullptr, 0, nullptr);
 }
 
+void Audio::playSFX(const std::string& name) {
+    std::string path = exeDir() + "sounds\\" + name + ".wav";
+    if (!fileExists(path)) return;
+
+    // Close any previously playing SFX, then open and play async.
+    mciSendStringA("close sfx", nullptr, 0, nullptr);
+    std::string openCmd = "open \"" + path + "\" alias sfx";
+    if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) return;
+    mciSendStringA("play sfx", nullptr, 0, nullptr); // non-blocking
+}
+
 #else
-// Non-Windows stub — compiles but does nothing.
+// Non-Windows stubs — compile cleanly but do nothing.
 std::string Audio::exeDir() { return ""; }
-void Audio::playBGM()  {}
-void Audio::stopBGM()  {}
+void Audio::playBGM()                        {}
+void Audio::stopBGM()                        {}
+void Audio::playSFX(const std::string&)      {}
 #endif
