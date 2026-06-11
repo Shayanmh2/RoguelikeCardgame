@@ -1,4 +1,5 @@
 #include "RewardPool.h"
+#include "Colors.h"
 #include <random>
 #include <iostream>
 #include <filesystem>
@@ -130,14 +131,24 @@ std::vector<Card> RewardPool::generateRareRewards(int count) {
 }
 
 void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
-    std::cout << "\n========== CARD REWARDS ==========\n";
-    std::cout << "Choose 1 card to add to your deck:\n\n";
-    
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "========== CARD REWARDS ==========" << Color::RESET << "\n";
+    std::cout << Color::DIM << "Choose 1 card to add to your deck:\n\n" << Color::RESET;
+
     for (size_t i = 0; i < choices.size(); ++i) {
-        std::cout << (i + 1) << ". [" << choices[i].getTypeString() << "] " << choices[i].getName() << "\n";
-        std::cout << "   Cost: " << choices[i].getCost() << " | Value: " << choices[i].getValue() << "\n";
-        std::cout << "   " << choices[i].getDescription() << "\n\n";
+        const Card& c = choices[i];
+
+        const char* typeColor = Color::WHITE;
+        if      (c.getTypeString() == "ATTACK")  typeColor = Color::CARD_ATTACK;
+        else if (c.getTypeString() == "DEFEND")  typeColor = Color::CARD_DEFEND;
+        else if (c.getTypeString() == "SPECIAL") typeColor = Color::CARD_SPECIAL;
+
+        std::cout << "  " << Color::BOLD << (i + 1) << "." << Color::RESET
+                  << " [" << typeColor << c.getTypeString() << Color::RESET << "] "
+                  << Color::BOLD << Color::WHITE << c.getName() << Color::RESET << "\n";
+        std::cout << "     Cost: " << Color::ENERGY_CLR << c.getCost() << Color::RESET
+                  << " | Value: " << Color::GREEN << c.getValue() << Color::RESET << "\n";
+        std::cout << "     " << Color::DIM << c.getDescription() << Color::RESET << "\n\n";
     }
-    
-    std::cout << "Enter your choice (1-" << choices.size() << "):\n";
+
+    std::cout << "Enter your choice (1-" << choices.size() << "): ";
 }
