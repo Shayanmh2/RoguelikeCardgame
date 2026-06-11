@@ -25,14 +25,18 @@ echo  Build successful!
 echo  cardgame.exe is in this folder.
 echo.
 echo  Create a sounds\ folder next to the exe and
-echo  drop audio files in there:
-echo    sounds\bgm.wav   (or bgm.mp3)  - background music
-echo    sounds\attack.wav              - player attack
-echo    sounds\hit.wav                 - taking damage
-echo    sounds\win.wav                 - encounter won
-echo    sounds\lose.wav                - game over
-echo    sounds\heal.wav                - rest site heal
-echo    sounds\upgrade.wav             - card upgrade
+echo  drop audio files in there (.wav or .mp3):
+echo    bgm      - background music (loops)
+echo    attack   - player plays an attack card
+echo    dead     - enemy killed
+echo    hit      - enemy hits you
+echo    defend   - player plays a defend card
+echo    special  - status effect applied
+echo    boss     - boss encounter begins
+echo    win      - encounter won
+echo    lose     - game over
+echo    heal     - rest site heal
+echo    upgrade  - card upgrade / forge
 echo ================================
 echo.
 pause

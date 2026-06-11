@@ -125,21 +125,28 @@ void Game::playCardFromHand(int index) {
             int weakPenalty = playerStatus.getWeakPenalty();
             int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() - weakPenalty);
             int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
+            int hpBefore = enemy.getHealth();
             enemy.takeDamage(damageDealt);
-            Audio::playSFX("attack");
-            std::cout << "  " << Color::PLAYER_ATTACK << "Dealt " << damageDealt << " damage to enemy!"
+            int hpLost = hpBefore - enemy.getHealth();
+            int armorBlocked = damageDealt - hpLost;
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << "  " << Color::PLAYER_ATTACK << "Dealt " << hpLost << " damage to enemy!"
                       << Color::RESET << " (Enemy HP: "
                       << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
             if (weakPenalty > 0)
                 std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
+            if (armorBlocked > 0)
+                std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
             std::cout << "\n";
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus();
             playerArmor += bonusArmor;
+            Audio::playSFX("defend");
             std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
                       << Color::RESET << " (Total: " << Color::ARMOR_CLR << playerArmor << Color::RESET << ")\n";
         } else if (playedCard.getType() == CardType::SPECIAL) {
+            Audio::playSFX("special");
             applyCardEffect(playedCard);
         }
     } catch (const std::out_of_range& e) {
@@ -159,7 +166,7 @@ void Game::enemyTurn() {
                   << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
         UIHelper::pause(250);
-        if (!enemy.isAlive()) return;
+        if (!enemy.isAlive()) { Audio::playSFX("dead"); return; }
     }
     int burnDmg = enemy.processBurn();
     if (burnDmg > 0) {
@@ -169,7 +176,7 @@ void Game::enemyTurn() {
                   << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << " HP)\n";
         UIHelper::pause(250);
-        if (!enemy.isAlive()) return;
+        if (!enemy.isAlive()) { Audio::playSFX("dead"); return; }
     }
     if (enemy.processStun()) {
         UIHelper::typeWrite(std::string(Color::STUN_CLR) + "Enemy is STUNNED and loses their turn!" + Color::RESET + "\n");
@@ -232,6 +239,7 @@ void Game::enemyTurn() {
                 doDefend(std::max(1, def - 1));
             } else {
                 playerStatus.apply(StatusType::WEAK, 2);
+                Audio::playSFX("special");
                 std::cout << Color::WEAK_CLR << "Enemy fires a crippling shot! You are Weakened for 2 turns." << Color::RESET << "\n";
             }
             break;
@@ -247,9 +255,11 @@ void Game::enemyTurn() {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
             } else if (roll < 40) {
                 playerStatus.apply(StatusType::POISON, 3);
+                Audio::playSFX("special");
                 std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! You are poisoned for 3 stacks." << Color::RESET << "\n";
             } else if (roll < 60) {
                 playerStatus.apply(StatusType::BURN, 2);
+                Audio::playSFX("special");
                 std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
             } else {
                 doAttack(atk + 1, false);
@@ -381,13 +391,12 @@ void Game::handleInput() {
         try {
             int index = std::stoi(input.substr(5));
             playCardFromHand(index);
-            checkGameOver();
+            if (checkGameOver()) return; // enemy died — outer loop handles win/loss
 
             // Auto-end turn if out of plays
             if (playerEnergy <= 0 && playerTurnActive) {
                 std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
                 endPlayerTurn();
-                checkGameOver();
             }
         } catch (const std::exception&) {
             std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
@@ -509,6 +518,7 @@ void Game::bossAction() {
             } else if (roll < 70) {
                 playerStatus.apply(StatusType::POISON, 4);
                 playerStatus.apply(StatusType::BURN, 2);
+                Audio::playSFX("special");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts PLAGUE!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 4" + Color::RESET
                     + " and " + Color::BURN_CLR + "Burn 2" + Color::RESET + "!\n");
@@ -523,6 +533,7 @@ void Game::bossAction() {
                 UIHelper::pause(250);
             } else {
                 playerStatus.apply(StatusType::POISON, 6);
+                Audio::playSFX("special");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 6" + Color::RESET + "!\n");
                 UIHelper::pause(350);
@@ -532,6 +543,7 @@ void Game::bossAction() {
         case BossType::WARLORD:
             if (roll < 15) {
                 playerStatus.apply(StatusType::WEAK, 3);
+                Audio::playSFX("special");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Warlord roars a BATTLECRY!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
                 UIHelper::pause(350);
@@ -616,6 +628,7 @@ void Game::startEncounter() {
     currentRun.displayRunStats();
 
     if (currentRun.isBossEncounter()) {
+        Audio::playSFX("boss");
         UIHelper::printBossHeader(currentRun.getCurrentEncounter(), enemy.getName());
     } else {
         UIHelper::printEncounterHeader(currentRun.getCurrentEncounter(),
