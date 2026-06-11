@@ -3,6 +3,19 @@
 #include <iostream>
 #include <iomanip>
 #include <cmath>
+#include <cctype>
+
+#ifdef _WIN32
+#define NOMINMAX
+#include <windows.h>
+static void platSleep(int ms) { Sleep(ms); }
+#else
+#include <thread>
+#include <chrono>
+static void platSleep(int ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+#endif
 
 void UIHelper::printLine(int width, char c) {
     std::cout << Color::DIM;
@@ -170,4 +183,42 @@ void UIHelper::printGameOverScreen(bool won, int encountersWon, int cardsCollect
     std::cout << "  Encounters Won:  " << Color::YELLOW << encountersWon  << Color::RESET << "\n";
     std::cout << "  Cards Collected: " << Color::CYAN   << cardsCollected << Color::RESET << "\n";
     printLine(60, '-');
+}
+
+void UIHelper::pause(int ms) {
+    platSleep(ms);
+}
+
+void UIHelper::typeWrite(const std::string& text, int msPerChar) {
+    size_t i = 0;
+    while (i < text.size()) {
+        unsigned char c = (unsigned char)text[i];
+
+        if (c == '\033' && i + 1 < text.size() && (unsigned char)text[i + 1] == '[') {
+            // ANSI escape sequence — print the whole thing atomically (no delay).
+            size_t j = i + 2;
+            while (j < text.size() && !std::isalpha((unsigned char)text[j])) j++;
+            if (j < text.size()) j++; // include the terminating letter
+            for (size_t k = i; k < j; k++) std::cout << text[k];
+            std::cout.flush();
+            i = j;
+        } else if (c >= 0xC0) {
+            // UTF-8 multi-byte lead byte — print entire codepoint atomically.
+            size_t j = i + 1;
+            while (j < text.size() &&
+                   (unsigned char)text[j] >= 0x80 &&
+                   (unsigned char)text[j] <  0xC0) j++;
+            for (size_t k = i; k < j; k++) std::cout << text[k];
+            std::cout.flush();
+            if (msPerChar > 0) platSleep(msPerChar);
+            i = j;
+        } else {
+            std::cout << (char)c;
+            std::cout.flush();
+            // Only delay on visible characters (not spaces, newlines, tabs).
+            if (c != ' ' && c != '\n' && c != '\r' && c != '\t' && msPerChar > 0)
+                platSleep(msPerChar);
+            i++;
+        }
+    }
 }
