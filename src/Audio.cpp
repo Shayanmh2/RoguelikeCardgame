@@ -55,8 +55,11 @@ void Audio::stopBGM() {
 }
 
 void Audio::playSFX(const std::string& name) {
-    std::string path = exeDir() + "sounds\\" + name + ".wav";
-    if (!fileExists(path)) return;
+    std::string dir = exeDir() + "sounds\\";
+    std::string path;
+    if      (fileExists(dir + name + ".wav")) path = dir + name + ".wav";
+    else if (fileExists(dir + name + ".mp3")) path = dir + name + ".mp3";
+    else return; // no file found — silent
 
     // Close any previously playing SFX, then open and play async.
     mciSendStringA("close sfx", nullptr, 0, nullptr);
