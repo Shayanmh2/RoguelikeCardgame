@@ -42,11 +42,10 @@ bool Card::isUpgraded() const {
 }
 
 void Card::upgrade() {
-    if (upgraded) return;
     value += 3;
     if (cost > 0) cost--;
     name += "+";
-    upgraded = true;
+    upgraded = true; // marks "at least once upgraded" for forge display
 }
 
 void Card::display() const {

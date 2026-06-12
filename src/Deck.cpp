@@ -1,5 +1,6 @@
 #include "Deck.h"
 #include "UIHelper.h"
+#include "Colors.h"
 #include <algorithm>
 #include <random>
 #include <iostream>
@@ -24,10 +25,11 @@ Card Deck::drawCard() {
         discard.clear();
         shuffle();
     }
-    
+
     Card drawnCard = cards.back();
     cards.pop_back();
     hand.push_back(drawnCard);
+    handUsed.push_back(false);
     return drawnCard;
 }
 
@@ -45,6 +47,7 @@ void Deck::resetDeck() {
         discard.push_back(card);
     }
     hand.clear();
+    handUsed.clear();
 }
 
 int Deck::handSize() const {
@@ -71,16 +74,30 @@ Card Deck::playCard(int index) {
         throw std::out_of_range("Invalid card index");
     }
     Card card = hand[index];
-    hand.erase(hand.begin() + index);
-    discard.push_back(card);
+    handUsed[index] = true; // mark slot — card stays in hand until resetDeck()
     return card;
 }
 
-void Deck::displayHand() const {
+bool Deck::isCardUsed(int index) const {
+    if (index < 0 || index >= static_cast<int>(handUsed.size())) return true;
+    return handUsed[index];
+}
+
+void Deck::displayHand(int weakPenalty, int damageBonus, int armorBonus) const {
     UIHelper::printCardHeader(hand.size());
     for (size_t i = 0; i < hand.size(); ++i) {
-        UIHelper::printCardRow(i + 1, hand[i].getTypeString(), hand[i].getName(), 
-                               hand[i].getCost(), hand[i].getValue(), hand[i].getDescription());
+        if (i < handUsed.size() && handUsed[i]) {
+            std::cout << "  " << Color::DIM << (i + 1) << ". [USED]" << Color::RESET << "\n\n";
+            continue;
+        }
+        const Card& c = hand[i];
+        int dispVal = c.getValue();
+        if (c.getType() == CardType::ATTACK)
+            dispVal = std::max(0, dispVal + damageBonus - weakPenalty);
+        else if (c.getType() == CardType::DEFEND)
+            dispVal = dispVal + armorBonus;
+        UIHelper::printCardRow(static_cast<int>(i) + 1, c.getTypeString(), c.getName(),
+                               c.getCost(), dispVal, c.getDescription());
     }
     UIHelper::printBoxEnd();
 }
