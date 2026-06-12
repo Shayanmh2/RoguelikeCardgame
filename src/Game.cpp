@@ -6,7 +6,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(2), maxEnergy(2), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
 
 void Game::init() {
     // Initialize starting deck (10 cards total)
@@ -15,11 +15,11 @@ void Game::init() {
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
     playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
-    playerDeck.addCard(Card("Defend", "Gain 5 armor", CardType::DEFEND, 1, 5));
+    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
+    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
+    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
+    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
+    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     
     // Apply upgrades (bonus starting cards)
     applyUpgrades();
@@ -379,7 +379,7 @@ void Game::handleInput() {
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, draw, play INDEX, end, quit\n";
+        std::cout << "Commands: hand, status, play INDEX, discard INDEX, end, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
@@ -401,6 +401,18 @@ void Game::handleInput() {
         } catch (const std::exception&) {
             std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
         }
+    } else if (input.size() >= 8 && input.substr(0, 7) == "discard") {
+        try {
+            int idx = std::stoi(input.substr(8)) - 1;
+            if (idx < 0 || idx >= playerDeck.handSize()) {
+                std::cout << "Invalid card index. Type 'hand' to see your cards.\n";
+            } else {
+                Card c = playerDeck.playCard(idx); // moves to discard pile, no energy cost
+                std::cout << Color::DIM << "Discarded [" << c.getName() << "]." << Color::RESET << "\n";
+            }
+        } catch (...) {
+            std::cout << "Usage: discard INDEX  (e.g. discard 2)\n";
+        }
     } else if (input == "end") {
         if (!playerTurnActive) {
             std::cout << "It's not your turn!\n";
@@ -408,6 +420,8 @@ void Game::handleInput() {
         }
         endPlayerTurn();
         checkGameOver();
+    } else if (!input.empty()) {
+        std::cout << Color::DIM << "Unknown command. Type 'help' for a list." << Color::RESET << "\n";
     }
 }
 
@@ -567,7 +581,7 @@ void Game::bossAction() {
 void Game::offerBossReward() {
     std::cout << "\n========== BOSS REWARD ==========\n";
     std::cout << "Choose 1 of 2 RARE cards:\n\n";
-    std::vector<Card> rewards = rewardPool.generateRareRewards(2);
+    std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy);
     rewardPool.displayRewardChoices(rewards);
 
     std::string choice;
@@ -648,8 +662,8 @@ void Game::nextEncounter() {
 
 void Game::restSite() {
     std::cout << "\n" << Color::BOLD << Color::CYAN << "========== REST SITE ==========" << Color::RESET << "\n";
-    int healAmount = maxPlayerHealth * 30 / 100;
-    std::cout << "  [rest]  - Heal " << healAmount << " HP  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
+    int healAmount = maxPlayerHealth - playerHealth;
+    std::cout << "  [rest]  - Full heal  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
     std::cout << "  [forge] - Upgrade a card (+3 value, -1 cost)\n";
     std::cout << "  [skip]  - Press on without resting\n";
     std::cout << "> ";
@@ -658,10 +672,9 @@ void Game::restSite() {
     std::getline(std::cin, input);
 
     if (input == "rest") {
-        playerHealth = std::min(maxPlayerHealth, playerHealth + healAmount);
+        playerHealth = maxPlayerHealth;
         Audio::playSFX("heal");
-        std::cout << Color::HEAL << "You rest and recover " << healAmount << " HP." << Color::RESET
-                  << " (HP: " << hpColor(playerHealth, maxPlayerHealth) << playerHealth << "/" << maxPlayerHealth << Color::RESET << ")\n";
+        std::cout << Color::HEAL << "You rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
     } else if (input == "forge") {
         if (playerDeck.totalCards() == 0) {
             std::cout << "Your deck is empty — nothing to upgrade.\n";
@@ -730,7 +743,7 @@ void Game::handleEncounterWin() {
 void Game::offerCardReward() {
     // Generate 3 reward cards with rarity boost if active
     bool rarityBoost = upgrades.isActive(6);  // Rarity Boost upgrade (index 6)
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost);
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy);
     
     rewardPool.displayRewardChoices(rewards);
     
@@ -837,8 +850,8 @@ void Game::run() {
                 maxPlayerHealth = 100;  // Reset before applying upgrades
                 playerHealth = maxPlayerHealth;
                 playerArmor = 0;
-                playerEnergy = 2;
-                maxEnergy = 2;
+                playerEnergy = 3;
+                maxEnergy = 3;
                 turnNumber = 1;
                 playerTurnActive = true;
                 playerDeck = Deck();

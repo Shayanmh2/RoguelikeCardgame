@@ -40,27 +40,37 @@ void RewardPool::initializeCardPool() {
     } else {
         std::cout << "Warning: config/cards.json not found. Using default cards.\n";
         
-        // Fallback to hardcoded cards
-        commonCards.push_back(Card("Strike",       "Deal 5 damage",         CardType::ATTACK,  1, 5));
-        commonCards.push_back(Card("Strike",       "Deal 5 damage",         CardType::ATTACK,  1, 5));
-        commonCards.push_back(Card("Defend",       "Gain 5 armor",          CardType::DEFEND,  1, 5));
-        commonCards.push_back(Card("Defend",       "Gain 5 armor",          CardType::DEFEND,  1, 5));
-        commonCards.push_back(Card("Bash",         "Deal 8 damage",         CardType::ATTACK,  2, 8));
-        commonCards.push_back(Card("Bash",         "Deal 8 damage",         CardType::ATTACK,  2, 8));
-        // Common SPECIAL cards
-        commonCards.push_back(Card("Poison Dart",  "Apply 3 Poison stacks", CardType::SPECIAL, 1, 3, CardEffect::POISON));
-        commonCards.push_back(Card("Torch",        "Apply 2 Burn (5 dmg x2 turns)", CardType::SPECIAL, 1, 2, CardEffect::BURN));
-        commonCards.push_back(Card("Stun Strike",  "Stun enemy for 1 turn", CardType::SPECIAL, 2, 1, CardEffect::STUN));
-        commonCards.push_back(Card("Weaken",       "Apply 3 Weak (-2 atk x3 turns)", CardType::SPECIAL, 1, 3, CardEffect::WEAK));
+        // Fallback to hardcoded cards.
+        // Starter cards (Strike / Defend / Bash) are intentionally excluded here —
+        // the player already has them and getting duplicates as rewards feels bad.
 
-        rareCards.push_back(Card("Power Strike",   "Deal 12 damage",        CardType::ATTACK,  3, 12));
-        rareCards.push_back(Card("Iron Skin",      "Gain 12 armor",         CardType::DEFEND,  3, 12));
-        rareCards.push_back(Card("Cleave",         "Deal 15 damage",        CardType::ATTACK,  3, 15));
-        // Rare SPECIAL cards
-        rareCards.push_back(Card("Toxic Cloud",    "Apply 6 Poison stacks", CardType::SPECIAL, 2, 6, CardEffect::POISON));
-        rareCards.push_back(Card("Inferno",        "Apply 4 Burn (5 dmg x4 turns)", CardType::SPECIAL, 3, 4, CardEffect::BURN));
-        rareCards.push_back(Card("Paralysis",      "Stun enemy for 1 turn", CardType::SPECIAL, 3, 1, CardEffect::STUN));
-        rareCards.push_back(Card("Shatter",        "Apply 5 Weak (-2 atk x5 turns)", CardType::SPECIAL, 2, 5, CardEffect::WEAK));
+        // Common ATTACK
+        commonCards.push_back(Card("Quick Jab",    "Deal 3 damage",                    CardType::ATTACK,  0, 3));
+        commonCards.push_back(Card("Slice",        "Deal 6 damage",                    CardType::ATTACK,  1, 6));
+        commonCards.push_back(Card("Heavy Blow",   "Deal 10 damage",                   CardType::ATTACK,  2, 10));
+        commonCards.push_back(Card("Reckless Swing","Deal 13 damage",                  CardType::ATTACK,  3, 13));
+        // Common DEFEND
+        commonCards.push_back(Card("Iron Guard",   "Gain 8 armor",                     CardType::DEFEND,  1, 8));
+        commonCards.push_back(Card("Fortify",      "Gain 14 armor",                    CardType::DEFEND,  2, 14));
+        commonCards.push_back(Card("Bulwark",      "Gain 20 armor",                    CardType::DEFEND,  3, 20));
+        // Common SPECIAL
+        commonCards.push_back(Card("Poison Dart",  "Apply 3 Poison stacks",            CardType::SPECIAL, 1, 3, CardEffect::POISON));
+        commonCards.push_back(Card("Torch",        "Apply 2 Burn (5 dmg x2 turns)",    CardType::SPECIAL, 1, 2, CardEffect::BURN));
+        commonCards.push_back(Card("Stun Strike",  "Stun enemy for 1 turn",            CardType::SPECIAL, 2, 1, CardEffect::STUN));
+        commonCards.push_back(Card("Weaken",       "Apply 3 Weak (-2 atk x3 turns)",   CardType::SPECIAL, 1, 3, CardEffect::WEAK));
+
+        // Rare ATTACK
+        rareCards.push_back(Card("Power Strike",   "Deal 15 damage",                   CardType::ATTACK,  2, 15));
+        rareCards.push_back(Card("Cleave",         "Deal 18 damage",                   CardType::ATTACK,  3, 18));
+        rareCards.push_back(Card("Annihilate",     "Deal 22 damage",                   CardType::ATTACK,  3, 22));
+        // Rare DEFEND
+        rareCards.push_back(Card("Iron Skin",      "Gain 18 armor",                    CardType::DEFEND,  2, 18));
+        rareCards.push_back(Card("Diamond Wall",   "Gain 25 armor",                    CardType::DEFEND,  3, 25));
+        // Rare SPECIAL
+        rareCards.push_back(Card("Toxic Cloud",    "Apply 6 Poison stacks",            CardType::SPECIAL, 2, 6, CardEffect::POISON));
+        rareCards.push_back(Card("Inferno",        "Apply 4 Burn (5 dmg x4 turns)",    CardType::SPECIAL, 2, 4, CardEffect::BURN));
+        rareCards.push_back(Card("Paralysis",      "Stun enemy for 2 turns",           CardType::SPECIAL, 2, 2, CardEffect::STUN));
+        rareCards.push_back(Card("Shatter",        "Apply 5 Weak (-2 atk x5 turns)",   CardType::SPECIAL, 2, 5, CardEffect::WEAK));
     }
 }
 
@@ -85,7 +95,7 @@ std::vector<Card> RewardPool::generateRewardChoices(int count) {
     return choices;
 }
 
-std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost) {
+std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost, int maxCost) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -94,9 +104,10 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     if (rarityBoost) rareChance += 20;
     if (rareChance > 80) rareChance = 80;
 
-    // Local copies so we can remove without touching the pool
-    std::vector<Card> commonPool = commonCards;
-    std::vector<Card> rarePool = rareCards;
+    // Local copies filtered to cards the player can actually play.
+    std::vector<Card> commonPool, rarePool;
+    for (const auto& c : commonCards) if (c.getCost() <= maxCost) commonPool.push_back(c);
+    for (const auto& c : rareCards)   if (c.getCost() <= maxCost) rarePool.push_back(c);
 
     std::uniform_int_distribution<> rollDis(1, 100);
 
@@ -115,12 +126,13 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     return choices;
 }
 
-std::vector<Card> RewardPool::generateRareRewards(int count) {
+std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    std::vector<Card> pool = rareCards;
+    std::vector<Card> pool;
+    for (const auto& c : rareCards) if (c.getCost() <= maxCost) pool.push_back(c);
     for (int i = 0; i < count && !pool.empty(); ++i) {
         std::uniform_int_distribution<> dis(0, (int)pool.size() - 1);
         int index = dis(gen);
@@ -145,8 +157,10 @@ void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
         std::cout << "  " << Color::BOLD << (i + 1) << "." << Color::RESET
                   << " [" << typeColor << c.getTypeString() << Color::RESET << "] "
                   << Color::BOLD << Color::WHITE << c.getName() << Color::RESET << "\n";
+        const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                            : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
         std::cout << "     Cost: " << Color::ENERGY_CLR << c.getCost() << Color::RESET
-                  << " | Value: " << Color::GREEN << c.getValue() << Color::RESET << "\n";
+                  << " | " << valLabel << ": " << Color::GREEN << c.getValue() << Color::RESET << "\n";
         std::cout << "     " << Color::DIM << c.getDescription() << Color::RESET << "\n\n";
     }
 
