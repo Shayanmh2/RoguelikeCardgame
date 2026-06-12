@@ -143,11 +143,13 @@ void UIHelper::printCardRow(int index, const std::string& type, const std::strin
     else if (type == "DEFEND")  typeColor = Color::CARD_DEFEND;
     else if (type == "SPECIAL") typeColor = Color::CARD_SPECIAL;
 
+    const char* valLabel = (type == "ATTACK") ? "DMG"
+                        : (type == "DEFEND") ? "ARM" : "STK";
     std::cout << "  " << Color::DIM << index << "." << Color::RESET
               << " [" << typeColor << std::setw(6) << std::left << type << Color::RESET << "] "
               << Color::BOLD << Color::CARD_NAME << std::setw(18) << std::left << name << Color::RESET
               << " (Cost: " << Color::ENERGY_CLR << cost << Color::RESET
-              << ", Val: "  << Color::GREEN      << value << Color::RESET << ")\n";
+              << ", " << valLabel << ": " << Color::GREEN << value << Color::RESET << ")\n";
     std::cout << "     " << Color::DIM << description << Color::RESET << "\n\n";
 }
 
