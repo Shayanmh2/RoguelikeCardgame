@@ -52,16 +52,15 @@ int Run::getEnemyAttack() const {
 }
 
 int Run::getEnemyDefense() const {
-    // Defense scales every 3 encounters to make late game harder
-    return 4 + (currentEncounter - 1) / 3;
+    return 2 + (currentEncounter - 1) / 5; // gentler ramp, starts at 2
 }
 
 bool Run::isBossEncounter() const {
-    return currentEncounter % 5 == 0;
+    return currentEncounter % 8 == 0; // first boss at encounter 8
 }
 
 int Run::getBossIndex() const {
-    return ((currentEncounter / 5) - 1) % 3;
+    return ((currentEncounter / 8) - 1) % 3;
 }
 
 std::string Run::getDifficultyTier() const {

@@ -27,6 +27,8 @@ private:
     bool playerTurnActive;
     bool running;
     bool inEncounter;
+    int equipDamageBonus;
+    int equipArmorBonus;
     
     int calculateDamage(int attackValue, int defenseValue) const;
     void playerAttack(int cardValue, int cost);
@@ -51,6 +53,7 @@ private:
     void  offerBossReward();
     void displayRunStats() const;
     void offerCardReward();
+    void offerEquipmentDrop();
     void applyUpgrades();
     void selectUpgrades();
 

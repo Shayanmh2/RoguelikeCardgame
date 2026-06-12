@@ -44,33 +44,33 @@ void RewardPool::initializeCardPool() {
         // Starter cards (Strike / Defend / Bash) are intentionally excluded here —
         // the player already has them and getting duplicates as rewards feels bad.
 
-        // Common ATTACK
-        commonCards.push_back(Card("Quick Jab",    "Deal 3 damage",                    CardType::ATTACK,  0, 3));
-        commonCards.push_back(Card("Slice",        "Deal 6 damage",                    CardType::ATTACK,  1, 6));
-        commonCards.push_back(Card("Heavy Blow",   "Deal 10 damage",                   CardType::ATTACK,  2, 10));
-        commonCards.push_back(Card("Reckless Swing","Deal 13 damage",                  CardType::ATTACK,  3, 13));
+        // Common ATTACK  (each cost tier clearly outperforms spamming the tier below)
+        commonCards.push_back(Card("Quick Jab",     "Deal 4 damage",                    CardType::ATTACK,  0, 4));
+        commonCards.push_back(Card("Slice",         "Deal 9 damage",                    CardType::ATTACK,  1, 9));
+        commonCards.push_back(Card("Heavy Blow",    "Deal 16 damage",                   CardType::ATTACK,  2, 16));
+        commonCards.push_back(Card("Reckless Swing","Deal 25 damage",                   CardType::ATTACK,  3, 25));
         // Common DEFEND
-        commonCards.push_back(Card("Iron Guard",   "Gain 8 armor",                     CardType::DEFEND,  1, 8));
-        commonCards.push_back(Card("Fortify",      "Gain 14 armor",                    CardType::DEFEND,  2, 14));
-        commonCards.push_back(Card("Bulwark",      "Gain 20 armor",                    CardType::DEFEND,  3, 20));
+        commonCards.push_back(Card("Iron Guard",    "Gain 9 armor",                     CardType::DEFEND,  1, 9));
+        commonCards.push_back(Card("Fortify",       "Gain 16 armor",                    CardType::DEFEND,  2, 16));
+        commonCards.push_back(Card("Bulwark",       "Gain 25 armor",                    CardType::DEFEND,  3, 25));
         // Common SPECIAL
-        commonCards.push_back(Card("Poison Dart",  "Apply 3 Poison stacks",            CardType::SPECIAL, 1, 3, CardEffect::POISON));
-        commonCards.push_back(Card("Torch",        "Apply 2 Burn (5 dmg x2 turns)",    CardType::SPECIAL, 1, 2, CardEffect::BURN));
-        commonCards.push_back(Card("Stun Strike",  "Stun enemy for 1 turn",            CardType::SPECIAL, 2, 1, CardEffect::STUN));
-        commonCards.push_back(Card("Weaken",       "Apply 3 Weak (-2 atk x3 turns)",   CardType::SPECIAL, 1, 3, CardEffect::WEAK));
+        commonCards.push_back(Card("Poison Dart",   "Apply 3 Poison stacks",            CardType::SPECIAL, 1, 3, CardEffect::POISON));
+        commonCards.push_back(Card("Torch",         "Apply 2 Burn (5 dmg x2 turns)",    CardType::SPECIAL, 1, 2, CardEffect::BURN));
+        commonCards.push_back(Card("Stun Strike",   "Stun enemy for 1 turn",            CardType::SPECIAL, 2, 1, CardEffect::STUN));
+        commonCards.push_back(Card("Weaken",        "Apply 3 Weak (-2 atk x3 turns)",   CardType::SPECIAL, 1, 3, CardEffect::WEAK));
 
-        // Rare ATTACK
-        rareCards.push_back(Card("Power Strike",   "Deal 15 damage",                   CardType::ATTACK,  2, 15));
-        rareCards.push_back(Card("Cleave",         "Deal 18 damage",                   CardType::ATTACK,  3, 18));
-        rareCards.push_back(Card("Annihilate",     "Deal 22 damage",                   CardType::ATTACK,  3, 22));
+        // Rare ATTACK  (noticeably better than their common counterparts)
+        rareCards.push_back(Card("Power Strike",    "Deal 20 damage",                   CardType::ATTACK,  2, 20));
+        rareCards.push_back(Card("Cleave",          "Deal 28 damage",                   CardType::ATTACK,  3, 28));
+        rareCards.push_back(Card("Annihilate",      "Deal 35 damage",                   CardType::ATTACK,  3, 35));
         // Rare DEFEND
-        rareCards.push_back(Card("Iron Skin",      "Gain 18 armor",                    CardType::DEFEND,  2, 18));
-        rareCards.push_back(Card("Diamond Wall",   "Gain 25 armor",                    CardType::DEFEND,  3, 25));
+        rareCards.push_back(Card("Iron Skin",       "Gain 20 armor",                    CardType::DEFEND,  2, 20));
+        rareCards.push_back(Card("Diamond Wall",    "Gain 32 armor",                    CardType::DEFEND,  3, 32));
         // Rare SPECIAL
-        rareCards.push_back(Card("Toxic Cloud",    "Apply 6 Poison stacks",            CardType::SPECIAL, 2, 6, CardEffect::POISON));
-        rareCards.push_back(Card("Inferno",        "Apply 4 Burn (5 dmg x4 turns)",    CardType::SPECIAL, 2, 4, CardEffect::BURN));
-        rareCards.push_back(Card("Paralysis",      "Stun enemy for 2 turns",           CardType::SPECIAL, 2, 2, CardEffect::STUN));
-        rareCards.push_back(Card("Shatter",        "Apply 5 Weak (-2 atk x5 turns)",   CardType::SPECIAL, 2, 5, CardEffect::WEAK));
+        rareCards.push_back(Card("Toxic Cloud",     "Apply 6 Poison stacks",            CardType::SPECIAL, 2, 6, CardEffect::POISON));
+        rareCards.push_back(Card("Inferno",         "Apply 4 Burn (5 dmg x4 turns)",    CardType::SPECIAL, 2, 4, CardEffect::BURN));
+        rareCards.push_back(Card("Paralysis",       "Stun enemy for 2 turns",           CardType::SPECIAL, 2, 2, CardEffect::STUN));
+        rareCards.push_back(Card("Shatter",         "Apply 5 Weak (-2 atk x5 turns)",   CardType::SPECIAL, 2, 5, CardEffect::WEAK));
     }
 }
 

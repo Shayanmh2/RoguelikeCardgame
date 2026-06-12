@@ -6,10 +6,11 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0) {}
 
 void Game::init() {
-    // Initialize starting deck (10 cards total)
+    // Initialize starting deck (11 cards)
+    playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
@@ -38,13 +39,13 @@ void Game::displayStatus() const {
     playerStatus.display("  YOU:   ");
     enemy.displayStatusEffects("  ENEMY: ");
 
-    // Active upgrade bonuses
-    int damageBonus = upgrades.getDamageBonus();
-    int armorBonus = upgrades.getArmorBonus();
-    if (damageBonus > 0 || armorBonus > 0) {
+    // Active bonuses (upgrades + equipment)
+    int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
+    int totalArm = upgrades.getArmorBonus()  + equipArmorBonus;
+    if (totalDmg > 0 || totalArm > 0) {
         std::cout << "BONUSES: ";
-        if (damageBonus > 0) std::cout << "Damage +" << damageBonus << " ";
-        if (armorBonus > 0) std::cout << "Armor +"  << armorBonus  << " ";
+        if (totalDmg > 0) std::cout << Color::CARD_ATTACK << "Damage +" << totalDmg << Color::RESET << " ";
+        if (totalArm > 0) std::cout << Color::ARMOR_CLR   << "Armor +"  << totalArm  << Color::RESET << " ";
         std::cout << "\n";
     }
 
@@ -115,6 +116,10 @@ void Game::playCardFromHand(int index) {
     try {
         const Card& card = playerDeck.getCardFromHand(index - 1);
 
+        if (playerDeck.isCardUsed(index - 1)) {
+            std::cout << Color::DIM << "Card " << index << " already played this turn." << Color::RESET << "\n";
+            return;
+        }
         if (!spendEnergy(card.getCost())) return;
 
         Card playedCard = playerDeck.playCard(index - 1);
@@ -123,7 +128,7 @@ void Game::playCardFromHand(int index) {
 
         if (playedCard.getType() == CardType::ATTACK) {
             int weakPenalty = playerStatus.getWeakPenalty();
-            int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() - weakPenalty);
+            int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus - weakPenalty);
             int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(damageDealt);
@@ -140,7 +145,7 @@ void Game::playCardFromHand(int index) {
                 std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
             std::cout << "\n";
         } else if (playedCard.getType() == CardType::DEFEND) {
-            int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus();
+            int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus() + equipArmorBonus;
             playerArmor += bonusArmor;
             Audio::playSFX("defend");
             std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
@@ -244,7 +249,7 @@ void Game::enemyTurn() {
             }
             break;
         case EnemyType::TANK:
-            if (roll < 65) doDefend(def + 3);
+            if (roll < 65) doDefend(def); // was def+3, too much in early encounters
             else doAttack(std::max(1, atk - 2), false);
             break;
         case EnemyType::CASTER:
@@ -327,7 +332,9 @@ void Game::endPlayerTurn() {
     std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
               << " | Drew " << drawCount << " cards.\n";
     playerStatus.display("Status: ");
-    playerDeck.displayHand();
+    playerDeck.displayHand(playerStatus.getWeakPenalty(),
+                           upgrades.getDamageBonus() + equipDamageBonus,
+                           upgrades.getArmorBonus()  + equipArmorBonus);
 }
 
 bool Game::checkGameOver() {
@@ -375,7 +382,9 @@ void Game::handleInput() {
     if (input == "quit") {
         running = false;
     } else if (input == "hand") {
-        playerDeck.displayHand();
+        playerDeck.displayHand(playerStatus.getWeakPenalty(),
+                           upgrades.getDamageBonus() + equipDamageBonus,
+                           upgrades.getArmorBonus()  + equipArmorBonus);
     } else if (input == "status") {
         displayStatus();
     } else if (input == "help") {
@@ -386,6 +395,20 @@ void Game::handleInput() {
             std::cout << "Drew a card!\n";
         } catch (const std::exception& e) {
             std::cout << e.what() << "\n";
+        }
+    } else if (input.size() >= 1 && std::isdigit(input[0]) &&
+               input.find_first_not_of("0123456789") == std::string::npos) {
+        // bare number shorthand: "1" == "play 1"
+        try {
+            int index = std::stoi(input);
+            playCardFromHand(index);
+            if (checkGameOver()) return;
+            if (playerEnergy <= 0 && playerTurnActive) {
+                std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
+                endPlayerTurn();
+            }
+        } catch (const std::exception&) {
+            std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
         }
     } else if (input.substr(0, 4) == "play") {
         try {
@@ -435,9 +458,9 @@ void Game::render() const {
 
 Enemy Game::generateBossEnemy() {
     int enc = currentRun.getCurrentEncounter();
-    int bossHealth  = currentRun.getEnemyHealth() * 3;
-    int bossAttack  = currentRun.getEnemyAttack() * 3 / 2;
-    int bossDefense = currentRun.getEnemyDefense() + 2;
+    int bossHealth  = currentRun.getEnemyHealth() * 2;
+    int bossAttack  = currentRun.getEnemyAttack() + 4;
+    int bossDefense = currentRun.getEnemyDefense();
 
     std::string name;
     EnemyType   etype;
@@ -584,19 +607,18 @@ void Game::offerBossReward() {
     std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy);
     rewardPool.displayRewardChoices(rewards);
 
-    std::string choice;
-    std::getline(std::cin, choice);
-
     int choiceIndex = -1;
-    try { choiceIndex = std::stoi(choice) - 1; } catch (...) {}
-
-    if (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
-        std::cout << "Invalid choice. Skipping reward.\n";
-        return;
+    while (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
+        std::string choice;
+        std::getline(std::cin, choice);
+        if (choice == "0" || choice.empty()) { std::cout << "Skipping reward.\n"; return; }
+        try { choiceIndex = std::stoi(choice) - 1; } catch (...) { choiceIndex = -1; }
+        if (choiceIndex < 0 || choiceIndex >= (int)rewards.size())
+            std::cout << "Enter 1-" << rewards.size() << " (or 0 to skip): ";
     }
     playerDeck.addCard(rewards[choiceIndex]);
     runStats.addCardToRun();
-    std::cout << "\n[RARE] Added " << rewards[choiceIndex].getName() << " to your deck!\n";
+    std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choiceIndex].getName() << " to your deck!" << Color::RESET << "\n";
 }
 
 void Game::startEncounter() {
@@ -652,6 +674,9 @@ void Game::startEncounter() {
 
     displayStatus();
     displayTurnInfo();
+    playerDeck.displayHand(playerStatus.getWeakPenalty(),
+                           upgrades.getDamageBonus() + equipDamageBonus,
+                           upgrades.getArmorBonus()  + equipArmorBonus);
 }
 
 void Game::nextEncounter() {
@@ -722,6 +747,10 @@ void Game::handleEncounterWin() {
         offerCardReward();
     }
 
+    // Equipment drop every 3 encounters
+    if (currentRun.getCurrentEncounter() % 3 == 0)
+        offerEquipmentDrop();
+
     // Offer rest site
     restSite();
 
@@ -746,26 +775,20 @@ void Game::offerCardReward() {
     std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy);
     
     rewardPool.displayRewardChoices(rewards);
-    
-    std::string choice;
-    std::getline(std::cin, choice);
-    
+
     int choiceIndex = -1;
-    try {
-        choiceIndex = std::stoi(choice) - 1;
-    } catch (...) {
-        std::cout << "Invalid choice. Skipping reward.\n";
-        return;
+    while (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
+        std::string choice;
+        std::getline(std::cin, choice);
+        if (choice == "0" || choice.empty()) { std::cout << "Skipping reward.\n"; return; }
+        try { choiceIndex = std::stoi(choice) - 1; } catch (...) { choiceIndex = -1; }
+        if (choiceIndex < 0 || choiceIndex >= (int)rewards.size())
+            std::cout << "Enter 1-" << rewards.size() << " (or 0 to skip): ";
     }
-    
-    if (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
-        std::cout << "Invalid choice. Skipping reward.\n";
-        return;
-    }
-    
+
     playerDeck.addCard(rewards[choiceIndex]);
     runStats.addCardToRun();
-    std::cout << "\n✓ Added " << rewards[choiceIndex].getName() << " to your deck!\n";
+    std::cout << "\n" << Color::GREEN << "✓ Added " << rewards[choiceIndex].getName() << " to your deck!" << Color::RESET << "\n";
 }
 
 void Game::applyUpgrades() {
@@ -784,6 +807,36 @@ void Game::applyUpgrades() {
     int energyBonus = upgrades.getEnergyBonus();
     maxEnergy += energyBonus;
     playerEnergy = maxEnergy;
+}
+
+void Game::offerEquipmentDrop() {
+    std::cout << "\n" << Color::YELLOW << "========== EQUIPMENT DROP ==========" << Color::RESET << "\n";
+    std::cout << "A piece of equipment glints on the ground!\n\n";
+    std::cout << "  1. " << Color::RED << "[WEAPON]" << Color::RESET << " Rusty Blade   — +" << 3 << " permanent damage\n";
+    std::cout << "  2. " << Color::CYAN << "[ARMOR] " << Color::RESET << " Iron Plating  — +" << 3 << " permanent armor per defend\n";
+    std::cout << "  0. Skip\n\n";
+
+    while (true) {
+        std::cout << "Choose (1-2, 0 to skip): ";
+        std::string line;
+        std::getline(std::cin, line);
+        if (line == "0") {
+            std::cout << Color::DIM << "You leave it behind." << Color::RESET << "\n";
+            break;
+        } else if (line == "1") {
+            equipDamageBonus += 3;
+            std::cout << Color::RED << "You equip the Rusty Blade. +" << 3 << " damage!" << Color::RESET << "\n";
+            Audio::playSFX("upgrade");
+            break;
+        } else if (line == "2") {
+            equipArmorBonus += 3;
+            std::cout << Color::CYAN << "You equip the Iron Plating. +" << 3 << " armor per defend!" << Color::RESET << "\n";
+            Audio::playSFX("upgrade");
+            break;
+        } else {
+            std::cout << Color::DIM << "Invalid choice. Enter 1, 2, or 0." << Color::RESET << "\n";
+        }
+    }
 }
 
 void Game::selectUpgrades() {
@@ -852,6 +905,8 @@ void Game::run() {
                 playerArmor = 0;
                 playerEnergy = 3;
                 maxEnergy = 3;
+                equipDamageBonus = 0;
+                equipArmorBonus  = 0;
                 turnNumber = 1;
                 playerTurnActive = true;
                 playerDeck = Deck();
