@@ -45,7 +45,13 @@ void Card::upgrade() {
     value += 3;
     if (cost > 0) cost--;
     name += "+";
-    upgraded = true; // marks "at least once upgraded" for forge display
+    upgraded = true;
+    // keep description in sync so the hand always shows the correct number
+    if (type == CardType::ATTACK)
+        description = "Deal " + std::to_string(value) + " damage";
+    else if (type == CardType::DEFEND)
+        description = "Gain " + std::to_string(value) + " armor";
+    // SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
 }
 
 void Card::display() const {

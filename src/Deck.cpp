@@ -126,6 +126,19 @@ int Deck::totalCards() const {
     return (int)(cards.size() + hand.size() + discard.size());
 }
 
+std::vector<std::string> Deck::getAllCardNames() const {
+    std::vector<std::string> names;
+    auto addBase = [&](const std::string& n) {
+        std::string base = n;
+        while (!base.empty() && base.back() == '+') base.pop_back();
+        names.push_back(base);
+    };
+    for (const auto& c : cards)   addBase(c.getName());
+    for (const auto& c : hand)    addBase(c.getName());
+    for (const auto& c : discard) addBase(c.getName());
+    return names;
+}
+
 bool Deck::upgradeCardAt(int index) {
     if (index < 0) return false;
     if (index < (int)cards.size()) {

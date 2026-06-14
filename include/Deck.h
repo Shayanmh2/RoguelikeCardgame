@@ -35,6 +35,7 @@ public:
 
     int totalCards() const;
     bool upgradeCardAt(int index);
+    std::vector<std::string> getAllCardNames() const; // base names (trailing '+' stripped)
 };
 
 #endif

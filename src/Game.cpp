@@ -604,7 +604,7 @@ void Game::bossAction() {
 void Game::offerBossReward() {
     std::cout << "\n========== BOSS REWARD ==========\n";
     std::cout << "Choose 1 of 2 RARE cards:\n\n";
-    std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy);
+    std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
     rewardPool.displayRewardChoices(rewards);
 
     int choiceIndex = -1;
@@ -772,7 +772,7 @@ void Game::handleEncounterWin() {
 void Game::offerCardReward() {
     // Generate 3 reward cards with rarity boost if active
     bool rarityBoost = upgrades.isActive(6);  // Rarity Boost upgrade (index 6)
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy);
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
     
     rewardPool.displayRewardChoices(rewards);
 
