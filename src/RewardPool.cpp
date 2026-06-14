@@ -3,6 +3,7 @@
 #include <random>
 #include <iostream>
 #include <filesystem>
+#include <unordered_set>
 
 RewardPool::RewardPool() {
     initializeCardPool();
@@ -95,7 +96,7 @@ std::vector<Card> RewardPool::generateRewardChoices(int count) {
     return choices;
 }
 
-std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost, int maxCost) {
+std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -104,10 +105,12 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     if (rarityBoost) rareChance += 20;
     if (rareChance > 80) rareChance = 80;
 
-    // Local copies filtered to cards the player can actually play.
+    std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
+
+    // Local copies filtered to cards the player can actually play and doesn't already own.
     std::vector<Card> commonPool, rarePool;
-    for (const auto& c : commonCards) if (c.getCost() <= maxCost) commonPool.push_back(c);
-    for (const auto& c : rareCards)   if (c.getCost() <= maxCost) rarePool.push_back(c);
+    for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) commonPool.push_back(c);
+    for (const auto& c : rareCards)   if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) rarePool.push_back(c);
 
     std::uniform_int_distribution<> rollDis(1, 100);
 
@@ -126,13 +129,15 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
     return choices;
 }
 
-std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost) {
+std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const std::vector<std::string>& ownedNames) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
 
+    std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
+
     std::vector<Card> pool;
-    for (const auto& c : rareCards) if (c.getCost() <= maxCost) pool.push_back(c);
+    for (const auto& c : rareCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) pool.push_back(c);
     for (int i = 0; i < count && !pool.empty(); ++i) {
         std::uniform_int_distribution<> dis(0, (int)pool.size() - 1);
         int index = dis(gen);
