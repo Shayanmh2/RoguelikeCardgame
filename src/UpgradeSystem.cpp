@@ -6,34 +6,29 @@ UpgradeSystem::UpgradeSystem() {
 }
 
 void UpgradeSystem::initializeUpgrades() {
-    // Create upgrade definitions with unlock requirements
-    allUpgrades.push_back(Upgrade("Health Boost", "Gain +20 max health", UpgradeType::HEALTH_BOOST, 2));
-    allUpgrades.push_back(Upgrade("Extra Strike", "Start with 2 bonus Strike cards", UpgradeType::STARTING_STRIKE, 5));
-    allUpgrades.push_back(Upgrade("Sharp Blades", "All attacks deal +2 damage", UpgradeType::DAMAGE_UP, 3));
-    allUpgrades.push_back(Upgrade("Iron Resolve", "All defends grant +2 armor", UpgradeType::ARMOR_UP, 3));
-    allUpgrades.push_back(Upgrade("Adrenaline", "Start with +1 energy per turn", UpgradeType::EXTRA_ENERGY, 4));
-    allUpgrades.push_back(Upgrade("Keen Sense", "Draw 1 extra card at start", UpgradeType::CARD_DRAW, 6));
-    allUpgrades.push_back(Upgrade("Fortunate Soul", "Higher chance of rare reward cards", UpgradeType::RARITY_BOOST, 8));
-    
-    // Initialize unlock and active states (all locked and inactive)
+    allUpgrades.push_back(Upgrade("Health Boost",   "Gain +20 max health",                       UpgradeType::HEALTH_BOOST,    2));
+    allUpgrades.push_back(Upgrade("Extra Strike",   "Start with 2 bonus Strike cards",           UpgradeType::STARTING_STRIKE, 5));
+    allUpgrades.push_back(Upgrade("Sharp Blades",   "All attacks deal +2 damage",                UpgradeType::DAMAGE_UP,       3));
+    allUpgrades.push_back(Upgrade("Iron Resolve",   "All defends grant +2 armor",                UpgradeType::ARMOR_UP,        3));
+    allUpgrades.push_back(Upgrade("Adrenaline",     "Start with +1 energy per turn",             UpgradeType::EXTRA_ENERGY,    4));
+    allUpgrades.push_back(Upgrade("Keen Sense",     "Draw 1 extra card at start",                UpgradeType::CARD_DRAW,       6));
+    allUpgrades.push_back(Upgrade("Fortunate Soul", "Higher chance of rare reward cards",        UpgradeType::RARITY_BOOST,    8));
     unlockedUpgrades.resize(allUpgrades.size(), false);
     activeUpgrades.resize(allUpgrades.size(), false);
 }
 
 void UpgradeSystem::checkAndUnlockUpgrades(int totalEncounters, int totalCards) {
-    // Unlock based on achievements
-    if (totalEncounters >= 2) unlockedUpgrades[0] = true;  // Health Boost
-    if (totalEncounters >= 5) unlockedUpgrades[1] = true;  // Extra Strike
-    if (totalEncounters >= 3) unlockedUpgrades[2] = true;  // Sharp Blades
-    if (totalEncounters >= 3) unlockedUpgrades[3] = true;  // Iron Resolve
-    if (totalEncounters >= 4) unlockedUpgrades[4] = true;  // Adrenaline
-    if (totalCards >= 6) unlockedUpgrades[5] = true;       // Keen Sense
-    if (totalEncounters >= 8) unlockedUpgrades[6] = true;  // Fortunate Soul
+    if (totalEncounters >= 2) unlockedUpgrades[0] = true;
+    if (totalEncounters >= 5) unlockedUpgrades[1] = true;
+    if (totalEncounters >= 3) unlockedUpgrades[2] = true;
+    if (totalEncounters >= 3) unlockedUpgrades[3] = true;
+    if (totalEncounters >= 4) unlockedUpgrades[4] = true;
+    if (totalCards >= 6)      unlockedUpgrades[5] = true;
+    if (totalEncounters >= 8) unlockedUpgrades[6] = true;
 }
 
 void UpgradeSystem::displayUnlockedUpgrades() {
-    std::cout << "\n========== AVAILABLE UPGRADES ==========\n";
-    std::cout << "Select upgrades for your next run (Y/N):\n\n";
+    std::cout << "\nUpgrades (toggle on/off for next run):\n\n";
     
     int unlockedCount = 0;
     for (size_t i = 0; i < allUpgrades.size(); ++i) {
@@ -46,9 +41,8 @@ void UpgradeSystem::displayUnlockedUpgrades() {
     }
     
     if (unlockedCount == 0) {
-        std::cout << "No upgrades unlocked yet. Keep playing to unlock more!\n";
+        std::cout << "No upgrades unlocked yet.\n";
     }
-    std::cout << "=====================================\n";
 }
 
 void UpgradeSystem::selectActiveUpgrades() {
@@ -111,16 +105,12 @@ bool UpgradeSystem::isActive(int index) const {
 }
 
 void UpgradeSystem::displayUpgradeInfo() const {
-    std::cout << "\n========== ACTIVE UPGRADES ==========\n";
     int activeCount = 0;
     for (size_t i = 0; i < allUpgrades.size(); ++i) {
         if (activeUpgrades[i]) {
+            if (activeCount == 0) std::cout << "\nActive upgrades:\n";
             activeCount++;
             allUpgrades[i].display();
         }
     }
-    if (activeCount == 0) {
-        std::cout << "No upgrades active.\n";
-    }
-    std::cout << "====================================\n";
 }

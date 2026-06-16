@@ -15,7 +15,7 @@ void RewardPool::initializeCardPool() {
     
     // Check if config file exists
     if (std::filesystem::exists(configPath)) {
-        std::cout << "Loading cards from " << configPath << "...\n";
+        std::cout << "Loading cards from " << configPath << "\n";
         
         auto commonData = ConfigLoader::loadCommonCards(configPath);
         auto rareData = ConfigLoader::loadRareCards(configPath);
@@ -39,13 +39,9 @@ void RewardPool::initializeCardPool() {
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
     } else {
-        std::cout << "Warning: config/cards.json not found. Using default cards.\n";
-        
-        // Fallback to hardcoded cards.
-        // Starter cards (Strike / Defend / Bash) are intentionally excluded here —
-        // the player already has them and getting duplicates as rewards feels bad.
+        // Starter cards excluded — player already has them
 
-        // Common ATTACK  (each cost tier clearly outperforms spamming the tier below)
+        // Common ATTACK
         commonCards.push_back(Card("Quick Jab",     "Deal 4 damage",                    CardType::ATTACK,  0, 4));
         commonCards.push_back(Card("Slice",         "Deal 9 damage",                    CardType::ATTACK,  1, 9));
         commonCards.push_back(Card("Heavy Blow",    "Deal 16 damage",                   CardType::ATTACK,  2, 16));
@@ -60,7 +56,7 @@ void RewardPool::initializeCardPool() {
         commonCards.push_back(Card("Stun Strike",   "Stun enemy for 1 turn",            CardType::SPECIAL, 2, 1, CardEffect::STUN));
         commonCards.push_back(Card("Weaken",        "Apply 3 Weak (-2 atk x3 turns)",   CardType::SPECIAL, 1, 3, CardEffect::WEAK));
 
-        // Rare ATTACK  (noticeably better than their common counterparts)
+        // Rare ATTACK
         rareCards.push_back(Card("Power Strike",    "Deal 20 damage",                   CardType::ATTACK,  2, 20));
         rareCards.push_back(Card("Cleave",          "Deal 28 damage",                   CardType::ATTACK,  3, 28));
         rareCards.push_back(Card("Annihilate",      "Deal 35 damage",                   CardType::ATTACK,  3, 35));
@@ -107,7 +103,6 @@ std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int c
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    // Local copies filtered to cards the player can actually play and doesn't already own.
     std::vector<Card> commonPool, rarePool;
     for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) commonPool.push_back(c);
     for (const auto& c : rareCards)   if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) rarePool.push_back(c);
@@ -148,8 +143,7 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 }
 
 void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
-    std::cout << "\n" << Color::BOLD << Color::YELLOW << "========== CARD REWARDS ==========" << Color::RESET << "\n";
-    std::cout << Color::DIM << "Choose 1 card to add to your deck:\n\n" << Color::RESET;
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Card reward" << Color::RESET << " — pick one to add to your deck:\n\n";
 
     for (size_t i = 0; i < choices.size(); ++i) {
         const Card& c = choices[i];
