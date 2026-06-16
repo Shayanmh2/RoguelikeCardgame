@@ -33,11 +33,6 @@ bool Run::isRunActive() const {
     return runActive;
 }
 
-// Improved scaling formula with difficulty tiers
-// Each tier (every 5 encounters) increases multiplier
-// Encounter 1-5: Tier 1, 6-10: Tier 2, 11-15: Tier 3, etc.
-// Health scales quadratically, Attack scales linearly, Defense scales gradually
-
 int Run::getEnemyHealth() const {
     int tier = (currentEncounter - 1) / 5;
     int tierMultiplier = 1 + (tier * 15);  // Each tier adds 15% more health
@@ -91,8 +86,5 @@ void Run::displayEncounterDifficulty() const {
 }
 
 void Run::displayRunStats() const {
-    std::cout << "\n========== RUN STATS ==========\n";
-    std::cout << "Encounter: " << currentEncounter << "\n";
-    std::cout << "Encounters Won: " << encountersWon << "\n";
-    std::cout << "================================\n";
+    std::cout << "Encounter " << currentEncounter << "  |  Won: " << encountersWon << "\n";
 }

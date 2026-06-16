@@ -9,7 +9,6 @@
 Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0) {}
 
 void Game::init() {
-    // Initialize starting deck (11 cards)
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
@@ -22,7 +21,6 @@ void Game::init() {
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     
-    // Apply upgrades (bonus starting cards)
     applyUpgrades();
     
     playerDeck.shuffle();
@@ -35,11 +33,10 @@ void Game::displayStatus() const {
                                  enemy.getName(), enemy.getHealth(), enemy.getMaxHealth(), 
                                  enemy.getArmor(), enemy.getBaseAttack(), enemy.getBaseDefense());
     
-    // Status effects
     playerStatus.display("  YOU:   ");
     enemy.displayStatusEffects("  ENEMY: ");
 
-    // Active bonuses (upgrades + equipment)
+    // show bonuses only when they exist
     int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
     int totalArm = upgrades.getArmorBonus()  + equipArmorBonus;
     if (totalDmg > 0 || totalArm > 0) {
@@ -276,7 +273,7 @@ void Game::enemyTurn() {
 }
 
 void Game::displayTurnInfo() const {
-    std::cout << "\n" << Color::BOLD << "========== TURN " << turnNumber << " ==========" << Color::RESET << "\n";
+    std::cout << "\n" << Color::BOLD << "-- Turn " << turnNumber << " --" << Color::RESET << "\n";
     if (playerTurnActive) {
         std::cout << "Plays remaining: " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET
                   << "  |  Type " << Color::DIM << "'end'" << Color::RESET << " to end your turn.\n";
@@ -602,8 +599,7 @@ void Game::bossAction() {
 }
 
 void Game::offerBossReward() {
-    std::cout << "\n========== BOSS REWARD ==========\n";
-    std::cout << "Choose 1 of 2 RARE cards:\n\n";
+    std::cout << "\n" << Color::YELLOW << Color::BOLD << "Boss reward" << Color::RESET << " — pick a rare card:\n\n";
     std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
     rewardPool.displayRewardChoices(rewards);
 
@@ -622,7 +618,6 @@ void Game::offerBossReward() {
 }
 
 void Game::startEncounter() {
-    // Reset deck: move any leftover hand/discard back so drawCard() can reshuffle them
     playerDeck.resetDeck();
     int drawCount = 5 + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
@@ -680,13 +675,12 @@ void Game::startEncounter() {
 }
 
 void Game::nextEncounter() {
-    // Load next encounter
     currentRun.nextEncounter();
     startEncounter();
 }
 
 void Game::restSite() {
-    std::cout << "\n" << Color::BOLD << Color::CYAN << "========== REST SITE ==========" << Color::RESET << "\n";
+    std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n";
     int healAmount = maxPlayerHealth - playerHealth;
     std::cout << "  [rest]  - Full heal  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
     std::cout << "  [forge] - Upgrade a card (+3 value, -1 cost)\n";
@@ -729,33 +723,28 @@ void Game::restSite() {
         restSite();
     }
 
-    std::cout << "================================\n";
 }
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
     Audio::playSFX("win");
     UIHelper::pause(300);
-    UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::GREEN + "========== ENCOUNTER WON! ==========" + Color::RESET + "\n");
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::GREEN + "Victory!" + Color::RESET + "\n");
     UIHelper::pause(300);
     std::cout << "Enemies Defeated: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
 
-    // Boss reward is always 2 rare cards; normal encounters use weighted rewards
     if (enemy.isBoss()) {
         offerBossReward();
     } else {
         offerCardReward();
     }
 
-    // Equipment drop every 3 encounters
     if (currentRun.getCurrentEncounter() % 3 == 0)
         offerEquipmentDrop();
 
-    // Offer rest site
     restSite();
 
-    // Ask to continue
-    std::cout << "\nProceed to next encounter? [continue] or [end run]?\n";
+    std::cout << "\nKeep going? [continue] or [end run]\n";
     std::cout << "> ";
     
     std::string input;
@@ -770,8 +759,7 @@ void Game::handleEncounterWin() {
 }
 
 void Game::offerCardReward() {
-    // Generate 3 reward cards with rarity boost if active
-    bool rarityBoost = upgrades.isActive(6);  // Rarity Boost upgrade (index 6)
+    bool rarityBoost = upgrades.isActive(6);
     std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
     
     rewardPool.displayRewardChoices(rewards);
@@ -792,26 +780,18 @@ void Game::offerCardReward() {
 }
 
 void Game::applyUpgrades() {
-    // Apply starting strike cards from upgrade
-    if (upgrades.isActive(1)) {  // Extra Strike upgrade
+    if (upgrades.isActive(1)) {
         playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
         playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     }
-    
-    // Apply health bonus
-    int healthBonus = upgrades.getHealthBonus();
-    maxPlayerHealth += healthBonus;
+    maxPlayerHealth += upgrades.getHealthBonus();
     playerHealth = maxPlayerHealth;
-
-    // Apply energy bonus
-    int energyBonus = upgrades.getEnergyBonus();
-    maxEnergy += energyBonus;
+    maxEnergy += upgrades.getEnergyBonus();
     playerEnergy = maxEnergy;
 }
 
 void Game::offerEquipmentDrop() {
-    std::cout << "\n" << Color::YELLOW << "========== EQUIPMENT DROP ==========" << Color::RESET << "\n";
-    std::cout << "A piece of equipment glints on the ground!\n\n";
+    std::cout << "\n" << Color::YELLOW << "You spot some equipment on the ground." << Color::RESET << "\n\n";
     std::cout << "  1. " << Color::RED << "[WEAPON]" << Color::RESET << " Rusty Blade   — +" << 3 << " permanent damage\n";
     std::cout << "  2. " << Color::CYAN << "[ARMOR] " << Color::RESET << " Iron Plating  — +" << 3 << " permanent armor per defend\n";
     std::cout << "  0. Skip\n\n";
@@ -840,10 +820,7 @@ void Game::offerEquipmentDrop() {
 }
 
 void Game::selectUpgrades() {
-    // Check for newly unlocked upgrades
     upgrades.checkAndUnlockUpgrades(runStats.getTotalEncountersWon(), runStats.getTotalCardsCollected());
-    
-    // Show upgrade selection
     upgrades.selectActiveUpgrades();
 }
 
@@ -856,7 +833,6 @@ void Game::run() {
     
     UIHelper::printTitle();
     
-    // Initialize upgrades for first run
     upgrades.checkAndUnlockUpgrades(0, 0);
     upgrades.displayUpgradeInfo();
     
@@ -869,12 +845,8 @@ void Game::run() {
         
         if (checkGameOver()) {
             if (enemy.isAlive()) {
-                // Player lost
                 displayGameOver();
-                std::cout << "\n========== RUN ENDED ==========\n";
                 currentRun.displayRunStats();
-                
-                // Track run completion
                 int encounters = currentRun.getEncountersWon();
                 runStats.completeRun(encounters);
                 runStats.displayRunSummary(encounters);
@@ -882,25 +854,18 @@ void Game::run() {
                 currentRun.loseRun();
                 inEncounter = false;
             } else {
-                // Player won encounter
                 handleEncounterWin();
                 if (inEncounter) {
-                    // Continue to next encounter, loop continues
                     continue;
                 }
-                // Player voluntarily ended the run — record stats now
                 int encounters = currentRun.getEncountersWon();
                 runStats.completeRun(encounters);
                 runStats.displayRunSummary(encounters);
             }
             
-            // Run ended, offer new run
             if (handleGameOverInput()) {
-                // Show upgrade selection before new run
                 selectUpgrades();
-                
-                // Reset for new run
-                maxPlayerHealth = 100;  // Reset before applying upgrades
+                maxPlayerHealth = 100;
                 playerHealth = maxPlayerHealth;
                 playerArmor = 0;
                 playerEnergy = 3;

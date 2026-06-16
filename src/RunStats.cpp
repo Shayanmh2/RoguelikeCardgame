@@ -1,8 +1,8 @@
 #include "RunStats.h"
 #include <iostream>
 
-RunStats::RunStats() 
-    : totalEncountersWon(0), totalCardsCollected(0), totalRunsCompleted(0), 
+RunStats::RunStats()
+    : totalEncountersWon(0), totalCardsCollected(0), totalRunsCompleted(0),
       bestRunEncounters(0), cardsAddedThisRun(0) {}
 
 void RunStats::addCardToRun() {
@@ -43,29 +43,24 @@ int RunStats::getBestRunEncounters() const {
 }
 
 void RunStats::displayRunStats() const {
-    std::cout << "\n========== THIS RUN ==========\n";
-    std::cout << "Cards Collected: " << cardsAddedThisRun << "\n";
+    std::cout << "Cards collected this run: " << cardsAddedThisRun << "\n";
 }
 
 void RunStats::displayCumulativeStats() const {
-    std::cout << "\n========== CUMULATIVE STATS ==========\n";
-    std::cout << "Total Runs: " << totalRunsCompleted << "\n";
-    std::cout << "Total Encounters Won: " << totalEncountersWon << "\n";
-    std::cout << "Total Cards Collected: " << totalCardsCollected << "\n";
-    std::cout << "Best Run: " << bestRunEncounters << " encounters\n";
+    std::cout << "\nCareer stats:\n";
+    std::cout << "  Runs: " << totalRunsCompleted << "\n";
+    std::cout << "  Encounters won: " << totalEncountersWon << "\n";
+    std::cout << "  Cards collected: " << totalCardsCollected << "\n";
+    std::cout << "  Best run: " << bestRunEncounters << " encounters\n";
     if (totalRunsCompleted > 0) {
-        std::cout << "Average: " << (totalEncountersWon / totalRunsCompleted) << " encounters/run\n";
+        std::cout << "  Average: " << (totalEncountersWon / totalRunsCompleted) << " encounters/run\n";
     }
-    std::cout << "====================================\n";
 }
 
 void RunStats::displayRunSummary(int encountersWon) const {
-    std::cout << "\n========== RUN SUMMARY ==========\n";
-    std::cout << "Encounters Won: " << encountersWon << "\n";
-    std::cout << "Cards Collected: " << cardsAddedThisRun << "\n";
-    std::cout << "\n--- CUMULATIVE STATS ---\n";
-    std::cout << "Total Runs: " << totalRunsCompleted << "\n";
-    std::cout << "Total Encounters: " << totalEncountersWon << "\n";
-    std::cout << "Best Run: " << bestRunEncounters << " encounters\n";
-    std::cout << "================================\n";
+    std::cout << "\nRun over — " << encountersWon << " encounter" << (encountersWon != 1 ? "s" : "") << " won";
+    std::cout << ", " << cardsAddedThisRun << " card" << (cardsAddedThisRun != 1 ? "s" : "") << " collected.\n";
+    if (totalRunsCompleted > 0) {
+        std::cout << "Best run: " << bestRunEncounters << " encounters\n";
+    }
 }
