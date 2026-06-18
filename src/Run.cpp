@@ -86,5 +86,7 @@ void Run::displayEncounterDifficulty() const {
 }
 
 void Run::displayRunStats() const {
-    std::cout << "Encounter " << currentEncounter << "  |  Won: " << encountersWon << "\n";
+    std::cout << "Encounter " << currentEncounter;
+    if (encountersWon > 0) std::cout << "  |  Won: " << encountersWon;
+    std::cout << "\n";
 }
