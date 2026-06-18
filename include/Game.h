@@ -52,6 +52,7 @@ private:
     void  bossAction();
     void  offerBossReward();
     void displayRunStats() const;
+    void displayEnemyInfo() const;
     void offerCardReward();
     void offerEquipmentDrop();
     void applyUpgrades();

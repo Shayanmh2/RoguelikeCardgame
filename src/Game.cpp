@@ -46,7 +46,68 @@ void Game::displayStatus() const {
         std::cout << "\n";
     }
 
-    playerDeck.displayDeck();
+}
+
+void Game::displayEnemyInfo() const {
+    int atk = enemy.getBaseAttack();
+    int def = enemy.getBaseDefense();
+    int arm = enemy.getArmor();
+
+    std::cout << "\n" << Color::BOLD << Color::RED << enemy.getName() << Color::RESET << "\n";
+    std::cout << "  HP:  " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+              << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << "\n";
+    if (arm > 0)
+        std::cout << "  ARM: " << Color::ARMOR_CLR << arm << Color::RESET << "\n";
+    enemy.displayStatusEffects("  ");
+
+    std::cout << "\n" << Color::DIM << "Possible moves:" << Color::RESET << "\n";
+
+    if (enemy.isBoss()) {
+        switch (enemy.getBossType()) {
+            case BossType::STONE_COLOSSUS:
+                std::cout << "  " << Color::RED    << "Earthquake Slam" << Color::RESET << " (rare)    — hits you twice, ignores armor\n";
+                std::cout << "  " << Color::ARMOR_CLR << "Fortify"      << Color::RESET << " (common)  — gains a lot of armor\n";
+                std::cout << "  " << Color::RED    << "Crush"           << Color::RESET << " (common)  — heavy melee strike\n";
+                break;
+            case BossType::VILE_WITCH:
+                std::cout << "  " << Color::POISON_CLR << "Poison Cloud" << Color::RESET << " (common)  — poisons you heavily\n";
+                std::cout << "  " << Color::BURN_CLR   << "Hex"          << Color::RESET << " (common)  — burns you\n";
+                std::cout << "  " << Color::RED         << "Strike"       << Color::RESET << " (uncommon)— direct attack\n";
+                break;
+            case BossType::WARLORD:
+                std::cout << "  " << Color::WEAK_CLR << "War Cry"      << Color::RESET << " (rare)    — weakens you\n";
+                std::cout << "  " << Color::RED      << "Heavy Strike"  << Color::RESET << " (common)  — attack, grows stronger each turn\n";
+                std::cout << "  " << Color::ARMOR_CLR<< "Defend"        << Color::RESET << " (uncommon)— gains armor\n";
+                break;
+            default: break;
+        }
+    } else {
+        switch (enemy.getType()) {
+            case EnemyType::MELEE:
+                std::cout << "  " << Color::RED     << "Attack"  << Color::RESET << " (likely)   — deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
+                std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (rarely)   — gains " << def << " armor\n";
+                break;
+            case EnemyType::RANGED:
+                std::cout << "  " << Color::RED      << "Pierce attack"   << Color::RESET << " (likely)     — deals ~" << std::max(0, atk - def) << " dmg, bypasses half your armor\n";
+                std::cout << "  " << Color::ARMOR_CLR << "Defend"         << Color::RESET << " (sometimes)  — gains " << std::max(1, def - 1) << " armor\n";
+                std::cout << "  " << Color::WEAK_CLR  << "Crippling shot" << Color::RESET << " (rarely)     — weakens you (-2 dmg for 2 turns)\n";
+                break;
+            case EnemyType::TANK:
+                std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (likely)   — gains " << def << " armor\n";
+                std::cout << "  " << Color::RED       << "Attack" << Color::RESET << " (sometimes)— deals ~" << std::max(0, std::max(1, atk - 2) - def) << " dmg (reduced by your armor)\n";
+                break;
+            case EnemyType::CASTER:
+                std::cout << "  " << Color::POISON_CLR << "Poison Bolt" << Color::RESET << " (sometimes) — poisons you (3 stacks)\n";
+                std::cout << "  " << Color::BURN_CLR   << "Fireball"    << Color::RESET << " (sometimes) — burns you (2 turns)\n";
+                std::cout << "  " << Color::RED         << "Attack"      << Color::RESET << " (sometimes) — deals ~" << std::max(0, atk + 1 - def) << " dmg\n";
+                if (enemy.getHealth() < enemy.getMaxHealth() / 3)
+                    std::cout << "  " << Color::HEAL    << "Heal"         << Color::RESET << " (likely, low HP!) — recovers ~" << (8 + def / 2) << " HP\n";
+                else
+                    std::cout << "  " << Color::DIM     << "[May cast Heal if HP drops below 33%]" << Color::RESET << "\n";
+                break;
+        }
+    }
+    std::cout << "\n";
 }
 
 int Game::calculateDamage(int attackValue, int defenseValue) const {
@@ -151,6 +212,8 @@ void Game::playCardFromHand(int index) {
             Audio::playSFX("special");
             applyCardEffect(playedCard);
         }
+        if (playerEnergy > 0)
+            std::cout << Color::DIM << "  (" << playerEnergy << " play" << (playerEnergy != 1 ? "s" : "") << " left)" << Color::RESET << "\n";
     } catch (const std::out_of_range& e) {
         std::cout << "Invalid card index! Use 'hand' to see your cards.\n";
     }
@@ -221,7 +284,7 @@ void Game::enemyTurn() {
 
     auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
-        std::cout << Color::ARMOR_CLR << "Enemy defends and gains " << amt << " armor." << Color::RESET << "\n";
+        std::cout << Color::ARMOR_CLR << "Enemy braces — +" << amt << " armor (absorbs incoming damage)." << Color::RESET << "\n";
         UIHelper::pause(150);
     };
 
@@ -325,7 +388,7 @@ void Game::endPlayerTurn() {
     }
 
     UIHelper::pause(350);
-    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Your Turn (Turn " + std::to_string(turnNumber) + ") ---" + Color::RESET + "\n");
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "-- Turn " + std::to_string(turnNumber + 1) + " --" + Color::RESET + "\n");
     std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
               << " | Drew " << drawCount << " cards.\n";
     playerStatus.display("Status: ");
@@ -384,8 +447,10 @@ void Game::handleInput() {
                            upgrades.getArmorBonus()  + equipArmorBonus);
     } else if (input == "status") {
         displayStatus();
+    } else if (input == "enemy") {
+        displayEnemyInfo();
     } else if (input == "help") {
-        std::cout << "Commands: hand, status, play INDEX, discard INDEX, end, quit\n";
+        std::cout << "Commands: hand, enemy, status, N (play card), discard N, end, quit\n";
     } else if (input == "draw") {
         try {
             playerDeck.drawCard();
