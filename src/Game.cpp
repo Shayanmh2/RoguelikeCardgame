@@ -6,7 +6,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), counterAttackActive(false) {}
 
 void Game::init() {
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
@@ -165,6 +165,10 @@ void Game::applyCardEffect(const Card& card) {
             enemy.applyStatus(StatusType::WEAK, val);
             std::cout << "  " << Color::WEAK_CLR << "Applied Weak " << val << " to enemy! (-2 attack for " << val << " turns)" << Color::RESET << "\n";
             break;
+        case CardEffect::COUNTER:
+            counterAttackActive = true;
+            std::cout << "  " << Color::CYAN << "You brace for a counterattack. If they strike, you hit back for double." << Color::RESET << "\n";
+            break;
         default:
             break;
     }
@@ -280,11 +284,29 @@ void Game::enemyTurn() {
         std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         UIHelper::pause(200);
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            int counterDmg = atk * 2;
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(counterDmg);
+            int hpLost = hpBefore - enemy.getHealth();
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
+                      << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            UIHelper::pause(200);
+        }
     };
 
     auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
-        std::cout << Color::ARMOR_CLR << "Enemy braces — +" << amt << " armor (absorbs incoming damage)." << Color::RESET << "\n";
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            std::cout << Color::ARMOR_CLR << "Enemy braces — +" << amt << " armor." << Color::RESET
+                      << " " << Color::DIM << "(No attack — counter fizzles.)" << Color::RESET << "\n";
+        } else {
+            std::cout << Color::ARMOR_CLR << "Enemy braces — +" << amt << " armor (absorbs incoming damage)." << Color::RESET << "\n";
+        }
         UIHelper::pause(150);
     };
 
@@ -353,6 +375,7 @@ void Game::endPlayerTurn() {
     UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Enemy's Turn ---" + Color::RESET + "\n");
     UIHelper::pause(350);
     enemyTurn();
+    counterAttackActive = false; // clear if enemy didn't attack (spell, heal, stun, etc.)
     resetArmor();
     turnNumber++;
     playerTurnActive = true;
@@ -588,6 +611,18 @@ void Game::bossAction() {
         if (weakPenalty > 0)
             std::cout << "  " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET << "\n";
         UIHelper::pause(350);
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            int counterDmg = damage * 2;
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(counterDmg);
+            int hpLost = hpBefore - enemy.getHealth();
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
+                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            UIHelper::pause(200);
+        }
     };
 
     switch (enemy.getBossType()) {

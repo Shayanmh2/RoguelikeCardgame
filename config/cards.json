@@ -44,17 +44,18 @@
     },
     {
       "name": "Dodge",
-      "description": "Gain 4 armor.",
-      "type": "DEFEND",
+      "description": "Counter: if the enemy attacks, hit back for double their damage. Fizzles if they don't.",
+      "type": "SPECIAL",
+      "effect": "COUNTER",
       "cost": 1,
-      "value": 4
+      "value": 0
     },
     {
       "name": "Pummel",
-      "description": "Deal 7 damage.",
+      "description": "Deal 12 damage.",
       "type": "ATTACK",
       "cost": 2,
-      "value": 7
+      "value": 12
     }
   ],
   "rareCards": [

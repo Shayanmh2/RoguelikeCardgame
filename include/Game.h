@@ -29,6 +29,7 @@ private:
     bool inEncounter;
     int equipDamageBonus;
     int equipArmorBonus;
+    bool counterAttackActive;
     
     int calculateDamage(int attackValue, int defenseValue) const;
     void playerAttack(int cardValue, int cost);

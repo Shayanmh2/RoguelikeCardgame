@@ -13,6 +13,7 @@ public:
         std::string name;
         std::string description;
         std::string type;
+        std::string effect;
         int cost;
         int value;
     };
