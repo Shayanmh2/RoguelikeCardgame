@@ -20,21 +20,27 @@ void RewardPool::initializeCardPool() {
         auto commonData = ConfigLoader::loadCommonCards(configPath);
         auto rareData = ConfigLoader::loadRareCards(configPath);
         
-        // Convert ConfigLoader data to Card objects
+        auto toEffect = [](const std::string& e) -> CardEffect {
+            if (e == "POISON")  return CardEffect::POISON;
+            if (e == "BURN")    return CardEffect::BURN;
+            if (e == "STUN")    return CardEffect::STUN;
+            if (e == "WEAK")    return CardEffect::WEAK;
+            if (e == "COUNTER") return CardEffect::COUNTER;
+            return CardEffect::NONE;
+        };
+
         for (const auto& data : commonData) {
             CardType type = CardType::ATTACK;
-            if (data.type == "DEFEND") type = CardType::DEFEND;
+            if (data.type == "DEFEND")  type = CardType::DEFEND;
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            
-            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value));
+            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect)));
         }
-        
+
         for (const auto& data : rareData) {
             CardType type = CardType::ATTACK;
-            if (data.type == "DEFEND") type = CardType::DEFEND;
+            if (data.type == "DEFEND")  type = CardType::DEFEND;
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            
-            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value));
+            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect)));
         }
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";

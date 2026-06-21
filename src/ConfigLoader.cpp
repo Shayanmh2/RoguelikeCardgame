@@ -139,6 +139,15 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
         }
     }
     
+    // Extract effect (optional)
+    size_t effectStart = cardStr.find("\"effect\"");
+    if (effectStart != std::string::npos) {
+        size_t quoteStart = cardStr.find('"', effectStart + 8);
+        size_t quoteEnd   = cardStr.find('"', quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos)
+            card.effect = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
     // Extract type
     size_t typeStart = cardStr.find("\"type\"");
     if (typeStart != std::string::npos) {
