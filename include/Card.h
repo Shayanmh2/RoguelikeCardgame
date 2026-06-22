@@ -15,7 +15,8 @@ enum class CardEffect {
     BURN,
     STUN,
     WEAK,
-    COUNTER
+    COUNTER,
+    PARRY
 };
 
 class Card {

@@ -26,6 +26,7 @@ void RewardPool::initializeCardPool() {
             if (e == "STUN")    return CardEffect::STUN;
             if (e == "WEAK")    return CardEffect::WEAK;
             if (e == "COUNTER") return CardEffect::COUNTER;
+            if (e == "PARRY")   return CardEffect::PARRY;
             return CardEffect::NONE;
         };
 
