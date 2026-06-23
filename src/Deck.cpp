@@ -139,6 +139,14 @@ std::vector<std::string> Deck::getAllCardNames() const {
     return names;
 }
 
+std::vector<Card> Deck::getAllCardsOrdered() const {
+    std::vector<Card> all;
+    all.insert(all.end(), cards.begin(), cards.end());
+    all.insert(all.end(), hand.begin(), hand.end());
+    all.insert(all.end(), discard.begin(), discard.end());
+    return all;
+}
+
 bool Deck::upgradeCardAt(int index) {
     if (index < 0) return false;
     if (index < (int)cards.size()) {

@@ -40,4 +40,29 @@ public:
 
     // Sleep for ms milliseconds (cross-platform wrapper).
     static void pause(int ms);
+
+    // Arrow-key menu: prints options, lets user navigate with up/down, confirms with Enter.
+    // Returns the selected index, or -1 if ESC is pressed.
+    // disabled[i] = true grays out that option and skips it during navigation.
+    static int menuSelect(const std::vector<std::string>& options, int startIndex = 0,
+                          const std::vector<bool>& disabled = {});
+
+    // Side-by-side menu: prints leftLines as the left column (padded to leftColWidth visual chars),
+    // and options as the right column. optionIndices[i] maps each left line to an option index
+    // (or -1 for lines with no corresponding option). Options not referenced get blank left sides.
+    static int menuSelectRight(const std::vector<std::string>& leftLines,
+                               const std::vector<int>&         optionIndices,
+                               const std::vector<std::string>& options,
+                               int leftColWidth,
+                               int startIndex = 0,
+                               const std::vector<bool>& disabled = {});
+
+    // Clear the terminal screen.
+    static void clearScreen();
+
+    // Measure the visible (printable) length of a string, ignoring ANSI escape sequences.
+    static int visibleLen(const std::string& s);
+
+    // Print a prompt and wait for any keypress before continuing.
+    static void waitForKey(const std::string& prompt = "  (press any key to continue)");
 };

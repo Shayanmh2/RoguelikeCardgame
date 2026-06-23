@@ -170,5 +170,4 @@ void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
         std::cout << "     " << Color::DIM << c.getDescription() << Color::RESET << "\n\n";
     }
 
-    std::cout << "Enter your choice (1-" << choices.size() << "): ";
 }

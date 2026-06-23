@@ -36,6 +36,7 @@ public:
     int totalCards() const;
     bool upgradeCardAt(int index);
     std::vector<std::string> getAllCardNames() const; // base names (trailing '+' stripped)
+    std::vector<Card> getAllCardsOrdered() const;     // cards + hand + discard, same order as upgradeCardAt
 };
 
 #endif

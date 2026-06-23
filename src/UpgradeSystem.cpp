@@ -1,4 +1,5 @@
 #include "UpgradeSystem.h"
+#include "UIHelper.h"
 #include <iostream>
 
 UpgradeSystem::UpgradeSystem() {
@@ -46,27 +47,33 @@ void UpgradeSystem::displayUnlockedUpgrades() {
 }
 
 void UpgradeSystem::selectActiveUpgrades() {
-    displayUnlockedUpgrades();
-    
-    std::string input;
+    bool anyUnlocked = false;
+    for (bool u : unlockedUpgrades) if (u) { anyUnlocked = true; break; }
+    if (!anyUnlocked) {
+        std::cout << "\nNo upgrades unlocked yet.\n";
+        return;
+    }
+
     while (true) {
-        std::cout << "Toggle upgrade (1-" << allUpgrades.size() << ") or press Enter to continue:\n";
-        std::cout << "> ";
-        std::getline(std::cin, input);
-        
-        if (input.empty()) break;
-        
-        try {
-            int choice = std::stoi(input) - 1;
-            if (choice >= 0 && choice < (int)allUpgrades.size() && unlockedUpgrades[choice]) {
-                activeUpgrades[choice] = !activeUpgrades[choice];
-                displayUnlockedUpgrades();
-            } else {
-                std::cout << "Invalid choice. Try again.\n";
-            }
-        } catch (...) {
-            std::cout << "Invalid input. Try again.\n";
+        // Build index mapping: menu position → allUpgrades index
+        std::vector<int> idxMap;
+        for (int i = 0; i < (int)allUpgrades.size(); i++)
+            if (unlockedUpgrades[i]) idxMap.push_back(i);
+
+        std::vector<std::string> options;
+        for (int i : idxMap) {
+            std::string status = activeUpgrades[i] ? "[ON]  " : "[   ] ";
+            options.push_back(status + allUpgrades[i].getName() + " — " + allUpgrades[i].getDescription());
         }
+        options.push_back("Done");
+
+        std::cout << "\nUpgrades — select to toggle:\n";
+        int choice = UIHelper::menuSelect(options);
+
+        if (choice < 0 || choice >= (int)idxMap.size()) break;  // Done or ESC
+
+        int realIdx = idxMap[choice];
+        activeUpgrades[realIdx] = !activeUpgrades[realIdx];
     }
 }
 

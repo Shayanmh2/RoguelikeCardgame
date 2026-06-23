@@ -222,8 +222,8 @@ void Game::playCardFromHand(int index) {
         }
         if (playerEnergy > 0)
             std::cout << Color::DIM << "  (" << playerEnergy << " play" << (playerEnergy != 1 ? "s" : "") << " left)" << Color::RESET << "\n";
-    } catch (const std::out_of_range& e) {
-        std::cout << "Invalid card index! Use 'hand' to see your cards.\n";
+    } catch (const std::out_of_range&) {
+        std::cout << "Invalid card index!\n";
     }
 }
 
@@ -372,8 +372,7 @@ void Game::enemyTurn() {
 void Game::displayTurnInfo() const {
     std::cout << "\n" << Color::BOLD << "-- Turn " << turnNumber << " --" << Color::RESET << "\n";
     if (playerTurnActive) {
-        std::cout << "Plays remaining: " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET
-                  << "  |  Type " << Color::DIM << "'end'" << Color::RESET << " to end your turn.\n";
+        std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << " plays remaining\n";
     }
 }
 
@@ -423,14 +422,8 @@ void Game::endPlayerTurn() {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
 
-    UIHelper::pause(350);
-    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "-- Turn " + std::to_string(turnNumber + 1) + " --" + Color::RESET + "\n");
-    std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
-              << " | Drew " << drawCount << " cards.\n";
-    playerStatus.display("Status: ");
-    playerDeck.displayHand(playerStatus.getWeakPenalty(),
-                           upgrades.getDamageBonus() + equipDamageBonus,
-                           upgrades.getArmorBonus()  + equipArmorBonus);
+    UIHelper::pause(800);
+    // handleInput() will clear and redraw the full state for the new turn
 }
 
 bool Game::checkGameOver() {
@@ -444,6 +437,7 @@ bool Game::checkGameOver() {
 }
 
 void Game::displayGameOver() {
+    UIHelper::clearScreen();
     if (playerHealth <= 0) {
         Audio::playSFX("lose");
         UIHelper::pause(300);
@@ -456,93 +450,105 @@ void Game::displayGameOver() {
 }
 
 bool Game::handleGameOverInput() {
-    std::string input;
-    std::cout << "\n[play] Play again or [quit]?\n";
-    std::cout << "> ";
-    std::getline(std::cin, input);
-    
-    if (input == "play") {
-        return true;
-    } else if (input == "quit") {
-        return false;
-    } else {
-        std::cout << "Invalid choice. Please enter 'play' or 'quit'.\n";
-        return handleGameOverInput();
-    }
+    UIHelper::clearScreen();
+    std::cout << "\n";
+    int choice = UIHelper::menuSelect({"Play again", "Quit"});
+    return (choice == 0);
 }
 
 void Game::handleInput() {
-    std::string input;
-    std::getline(std::cin, input);
-    
-    if (input == "quit") {
-        running = false;
-    } else if (input == "hand") {
-        playerDeck.displayHand(playerStatus.getWeakPenalty(),
-                           upgrades.getDamageBonus() + equipDamageBonus,
-                           upgrades.getArmorBonus()  + equipArmorBonus);
-    } else if (input == "status") {
-        displayStatus();
-    } else if (input == "enemy") {
-        displayEnemyInfo();
-    } else if (input == "help") {
-        std::cout << "Commands: hand, enemy, status, N (play card), discard N, end, quit\n";
-    } else if (input == "draw") {
-        try {
-            playerDeck.drawCard();
-            std::cout << "Drew a card!\n";
-        } catch (const std::exception& e) {
-            std::cout << e.what() << "\n";
-        }
-    } else if (input.size() >= 1 && std::isdigit(input[0]) &&
-               input.find_first_not_of("0123456789") == std::string::npos) {
-        // bare number shorthand: "1" == "play 1"
-        try {
-            int index = std::stoi(input);
-            playCardFromHand(index);
-            if (checkGameOver()) return;
-            if (playerEnergy <= 0 && playerTurnActive) {
-                std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
-                endPlayerTurn();
-            }
-        } catch (const std::exception&) {
-            std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
-        }
-    } else if (input.substr(0, 4) == "play") {
-        try {
-            int index = std::stoi(input.substr(5));
-            playCardFromHand(index);
-            if (checkGameOver()) return; // enemy died — outer loop handles win/loss
+    if (!playerTurnActive) return;
 
-            // Auto-end turn if out of plays
-            if (playerEnergy <= 0 && playerTurnActive) {
-                std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
-                endPlayerTurn();
-            }
-        } catch (const std::exception&) {
-            std::cout << "Usage: play INDEX (e.g. play 1). Type 'hand' to see your cards.\n";
+    UIHelper::clearScreen();
+    displayStatus();
+    displayTurnInfo();
+
+    int handCount = playerDeck.handSize();
+    int dmgBonus  = upgrades.getDamageBonus() + equipDamageBonus;
+    int armBonus  = upgrades.getArmorBonus()  + equipArmorBonus;
+    int weakPen   = playerStatus.getWeakPenalty();
+
+    // Build hand lines + option index mapping for the side-by-side display
+    std::vector<std::string> leftLines;
+    std::vector<int>         optionIndices;
+    std::vector<std::string> options;
+    std::vector<bool>        disabled;
+
+    for (int i = 0; i < handCount; i++) {
+        bool used       = playerDeck.isCardUsed(i);
+        bool cantAfford = !used && (playerDeck.getCardFromHand(i).getCost() > playerEnergy);
+
+        std::string optLabel = "Select Card " + std::to_string(i + 1);
+        if (used) optLabel += " (used)";
+        else if (cantAfford) optLabel += " (no energy)";
+        options.push_back(optLabel);
+        disabled.push_back(used || cantAfford);
+        int optIdx = (int)options.size() - 1;
+
+        if (used) {
+            leftLines.push_back(std::string("  ") + Color::DIM + std::to_string(i + 1) + ". [USED]" + Color::RESET);
+            optionIndices.push_back(optIdx);
+            leftLines.push_back(""); optionIndices.push_back(-1);
+        } else {
+            const Card& c = playerDeck.getCardFromHand(i);
+            int dispVal = c.getValue();
+            if      (c.getType() == CardType::ATTACK) dispVal = std::max(0, dispVal + dmgBonus - weakPen);
+            else if (c.getType() == CardType::DEFEND) dispVal = dispVal + armBonus;
+
+            const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                                  : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                                  : Color::CARD_SPECIAL;
+            std::string valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                                 : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+
+            // Pad type to 6, name to 18 (matching printCardRow exactly)
+            std::string typePad = c.getTypeString();
+            while ((int)typePad.size() < 6) typePad += ' ';
+            std::string namePad = c.getName();
+            while ((int)namePad.size() < 18) namePad += ' ';
+
+            std::string mainLine =
+                std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
+                + " [" + typeColor + typePad + Color::RESET + "] "
+                + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
+                + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+                + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET;
+
+            std::string descLine = "     " + std::string(Color::DIM) + c.getDescription() + Color::RESET;
+
+            leftLines.push_back(mainLine);    optionIndices.push_back(optIdx);
+            leftLines.push_back(descLine);    optionIndices.push_back(-1);
+            leftLines.push_back("");          optionIndices.push_back(-1);
         }
-    } else if (input.size() >= 8 && input.substr(0, 7) == "discard") {
-        try {
-            int idx = std::stoi(input.substr(8)) - 1;
-            if (idx < 0 || idx >= playerDeck.handSize()) {
-                std::cout << "Invalid card index. Type 'hand' to see your cards.\n";
-            } else {
-                Card c = playerDeck.playCard(idx); // moves to discard pile, no energy cost
-                std::cout << Color::DIM << "Discarded [" << c.getName() << "]." << Color::RESET << "\n";
-            }
-        } catch (...) {
-            std::cout << "Usage: discard INDEX  (e.g. discard 2)\n";
+    }
+
+    options.push_back("End Turn");    disabled.push_back(false);
+    options.push_back("View Enemy");  disabled.push_back(false);
+    options.push_back("Status");      disabled.push_back(false);
+
+    std::cout << "\n";
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 50, 0, disabled);
+    if (choice < 0) return;
+
+    if (choice < handCount) {
+        playCardFromHand(choice + 1);
+        if (checkGameOver()) return;
+        if (playerEnergy <= 0 && playerTurnActive) {
+            std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
+            UIHelper::pause(600);
+            endPlayerTurn();
         }
-    } else if (input == "end") {
-        if (!playerTurnActive) {
-            std::cout << "It's not your turn!\n";
-            return;
-        }
+    } else if (choice == handCount) {
         endPlayerTurn();
         checkGameOver();
-    } else if (!input.empty()) {
-        std::cout << Color::DIM << "Unknown command. Type 'help' for a list." << Color::RESET << "\n";
+    } else if (choice == handCount + 1) {
+        UIHelper::clearScreen();
+        displayEnemyInfo();
+        UIHelper::waitForKey();
+    } else {
+        UIHelper::clearScreen();
+        displayStatus();
+        UIHelper::waitForKey();
     }
 }
 
@@ -719,25 +725,35 @@ void Game::bossAction() {
 }
 
 void Game::offerBossReward() {
+    UIHelper::clearScreen();
     std::cout << "\n" << Color::YELLOW << Color::BOLD << "Boss reward" << Color::RESET << " — pick a rare card:\n\n";
     std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
+
+    if (rewards.empty()) {
+        std::cout << "No rare cards available.\n";
+        return;
+    }
+
     rewardPool.displayRewardChoices(rewards);
 
-    int choiceIndex = -1;
-    while (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
-        std::string choice;
-        std::getline(std::cin, choice);
-        if (choice == "0" || choice.empty()) { std::cout << "Skipping reward.\n"; return; }
-        try { choiceIndex = std::stoi(choice) - 1; } catch (...) { choiceIndex = -1; }
-        if (choiceIndex < 0 || choiceIndex >= (int)rewards.size())
-            std::cout << "Enter 1-" << rewards.size() << " (or 0 to skip): ";
+    std::vector<std::string> options;
+    for (size_t i = 0; i < rewards.size(); i++)
+        options.push_back("Select Card " + std::to_string(i + 1));
+    options.push_back("Skip");
+
+    int choice = UIHelper::menuSelect(options);
+    if (choice < 0 || choice >= (int)rewards.size()) {
+        std::cout << "Skipping reward.\n";
+        return;
     }
-    playerDeck.addCard(rewards[choiceIndex]);
+
+    playerDeck.addCard(rewards[choice]);
     runStats.addCardToRun();
-    std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choiceIndex].getName() << " to your deck!" << Color::RESET << "\n";
+    std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
 }
 
 void Game::startEncounter() {
+    UIHelper::clearScreen();
     playerDeck.resetDeck();
     int drawCount = 5 + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
@@ -789,9 +805,8 @@ void Game::startEncounter() {
 
     displayStatus();
     displayTurnInfo();
-    playerDeck.displayHand(playerStatus.getWeakPenalty(),
-                           upgrades.getDamageBonus() + equipDamageBonus,
-                           upgrades.getArmorBonus()  + equipArmorBonus);
+    UIHelper::pause(600);
+    // handleInput() will render the hand + menu side-by-side on first input
 }
 
 void Game::nextEncounter() {
@@ -800,55 +815,52 @@ void Game::nextEncounter() {
 }
 
 void Game::restSite() {
-    std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n";
-    int healAmount = maxPlayerHealth - playerHealth;
-    std::cout << "  [rest]  - Full heal  (currently " << playerHealth << "/" << maxPlayerHealth << ")\n";
-    std::cout << "  [forge] - Upgrade a card (+3 value, -1 cost)\n";
-    std::cout << "  [skip]  - Press on without resting\n";
-    std::cout << "> ";
+    UIHelper::clearScreen();
+    std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n\n";
 
-    std::string input;
-    std::getline(std::cin, input);
+    std::vector<std::string> siteOptions = {
+        "Rest  — heal to full (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + " HP)",
+        "Forge — upgrade a card (+3 value, -1 cost)",
+        "Skip  — press on"
+    };
 
-    if (input == "rest") {
+    int siteChoice = UIHelper::menuSelect(siteOptions);
+
+    if (siteChoice == 0) {
         playerHealth = maxPlayerHealth;
         Audio::playSFX("heal");
         std::cout << Color::HEAL << "You rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
-    } else if (input == "forge") {
+    } else if (siteChoice == 1) {
         if (playerDeck.totalCards() == 0) {
             std::cout << "Your deck is empty — nothing to upgrade.\n";
             return;
         }
         playerDeck.displayAllCards();
-        std::cout << "Choose a card to upgrade (1-" << playerDeck.totalCards() << ") or 0 to cancel:\n> ";
-        std::string choice;
-        std::getline(std::cin, choice);
-        try {
-            int idx = std::stoi(choice) - 1;
-            if (idx < 0) {
-                std::cout << "Cancelled.\n";
-            } else if (playerDeck.upgradeCardAt(idx)) {
-                Audio::playSFX("upgrade");
-                std::cout << "Card upgraded!\n";
-            } else {
-                std::cout << "Invalid choice.\n";
-            }
-        } catch (...) {
-            std::cout << "Invalid input.\n";
-        }
-    } else if (input == "skip") {
-        std::cout << "You press on without resting.\n";
-    } else {
-        std::cout << "Invalid choice. Type rest, forge, or skip.\n";
-        restSite();
-    }
 
+        std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+        std::vector<std::string> cardOptions;
+        for (size_t i = 0; i < allCards.size(); i++)
+            cardOptions.push_back("Select Card " + std::to_string(i + 1));
+        cardOptions.push_back("Cancel");
+
+        int cardChoice = UIHelper::menuSelect(cardOptions);
+
+        if (cardChoice < 0 || cardChoice >= (int)allCards.size()) {
+            std::cout << "Cancelled.\n";
+        } else if (playerDeck.upgradeCardAt(cardChoice)) {
+            Audio::playSFX("upgrade");
+            std::cout << Color::GREEN << "Card upgraded!" << Color::RESET << "\n";
+        }
+    } else {
+        std::cout << "You press on without resting.\n";
+    }
 }
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
     Audio::playSFX("win");
     UIHelper::pause(300);
+    UIHelper::clearScreen();
     UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::GREEN + "Victory!" + Color::RESET + "\n");
     UIHelper::pause(300);
     std::cout << "Enemies Defeated: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
@@ -864,13 +876,9 @@ void Game::handleEncounterWin() {
 
     restSite();
 
-    std::cout << "\nKeep going? [continue] or [end run]\n";
-    std::cout << "> ";
-    
-    std::string input;
-    std::getline(std::cin, input);
-    
-    if (input == "continue") {
+    std::cout << "\n";
+    int choice = UIHelper::menuSelect({"Continue", "End run"});
+    if (choice == 0) {
         nextEncounter();
     } else {
         inEncounter = false;
@@ -879,24 +887,31 @@ void Game::handleEncounterWin() {
 }
 
 void Game::offerCardReward() {
+    UIHelper::clearScreen();
     bool rarityBoost = upgrades.isActive(6);
     std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
-    
-    rewardPool.displayRewardChoices(rewards);
 
-    int choiceIndex = -1;
-    while (choiceIndex < 0 || choiceIndex >= (int)rewards.size()) {
-        std::string choice;
-        std::getline(std::cin, choice);
-        if (choice == "0" || choice.empty()) { std::cout << "Skipping reward.\n"; return; }
-        try { choiceIndex = std::stoi(choice) - 1; } catch (...) { choiceIndex = -1; }
-        if (choiceIndex < 0 || choiceIndex >= (int)rewards.size())
-            std::cout << "Enter 1-" << rewards.size() << " (or 0 to skip): ";
+    if (rewards.empty()) {
+        std::cout << "No cards available as rewards.\n";
+        return;
     }
 
-    playerDeck.addCard(rewards[choiceIndex]);
+    rewardPool.displayRewardChoices(rewards);
+
+    std::vector<std::string> options;
+    for (size_t i = 0; i < rewards.size(); i++)
+        options.push_back("Select Card " + std::to_string(i + 1));
+    options.push_back("Skip");
+
+    int choice = UIHelper::menuSelect(options);
+    if (choice < 0 || choice >= (int)rewards.size()) {
+        std::cout << "Skipping reward.\n";
+        return;
+    }
+
+    playerDeck.addCard(rewards[choice]);
     runStats.addCardToRun();
-    std::cout << "\n" << Color::GREEN << "✓ Added " << rewards[choiceIndex].getName() << " to your deck!" << Color::RESET << "\n";
+    std::cout << "\n" << Color::GREEN << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
 }
 
 void Game::applyUpgrades() {
@@ -911,31 +926,25 @@ void Game::applyUpgrades() {
 }
 
 void Game::offerEquipmentDrop() {
+    UIHelper::clearScreen();
     std::cout << "\n" << Color::YELLOW << "You spot some equipment on the ground." << Color::RESET << "\n\n";
-    std::cout << "  1. " << Color::RED << "[WEAPON]" << Color::RESET << " Rusty Blade   — +" << 3 << " permanent damage\n";
-    std::cout << "  2. " << Color::CYAN << "[ARMOR] " << Color::RESET << " Iron Plating  — +" << 3 << " permanent armor per defend\n";
-    std::cout << "  0. Skip\n\n";
 
-    while (true) {
-        std::cout << "Choose (1-2, 0 to skip): ";
-        std::string line;
-        std::getline(std::cin, line);
-        if (line == "0") {
-            std::cout << Color::DIM << "You leave it behind." << Color::RESET << "\n";
-            break;
-        } else if (line == "1") {
-            equipDamageBonus += 3;
-            std::cout << Color::RED << "You equip the Rusty Blade. +" << 3 << " damage!" << Color::RESET << "\n";
-            Audio::playSFX("upgrade");
-            break;
-        } else if (line == "2") {
-            equipArmorBonus += 3;
-            std::cout << Color::CYAN << "You equip the Iron Plating. +" << 3 << " armor per defend!" << Color::RESET << "\n";
-            Audio::playSFX("upgrade");
-            break;
-        } else {
-            std::cout << Color::DIM << "Invalid choice. Enter 1, 2, or 0." << Color::RESET << "\n";
-        }
+    int choice = UIHelper::menuSelect({
+        "Rusty Blade   [WEAPON] +3 permanent damage",
+        "Iron Plating  [ARMOR]  +3 permanent armor per defend",
+        "Leave it"
+    });
+
+    if (choice == 0) {
+        equipDamageBonus += 3;
+        std::cout << Color::RED << "You equip the Rusty Blade. +3 damage!" << Color::RESET << "\n";
+        Audio::playSFX("upgrade");
+    } else if (choice == 1) {
+        equipArmorBonus += 3;
+        std::cout << Color::CYAN << "You equip the Iron Plating. +3 armor per defend!" << Color::RESET << "\n";
+        Audio::playSFX("upgrade");
+    } else {
+        std::cout << Color::DIM << "You leave it behind." << Color::RESET << "\n";
     }
 }
 
@@ -960,7 +969,6 @@ void Game::run() {
     startEncounter();
     
     while (running) {
-        std::cout << "> ";
         handleInput();
         
         if (checkGameOver()) {

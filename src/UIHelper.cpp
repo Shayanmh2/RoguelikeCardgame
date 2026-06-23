@@ -8,6 +8,7 @@
 #ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
+#include <conio.h>
 static void platSleep(int ms) { Sleep(ms); }
 #else
 #include <thread>
@@ -163,7 +164,7 @@ void UIHelper::printTitle() {
     std::cout << Color::RESET << Color::BOLD << Color::CYAN;
     printLine(60, '=');
     std::cout << Color::RESET;
-    std::cout << Color::DIM << "Type 'help' for commands.\n\n" << Color::RESET;
+    std::cout << Color::DIM << "Use arrow keys to navigate, Enter to select.\n\n" << Color::RESET;
 }
 
 void UIHelper::printGameOverScreen(bool won, int encountersWon, int cardsCollected) {
@@ -189,6 +190,225 @@ void UIHelper::printGameOverScreen(bool won, int encountersWon, int cardsCollect
 
 void UIHelper::pause(int ms) {
     platSleep(ms);
+}
+
+void UIHelper::clearScreen() {
+    std::cout << "\033[2J\033[H";
+    std::cout.flush();
+}
+
+int UIHelper::visibleLen(const std::string& s) {
+    int len = 0;
+    size_t i = 0;
+    while (i < s.size()) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == 0x1B) {
+            // ANSI escape: skip until final letter (inclusive)
+            i++;
+            while (i < s.size() && !std::isalpha((unsigned char)s[i])) i++;
+            if (i < s.size()) i++;
+        } else if (c >= 0xC0) {
+            // UTF-8 multibyte sequence — counts as one visual cell
+            len++;
+            i++;
+            while (i < s.size() && (unsigned char)s[i] >= 0x80 && (unsigned char)s[i] < 0xC0) i++;
+        } else {
+            len++;
+            i++;
+        }
+    }
+    return len;
+}
+
+void UIHelper::waitForKey(const std::string& prompt) {
+    std::cout << "\033[2m" << prompt << "\033[0m";
+    std::cout.flush();
+#ifdef _WIN32
+    _getch();
+#else
+    if (std::cin.peek() == '\n') std::cin.ignore();
+    std::cin.get();
+#endif
+    std::cout << "\n";
+}
+
+int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
+                               const std::vector<int>&         optionIndices,
+                               const std::vector<std::string>& options,
+                               int leftColWidth,
+                               int startIndex,
+                               const std::vector<bool>& disabled) {
+    int n = (int)options.size();
+    if (n == 0) return -1;
+
+    auto isDisabled = [&](int i) -> bool {
+        return !disabled.empty() && i < (int)disabled.size() && disabled[i];
+    };
+
+    int current = (startIndex >= 0 && startIndex < n) ? startIndex : 0;
+    while (current < n && isDisabled(current)) current++;
+    if (current >= n) current = 0;
+
+    // Merge leftLines+optionIndices, then append uncovered options with blank left sides
+    std::vector<std::string> allLeft(leftLines);
+    std::vector<int>         allOpt(optionIndices);
+
+    // Pad to same size
+    while ((int)allLeft.size() < (int)allOpt.size()) allLeft.push_back("");
+    while ((int)allOpt.size()  < (int)allLeft.size()) allOpt.push_back(-1);
+
+    // Append lines for options not yet mapped
+    std::vector<bool> covered(n, false);
+    for (int idx : allOpt) if (idx >= 0 && idx < n) covered[idx] = true;
+    for (int i = 0; i < n; i++) {
+        if (!covered[i]) {
+            allLeft.push_back("");
+            allOpt.push_back(i);
+        }
+    }
+
+    int totalLines = (int)allLeft.size();
+
+    auto printAll = [&]() {
+        for (int i = 0; i < totalLines; i++) {
+            std::cout << "\033[2K\r";
+            std::cout << allLeft[i];
+
+            int vlen = visibleLen(allLeft[i]);
+            int pad = leftColWidth - vlen;
+            if (pad > 0) std::cout << std::string(pad, ' ');
+
+            int optIdx = allOpt[i];
+            if (optIdx >= 0 && optIdx < n) {
+                bool dis = isDisabled(optIdx);
+                if (optIdx == current) {
+                    std::cout << " \033[1;36m> " << options[optIdx] << "\033[0m";
+                } else if (dis) {
+                    std::cout << "   \033[2m" << options[optIdx] << "\033[0m";
+                } else {
+                    std::cout << "   " << options[optIdx];
+                }
+            }
+            std::cout << "\n";
+        }
+        std::cout.flush();
+    };
+
+    printAll();
+
+    while (true) {
+#ifdef _WIN32
+        int ch = _getch();
+        if (ch == 0 || ch == 224) {
+            int dir = _getch();
+            if (dir == 72) {  // up
+                int next = current - 1;
+                while (next >= 0 && isDisabled(next)) next--;
+                if (next >= 0) {
+                    current = next;
+                    std::cout << "\033[" << totalLines << "A";
+                    printAll();
+                }
+            } else if (dir == 80) {  // down
+                int next = current + 1;
+                while (next < n && isDisabled(next)) next++;
+                if (next < n) {
+                    current = next;
+                    std::cout << "\033[" << totalLines << "A";
+                    printAll();
+                }
+            }
+        } else if (ch == 13) {
+            std::cout << "\n";
+            return current;
+        } else if (ch == 27) {
+            return -1;
+        }
+#else
+        std::string line;
+        if (!std::getline(std::cin, line)) return -1;
+        if (line.empty() && !isDisabled(current)) return current;
+        try {
+            int idx = std::stoi(line) - 1;
+            if (idx >= 0 && idx < n && !isDisabled(idx)) return idx;
+        } catch (...) {}
+#endif
+    }
+}
+
+int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex,
+                         const std::vector<bool>& disabled) {
+    if (options.empty()) return -1;
+
+    int n = (int)options.size();
+
+    auto isDisabled = [&](int i) -> bool {
+        return !disabled.empty() && i < (int)disabled.size() && disabled[i];
+    };
+
+    // Find first enabled item starting from startIndex
+    int current = (startIndex >= 0 && startIndex < n) ? startIndex : 0;
+    while (current < n && isDisabled(current)) current++;
+    if (current >= n) current = 0;
+
+    auto printOptions = [&]() {
+        for (int i = 0; i < n; i++) {
+            std::cout << "\033[2K\r";
+            if (i == current) {
+                std::cout << "\033[1;36m> " << options[i] << "\033[0m";
+            } else if (isDisabled(i)) {
+                std::cout << "  \033[2m" << options[i] << "\033[0m";
+            } else {
+                std::cout << "  " << options[i];
+            }
+            std::cout << "\n";
+        }
+        std::cout.flush();
+    };
+
+    printOptions();
+
+    while (true) {
+#ifdef _WIN32
+        int ch = _getch();
+        if (ch == 0 || ch == 224) {
+            int dir = _getch();
+            if (dir == 72) {  // up
+                int next = current - 1;
+                while (next >= 0 && isDisabled(next)) next--;
+                if (next >= 0) {
+                    current = next;
+                    std::cout << "\033[" << n << "A";
+                    printOptions();
+                }
+            } else if (dir == 80) {  // down
+                int next = current + 1;
+                while (next < n && isDisabled(next)) next++;
+                if (next < n) {
+                    current = next;
+                    std::cout << "\033[" << n << "A";
+                    printOptions();
+                }
+            }
+        } else if (ch == 13) {  // Enter
+            std::cout << "\n";
+            return current;
+        } else if (ch == 27) {  // ESC
+            return -1;
+        }
+#else
+        std::string line;
+        if (!std::getline(std::cin, line)) return -1;
+        if (line.empty()) {
+            if (!isDisabled(current)) return current;
+            continue;
+        }
+        try {
+            int idx = std::stoi(line) - 1;
+            if (idx >= 0 && idx < n && !isDisabled(idx)) return idx;
+        } catch (...) {}
+#endif
+    }
 }
 
 void UIHelper::typeWrite(const std::string& text, int msPerChar) {
