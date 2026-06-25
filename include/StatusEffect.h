@@ -30,6 +30,7 @@ public:
     void processWeak();          // decrements weak duration by 1
 
     void display(const std::string& prefix) const;
+    std::string summary() const;  // inline colored string, empty if no effects
     void reset();
 };
 

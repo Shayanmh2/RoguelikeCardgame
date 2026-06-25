@@ -46,6 +46,7 @@ public:
     void processWeak();
     bool hasStatusEffects() const;
     void displayStatusEffects(const std::string& prefix) const;
+    std::string statusSummary() const;
 
     // Boss interface
     bool      isBoss() const;
