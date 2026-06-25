@@ -75,6 +75,7 @@ int  Enemy::getWeakPenalty() const { return statusEffects.getWeakPenalty(); }
 void Enemy::processWeak()    { statusEffects.processWeak(); }
 bool Enemy::hasStatusEffects() const { return statusEffects.hasAny(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
+std::string Enemy::statusSummary() const { return statusEffects.summary(); }
 
 bool Enemy::isAlive() const {
     return health > 0;

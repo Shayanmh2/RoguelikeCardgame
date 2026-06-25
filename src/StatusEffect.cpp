@@ -52,6 +52,16 @@ void StatusEffects::display(const std::string& prefix) const {
     std::cout << "\n";
 }
 
+std::string StatusEffects::summary() const {
+    if (!hasAny()) return "";
+    std::string s;
+    if (poison > 0) s += std::string(" ") + Color::POISON_CLR + "[Poison " + std::to_string(poison) + "]" + Color::RESET;
+    if (burn   > 0) s += std::string(" ") + Color::BURN_CLR   + "[Burn "   + std::to_string(burn)   + "]" + Color::RESET;
+    if (stun   > 0) s += std::string(" ") + Color::STUN_CLR   + "[Stunned]"                              + Color::RESET;
+    if (weak   > 0) s += std::string(" ") + Color::WEAK_CLR   + "[Weak "   + std::to_string(weak)   + "]" + Color::RESET;
+    return s;
+}
+
 void StatusEffects::reset() {
     poison = burn = stun = weak = 0;
 }

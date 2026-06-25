@@ -460,8 +460,37 @@ void Game::handleInput() {
     if (!playerTurnActive) return;
 
     UIHelper::clearScreen();
-    displayStatus();
-    displayTurnInfo();
+
+    // Compact 4-line header so the full turn fits on one screen
+    std::string encLabel = currentRun.isBossEncounter()
+        ? std::string(Color::BOLD) + Color::MAGENTA + "BOSS" + Color::RESET
+        : "Encounter " + std::to_string(currentRun.getCurrentEncounter()) + " " + currentRun.getEncounterDifficulty();
+    std::cout << Color::BOLD << "Turn " << turnNumber << Color::RESET
+              << "  |  " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
+              << "  |  " << encLabel << "\n";
+
+    int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
+    int totalArm = upgrades.getArmorBonus()  + equipArmorBonus;
+    std::cout << Color::BOLD << Color::WHITE << "YOU" << Color::RESET
+              << "   HP:" << hpColor(playerHealth, maxPlayerHealth) << playerHealth << "/" << maxPlayerHealth << Color::RESET
+              << "  " << UIHelper::createHealthBar(playerHealth, maxPlayerHealth, 16)
+              << "  ARM:" << Color::ARMOR_CLR << playerArmor << Color::RESET;
+    if (totalDmg > 0) std::cout << "  +" << Color::CARD_ATTACK << totalDmg << "dmg" << Color::RESET;
+    if (totalArm > 0) std::cout << "  +" << Color::ARMOR_CLR   << totalArm << "arm" << Color::RESET;
+    std::cout << playerStatus.summary() << "\n";
+
+    std::cout << Color::BOLD << Color::RED << "ENEMY" << Color::RESET
+              << "  " << enemy.getName()
+              << "  HP:" << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+              << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET
+              << "  " << UIHelper::createHealthBar(enemy.getHealth(), enemy.getMaxHealth(), 16)
+              << "  ARM:" << Color::ARMOR_CLR << enemy.getArmor() << Color::RESET
+              << "  ATK:" << Color::RED << enemy.getBaseAttack() << Color::RESET
+              << enemy.statusSummary() << "\n";
+
+    std::cout << Color::DIM;
+    for (int i = 0; i < 68; i++) std::cout << '-';
+    std::cout << Color::RESET << "\n";
 
     int handCount = playerDeck.handSize();
     int dmgBonus  = upgrades.getDamageBonus() + equipDamageBonus;
@@ -533,9 +562,10 @@ void Game::handleInput() {
     if (choice < handCount) {
         playCardFromHand(choice + 1);
         if (checkGameOver()) return;
+        UIHelper::pause(600);  // let the card result stay visible before redraw
         if (playerEnergy <= 0 && playerTurnActive) {
             std::cout << "\n" << Color::DIM << "[No plays left — ending your turn automatically]" << Color::RESET << "\n";
-            UIHelper::pause(600);
+            UIHelper::pause(400);
             endPlayerTurn();
         }
     } else if (choice == handCount) {
@@ -726,7 +756,6 @@ void Game::bossAction() {
 
 void Game::offerBossReward() {
     UIHelper::clearScreen();
-    std::cout << "\n" << Color::YELLOW << Color::BOLD << "Boss reward" << Color::RESET << " — pick a rare card:\n\n";
     std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
 
     if (rewards.empty()) {
@@ -734,22 +763,50 @@ void Game::offerBossReward() {
         return;
     }
 
-    rewardPool.displayRewardChoices(rewards);
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " — pick a rare card:\n\n";
 
+    std::vector<std::string> leftLines;
+    std::vector<int>         optionIndices;
     std::vector<std::string> options;
-    for (size_t i = 0; i < rewards.size(); i++)
+
+    for (size_t i = 0; i < rewards.size(); i++) {
+        const Card& c = rewards[i];
+        const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                              : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                              : Color::CARD_SPECIAL;
+        const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                             : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+
+        leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
+            + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
+            + Color::BOLD + Color::YELLOW + c.getName() + Color::RESET);
+        optionIndices.push_back((int)i);
+
+        leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+        optionIndices.push_back(-1);
+
+        leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
+        optionIndices.push_back(-1);
+
+        leftLines.push_back("");
+        optionIndices.push_back(-1);
+
         options.push_back("Select Card " + std::to_string(i + 1));
+    }
     options.push_back("Skip");
 
-    int choice = UIHelper::menuSelect(options);
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 40);
     if (choice < 0 || choice >= (int)rewards.size()) {
         std::cout << "Skipping reward.\n";
+        UIHelper::waitForKey();
         return;
     }
 
     playerDeck.addCard(rewards[choice]);
     runStats.addCardToRun();
     std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+    UIHelper::waitForKey();
 }
 
 void Game::startEncounter() {
@@ -818,41 +875,78 @@ void Game::restSite() {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n\n";
 
-    std::vector<std::string> siteOptions = {
-        "Rest  — heal to full (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + " HP)",
-        "Forge — upgrade a card (+3 value, -1 cost)",
-        "Skip  — press on"
+    std::vector<std::string> leftLines = {
+        std::string("  ") + Color::HEAL + "Rest" + Color::RESET
+            + "  — heal to full (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + " HP)",
+        std::string("  ") + Color::YELLOW + "Forge" + Color::RESET
+            + " — upgrade a card (+3 value, -1 cost)",
+        std::string("  ") + Color::DIM + "Skip" + Color::RESET
+            + "  — press on without resting"
     };
+    std::vector<int> optionIndices = {0, 1, 2};
+    std::vector<std::string> options = {"Rest", "Forge", "Skip"};
 
-    int siteChoice = UIHelper::menuSelect(siteOptions);
+    int siteChoice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 52);
 
     if (siteChoice == 0) {
         playerHealth = maxPlayerHealth;
         Audio::playSFX("heal");
-        std::cout << Color::HEAL << "You rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
+        std::cout << Color::HEAL << "\nYou rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
+        UIHelper::waitForKey();
     } else if (siteChoice == 1) {
         if (playerDeck.totalCards() == 0) {
             std::cout << "Your deck is empty — nothing to upgrade.\n";
             return;
         }
-        playerDeck.displayAllCards();
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+        std::vector<std::string> cardLines;
+        std::vector<int>         cardOptIdx;
         std::vector<std::string> cardOptions;
-        for (size_t i = 0; i < allCards.size(); i++)
+
+        for (size_t i = 0; i < allCards.size(); i++) {
+            const Card& c = allCards[i];
+            const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                                  : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                                  : Color::CARD_SPECIAL;
+            const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                                 : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+            std::string typePad = c.getTypeString();
+            while ((int)typePad.size() < 6) typePad += ' ';
+            std::string namePad = c.getName();
+            while ((int)namePad.size() < 18) namePad += ' ';
+
+            cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
+                + " [" + typeColor + typePad + Color::RESET + "] "
+                + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
+                + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+                + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+            cardOptIdx.push_back((int)i);
+
+            cardLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
+            cardOptIdx.push_back(-1);
+
+            cardLines.push_back("");
+            cardOptIdx.push_back(-1);
+
             cardOptions.push_back("Select Card " + std::to_string(i + 1));
+        }
         cardOptions.push_back("Cancel");
 
-        int cardChoice = UIHelper::menuSelect(cardOptions);
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET << " — pick a card to upgrade:\n\n";
+        int cardChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 50);
 
         if (cardChoice < 0 || cardChoice >= (int)allCards.size()) {
             std::cout << "Cancelled.\n";
         } else if (playerDeck.upgradeCardAt(cardChoice)) {
             Audio::playSFX("upgrade");
-            std::cout << Color::GREEN << "Card upgraded!" << Color::RESET << "\n";
+            std::cout << Color::GREEN << "\nCard upgraded!" << Color::RESET << "\n";
+            UIHelper::waitForKey();
         }
     } else {
-        std::cout << "You press on without resting.\n";
+        std::cout << Color::DIM << "\nYou press on without resting." << Color::RESET << "\n";
+        UIHelper::waitForKey();
     }
 }
 
@@ -876,8 +970,19 @@ void Game::handleEncounterWin() {
 
     restSite();
 
-    std::cout << "\n";
-    int choice = UIHelper::menuSelect({"Continue", "End run"});
+    UIHelper::clearScreen();
+    std::cout << "\n" << Color::BOLD << Color::GREEN << "Round complete!" << Color::RESET << "\n\n";
+    std::cout << "  Encounters cleared: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
+    std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
+              << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n\n";
+
+    std::vector<std::string> contLines = {
+        std::string("  ") + Color::GREEN + "Continue" + Color::RESET + " — enter the next encounter",
+        std::string("  ") + Color::DIM   + "End run" + Color::RESET  + "  — finish here and bank your progress"
+    };
+    std::vector<int> contIdx = {0, 1};
+    int choice = UIHelper::menuSelectRight(contLines, contIdx, {"Continue", "End run"}, 50);
+
     if (choice == 0) {
         nextEncounter();
     } else {
@@ -896,22 +1001,50 @@ void Game::offerCardReward() {
         return;
     }
 
-    rewardPool.displayRewardChoices(rewards);
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Card reward" << Color::RESET << " — pick one to add to your deck:\n\n";
 
+    std::vector<std::string> leftLines;
+    std::vector<int>         optionIndices;
     std::vector<std::string> options;
-    for (size_t i = 0; i < rewards.size(); i++)
+
+    for (size_t i = 0; i < rewards.size(); i++) {
+        const Card& c = rewards[i];
+        const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                              : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                              : Color::CARD_SPECIAL;
+        const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                             : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+
+        leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
+            + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
+            + Color::BOLD + Color::WHITE + c.getName() + Color::RESET);
+        optionIndices.push_back((int)i);
+
+        leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+        optionIndices.push_back(-1);
+
+        leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
+        optionIndices.push_back(-1);
+
+        leftLines.push_back("");
+        optionIndices.push_back(-1);
+
         options.push_back("Select Card " + std::to_string(i + 1));
+    }
     options.push_back("Skip");
 
-    int choice = UIHelper::menuSelect(options);
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 40);
     if (choice < 0 || choice >= (int)rewards.size()) {
         std::cout << "Skipping reward.\n";
+        UIHelper::waitForKey();
         return;
     }
 
     playerDeck.addCard(rewards[choice]);
     runStats.addCardToRun();
     std::cout << "\n" << Color::GREEN << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+    UIHelper::waitForKey();
 }
 
 void Game::applyUpgrades() {
@@ -927,24 +1060,36 @@ void Game::applyUpgrades() {
 
 void Game::offerEquipmentDrop() {
     UIHelper::clearScreen();
-    std::cout << "\n" << Color::YELLOW << "You spot some equipment on the ground." << Color::RESET << "\n\n";
+    std::cout << "\n" << Color::YELLOW << "Equipment" << Color::RESET << " — you spot some gear on the ground:\n\n";
 
-    int choice = UIHelper::menuSelect({
-        "Rusty Blade   [WEAPON] +3 permanent damage",
-        "Iron Plating  [ARMOR]  +3 permanent armor per defend",
-        "Leave it"
-    });
+    std::vector<std::string> leftLines = {
+        std::string("  ") + Color::RED + "[WEAPON]" + Color::RESET + " Rusty Blade",
+        std::string("     ") + Color::DIM + "+3 permanent damage on all attacks" + Color::RESET,
+        "",
+        std::string("  ") + Color::ARMOR_CLR + "[ARMOR]" + Color::RESET + "  Iron Plating",
+        std::string("     ") + Color::DIM + "+3 permanent armor per defend" + Color::RESET,
+        "",
+        std::string("  ") + Color::DIM + "Leave it behind" + Color::RESET,
+        ""
+    };
+    std::vector<int> optionIndices = {0, -1, -1, 1, -1, -1, 2, -1};
+    std::vector<std::string> options = {"Take Rusty Blade", "Take Iron Plating", "Leave it"};
+
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 44);
 
     if (choice == 0) {
         equipDamageBonus += 3;
-        std::cout << Color::RED << "You equip the Rusty Blade. +3 damage!" << Color::RESET << "\n";
+        std::cout << Color::RED << "\nYou equip the Rusty Blade. +3 damage!" << Color::RESET << "\n";
         Audio::playSFX("upgrade");
+        UIHelper::waitForKey();
     } else if (choice == 1) {
         equipArmorBonus += 3;
-        std::cout << Color::CYAN << "You equip the Iron Plating. +3 armor per defend!" << Color::RESET << "\n";
+        std::cout << Color::CYAN << "\nYou equip the Iron Plating. +3 armor per defend!" << Color::RESET << "\n";
         Audio::playSFX("upgrade");
+        UIHelper::waitForKey();
     } else {
-        std::cout << Color::DIM << "You leave it behind." << Color::RESET << "\n";
+        std::cout << Color::DIM << "\nYou leave it behind." << Color::RESET << "\n";
+        UIHelper::waitForKey();
     }
 }
 
