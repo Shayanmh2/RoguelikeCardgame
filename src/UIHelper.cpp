@@ -249,21 +249,23 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
     while (current < n && isDisabled(current)) current++;
     if (current >= n) current = 0;
 
-    // Merge leftLines+optionIndices, then append uncovered options with blank left sides
+    // Merge leftLines+optionIndices, then append uncovered options as left-aligned footer rows
     std::vector<std::string> allLeft(leftLines);
     std::vector<int>         allOpt(optionIndices);
+    std::vector<bool>        isFooter(leftLines.size(), false);
 
     // Pad to same size
-    while ((int)allLeft.size() < (int)allOpt.size()) allLeft.push_back("");
+    while ((int)allLeft.size() < (int)allOpt.size()) { allLeft.push_back(""); isFooter.push_back(false); }
     while ((int)allOpt.size()  < (int)allLeft.size()) allOpt.push_back(-1);
 
-    // Append lines for options not yet mapped
+    // Append lines for options not yet mapped — these render left-aligned (no column padding)
     std::vector<bool> covered(n, false);
     for (int idx : allOpt) if (idx >= 0 && idx < n) covered[idx] = true;
     for (int i = 0; i < n; i++) {
         if (!covered[i]) {
             allLeft.push_back("");
             allOpt.push_back(i);
+            isFooter.push_back(true);
         }
     }
 
@@ -272,21 +274,31 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
     auto printAll = [&]() {
         for (int i = 0; i < totalLines; i++) {
             std::cout << "\033[2K\r";
-            std::cout << allLeft[i];
-
-            int vlen = visibleLen(allLeft[i]);
-            int pad = leftColWidth - vlen;
-            if (pad > 0) std::cout << std::string(pad, ' ');
 
             int optIdx = allOpt[i];
-            if (optIdx >= 0 && optIdx < n) {
-                bool dis = isDisabled(optIdx);
-                if (optIdx == current) {
+            bool dis = (optIdx >= 0 && optIdx < n) && isDisabled(optIdx);
+
+            if (isFooter[i] && optIdx >= 0 && optIdx < n) {
+                // Left-aligned action row — no column padding
+                if (optIdx == current)
                     std::cout << " \033[1;36m> " << options[optIdx] << "\033[0m";
-                } else if (dis) {
+                else if (dis)
                     std::cout << "   \033[2m" << options[optIdx] << "\033[0m";
-                } else {
+                else
                     std::cout << "   " << options[optIdx];
+            } else {
+                std::cout << allLeft[i];
+                int vlen = visibleLen(allLeft[i]);
+                int pad = leftColWidth - vlen;
+                if (pad > 0) std::cout << std::string(pad, ' ');
+
+                if (optIdx >= 0 && optIdx < n) {
+                    if (optIdx == current)
+                        std::cout << " \033[1;36m> " << options[optIdx] << "\033[0m";
+                    else if (dis)
+                        std::cout << "   \033[2m" << options[optIdx] << "\033[0m";
+                    else
+                        std::cout << "   " << options[optIdx];
                 }
             }
             std::cout << "\n";
