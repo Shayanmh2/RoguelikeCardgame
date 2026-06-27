@@ -273,6 +273,14 @@ void Game::enemyTurn() {
     enemy.processWeak();
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
+        if (parryActive) {
+            parryActive = false;
+            enemy.applyStatus(StatusType::STUN, 1);
+            Audio::playSFX("special");
+            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Enemy is stunned!" << Color::RESET << "\n";
+            UIHelper::pause(300);
+            return;
+        }
         atk = std::max(0, atk - weakPenalty);
         int effectiveArmor = pierceHalfArmor ? (playerArmor / 2) : playerArmor;
         int actualDamage = atk - effectiveArmor;
@@ -298,13 +306,6 @@ void Game::enemyTurn() {
             std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
                       << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(200);
-        }
-        if (parryActive) {
-            parryActive = false;
-            enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — enemy is stunned and loses their next turn!" << Color::RESET << "\n";
             UIHelper::pause(200);
         }
     };
@@ -640,6 +641,14 @@ void Game::bossAction() {
     int atk = std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack() - weakPenalty);
 
     auto doAttack = [&](int damage, bool raw) {
+        if (parryActive) {
+            parryActive = false;
+            enemy.applyStatus(StatusType::STUN, 1);
+            Audio::playSFX("special");
+            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Boss is stunned!" << Color::RESET << "\n";
+            UIHelper::pause(300);
+            return;
+        }
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
             Audio::playSFX("hit");
@@ -670,13 +679,6 @@ void Game::bossAction() {
             std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
                       << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(200);
-        }
-        if (parryActive) {
-            parryActive = false;
-            enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — boss is stunned and loses their next turn!" << Color::RESET << "\n";
             UIHelper::pause(200);
         }
     };
