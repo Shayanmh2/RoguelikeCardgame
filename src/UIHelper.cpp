@@ -306,6 +306,9 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
         std::cout.flush();
     };
 
+    // Save cursor position before the initial draw so redraws can return here
+    // regardless of how many physical lines the content wraps to.
+    std::cout << "\033[s";
     printAll();
 
     while (true) {
@@ -318,7 +321,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[" << totalLines << "A";
+                    std::cout << "\033[u\033[J";  // restore + erase to end
                     printAll();
                 }
             } else if (dir == 80) {  // down
@@ -326,7 +329,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[" << totalLines << "A";
+                    std::cout << "\033[u\033[J";
                     printAll();
                 }
             }
@@ -378,6 +381,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
         std::cout.flush();
     };
 
+    std::cout << "\033[s";
     printOptions();
 
     while (true) {
@@ -390,7 +394,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[" << n << "A";
+                    std::cout << "\033[u\033[J";
                     printOptions();
                 }
             } else if (dir == 80) {  // down
@@ -398,7 +402,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[" << n << "A";
+                    std::cout << "\033[u\033[J";
                     printOptions();
                 }
             }
