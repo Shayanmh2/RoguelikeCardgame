@@ -282,6 +282,19 @@ void Game::enemyTurn() {
             return;
         }
         atk = std::max(0, atk - weakPenalty);
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            int counterDmg = atk * 2;
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(counterDmg);
+            int hpLost = hpBefore - enemy.getHealth();
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << Color::GREEN << "Dodge! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
+                      << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            UIHelper::pause(200);
+            return;
+        }
         int effectiveArmor = pierceHalfArmor ? (playerArmor / 2) : playerArmor;
         int actualDamage = atk - effectiveArmor;
         if (actualDamage < 0) actualDamage = 0;
@@ -296,18 +309,6 @@ void Game::enemyTurn() {
         std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         UIHelper::pause(200);
-        if (counterAttackActive) {
-            counterAttackActive = false;
-            int counterDmg = atk * 2;
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(counterDmg);
-            int hpLost = hpBefore - enemy.getHealth();
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
-            std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
-                      << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(200);
-        }
     };
 
     auto doDefend = [&](int amt) {
@@ -649,6 +650,19 @@ void Game::bossAction() {
             UIHelper::pause(300);
             return;
         }
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            int counterDmg = damage * 2;
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(counterDmg);
+            int hpLost = hpBefore - enemy.getHealth();
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
+                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            UIHelper::pause(200);
+            return;
+        }
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
             Audio::playSFX("hit");
@@ -669,18 +683,6 @@ void Game::bossAction() {
         if (weakPenalty > 0)
             std::cout << "  " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET << "\n";
         UIHelper::pause(350);
-        if (counterAttackActive) {
-            counterAttackActive = false;
-            int counterDmg = damage * 2;
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(counterDmg);
-            int hpLost = hpBefore - enemy.getHealth();
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
-            std::cout << Color::GREEN << "Counter! You hit back for " << hpLost << " damage!" << Color::RESET
-                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(200);
-        }
     };
 
     switch (enemy.getBossType()) {
