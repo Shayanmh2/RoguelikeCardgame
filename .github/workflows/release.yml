@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write 
+  contents: write
 
 jobs:
   build:
@@ -23,11 +23,11 @@ jobs:
 
       - name: Package
         run: |
-          New-Item -ItemType Directory -Path release_folder
-          Copy-Item build\Release\cardgame.exe release_folder\
-          Copy-Item -Recurse config release_folder\config
-          Copy-Item -Recurse sounds release_folder\sounds
-          Compress-Archive -Path release_folder\* -DestinationPath RoguelikeCardgame.zip
+          New-Item -ItemType Directory -Path release
+          Copy-Item cardgame.exe release\
+          Copy-Item -Recurse config  release\config
+          Copy-Item -Recurse sounds  release\sounds
+          Compress-Archive -Path release\* -DestinationPath RoguelikeCardgame.zip
         shell: pwsh
 
       - name: Create GitHub Release
