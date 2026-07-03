@@ -21,31 +21,45 @@ void RewardPool::initializeCardPool() {
         auto rareData = ConfigLoader::loadRareCards(configPath);
         
         auto toEffect = [](const std::string& e) -> CardEffect {
-            if (e == "POISON")   return CardEffect::POISON;
-            if (e == "BURN")     return CardEffect::BURN;
-            if (e == "STUN")     return CardEffect::STUN;
-            if (e == "WEAK")     return CardEffect::WEAK;
-            if (e == "COUNTER")  return CardEffect::COUNTER;
-            if (e == "PARRY")    return CardEffect::PARRY;
+            if (e == "POISON")     return CardEffect::POISON;
+            if (e == "BURN")       return CardEffect::BURN;
+            if (e == "STUN")       return CardEffect::STUN;
+            if (e == "WEAK")       return CardEffect::WEAK;
+            if (e == "COUNTER")    return CardEffect::COUNTER;
+            if (e == "PARRY")      return CardEffect::PARRY;
             if (e == "PIERCE")     return CardEffect::PIERCE;
             if (e == "FORTIFY")    return CardEffect::FORTIFY;
             if (e == "STRENGTH")   return CardEffect::STRENGTH;
             if (e == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
+            if (e == "IMPAIR")     return CardEffect::IMPAIR;
             return CardEffect::NONE;
+        };
+        auto toPhysType = [](const std::string& s) -> DamageType {
+            if (s == "SMASH")  return DamageType::SMASH;
+            if (s == "PIERCE") return DamageType::PIERCE;
+            return DamageType::NONE;
+        };
+        auto toElemType = [](const std::string& s) -> DamageType {
+            if (s == "FIRE")   return DamageType::FIRE;
+            if (s == "POISON") return DamageType::POISON;
+            if (s == "WIND")   return DamageType::WIND;
+            return DamageType::NONE;
         };
 
         for (const auto& data : commonData) {
             CardType type = CardType::ATTACK;
             if (data.type == "DEFEND")  type = CardType::DEFEND;
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), false));
+            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), false,
+                                       toPhysType(data.physType), toElemType(data.elemType)));
         }
 
         for (const auto& data : rareData) {
             CardType type = CardType::ATTACK;
             if (data.type == "DEFEND")  type = CardType::DEFEND;
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true));
+            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true,
+                                      toPhysType(data.physType), toElemType(data.elemType)));
         }
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";

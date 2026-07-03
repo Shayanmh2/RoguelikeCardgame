@@ -11,6 +11,7 @@
       "name": "Bash",
       "description": "Deal 8 damage.",
       "type": "ATTACK",
+      "physType": "SMASH",
       "cost": 2,
       "value": 8
     },
@@ -25,6 +26,7 @@
       "name": "Lunge",
       "description": "Deal 6 damage.",
       "type": "ATTACK",
+      "physType": "PIERCE",
       "cost": 1,
       "value": 6
     },
@@ -54,6 +56,7 @@
       "name": "Pummel",
       "description": "Deal 12 damage.",
       "type": "ATTACK",
+      "physType": "SMASH",
       "cost": 2,
       "value": 12
     },
@@ -88,6 +91,22 @@
       "effect": "WEAK",
       "cost": 1,
       "value": 3
+    },
+    {
+      "name": "Gale Slash",
+      "description": "Deal 6 damage.",
+      "type": "ATTACK",
+      "elemType": "WIND",
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Flame Slash",
+      "description": "Deal 6 damage.",
+      "type": "ATTACK",
+      "elemType": "FIRE",
+      "cost": 1,
+      "value": 6
     }
   ],
   "rareCards": [
@@ -100,8 +119,9 @@
     },
     {
       "name": "Iron Skin",
-      "description": "Gain 20 armor.",
+      "description": "Gain 20 armor. 50% chance to Weaken the enemy.",
       "type": "DEFEND",
+      "effect": "IMPAIR",
       "cost": 3,
       "value": 20
     },
@@ -109,6 +129,8 @@
       "name": "Whirlwind",
       "description": "Deal 12 damage.",
       "type": "ATTACK",
+      "physType": "PIERCE",
+      "elemType": "WIND",
       "cost": 2,
       "value": 12
     },
@@ -125,6 +147,7 @@
       "description": "Deal 10 damage, ignoring enemy defense.",
       "type": "ATTACK",
       "effect": "PIERCE",
+      "physType": "PIERCE",
       "cost": 2,
       "value": 10
     },
@@ -155,6 +178,7 @@
       "name": "Cleave",
       "description": "Deal 25 damage.",
       "type": "ATTACK",
+      "physType": "SMASH",
       "cost": 4,
       "value": 25
     },
@@ -185,13 +209,15 @@
       "description": "Deal 14 damage, ignoring enemy defense.",
       "type": "ATTACK",
       "effect": "PIERCE",
+      "physType": "PIERCE",
       "cost": 3,
       "value": 14
     },
     {
       "name": "Retaliate",
-      "description": "Gain 7 armor.",
+      "description": "Gain 7 armor. 50% chance to Weaken the enemy.",
       "type": "DEFEND",
+      "effect": "IMPAIR",
       "cost": 1,
       "value": 7
     },
@@ -234,6 +260,15 @@
       "effect": "WEAK",
       "cost": 2,
       "value": 7
+    },
+    {
+      "name": "Cyclone",
+      "description": "Deal 18 damage.",
+      "type": "ATTACK",
+      "physType": "PIERCE",
+      "elemType": "WIND",
+      "cost": 3,
+      "value": 18
     }
   ]
 }

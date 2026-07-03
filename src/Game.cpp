@@ -46,8 +46,8 @@ void Game::init() {
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6));
-    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6));
+    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
+    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
@@ -93,6 +93,9 @@ void Game::displayEnemyInfo() const {
               << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << "\n";
     if (arm > 0)
         std::cout << "  ARM: " << Color::ARMOR_CLR << arm << Color::RESET << "\n";
+    if (enemy.getWeakness() != DamageType::NONE)
+        std::cout << "  " << Color::YELLOW << "Weakness: " << enemy.getWeaknessLabel()
+                   << " (+50% dmg from matching attacks)" << Color::RESET << "\n";
     enemy.displayStatusEffects("  ");
 
     std::cout << "\n" << Color::DIM << "Possible moves:" << Color::RESET << "\n";
@@ -234,8 +237,13 @@ void Game::playCardFromHand(int index) {
             int  weakPenalty    = playerStatus.getWeakPenalty();
             int  strengthBonus  = playerStatus.getStrengthBonus();
 
+            DamageType weakness = enemy.getWeakness();
+            bool hitsWeakness = weakness != DamageType::NONE &&
+                                (playedCard.getPhysType() == weakness || playedCard.getElemType() == weakness);
+
             for (int hitNum = 1; hitNum <= hits && enemy.isAlive(); hitNum++) {
                 int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
+                if (hitsWeakness) bonusDamage = (int)(bonusDamage * 1.5);
                 int defenseValue = pierce ? 0 : enemy.getBaseDefense();
                 int damageDealt  = calculateDamage(bonusDamage, defenseValue);
                 int hpBefore = enemy.getHealth();
@@ -249,6 +257,8 @@ void Game::playCardFromHand(int index) {
                           << Color::RESET << " (Enemy HP: "
                           << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
+                if (hitsWeakness)
+                    std::cout << " " << Color::YELLOW << "[Weakness! x1.5]" << Color::RESET;
                 if (weakPenalty > 0)
                     std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
                 if (strengthBonus > 0)
@@ -274,6 +284,17 @@ void Game::playCardFromHand(int index) {
             if (playedCard.getEffect() == CardEffect::FORTIFY) {
                 playerArmorPersistTurns = 3;
                 std::cout << "  " << Color::CYAN << "Fortified! This armor won't fade for 3 turns (until broken)." << Color::RESET << "\n";
+            }
+            if (playedCard.getEffect() == CardEffect::IMPAIR) {
+                std::random_device rd;
+                std::mt19937 gen(rd());
+                std::uniform_int_distribution<> coinFlip(0, 1);
+                if (coinFlip(gen) == 0) {
+                    enemy.applyStatus(StatusType::WEAK, 2);
+                    std::cout << "  " << Color::WEAK_CLR << "The impact staggers the enemy — Weakened for 2 turns!" << Color::RESET << "\n";
+                } else {
+                    std::cout << "  " << Color::DIM << "(No impair this time.)" << Color::RESET << "\n";
+                }
             }
         } else if (playedCard.getType() == CardType::SPECIAL) {
             Audio::playSFX(effectSoundName(playedCard.getEffect()));
@@ -618,7 +639,8 @@ void Game::handleInput() {
                 + " [" + typeColor + typePad + Color::RESET + "] "
                 + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-                + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET;
+                + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET
+                + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
 
             std::string descLine = "     " + std::string(Color::DIM) + c.getDescription() + Color::RESET;
 
@@ -864,7 +886,8 @@ void Game::offerBossReward() {
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+            + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
         optionIndices.push_back(-1);
 
         leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
@@ -1079,6 +1102,7 @@ void Game::restSite() {
                 + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
                 + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+                + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET))
                 + "  " + (maxed ? (std::string(Color::DIM) + "[MAXED]" + Color::RESET)
                                 : (std::string(Color::CYAN) + "[" + std::to_string(upgradesLeft) + " upgrade" + (upgradesLeft != 1 ? "s" : "") + " left]" + Color::RESET)));
             cardOptIdx.push_back((int)g);
@@ -1183,7 +1207,8 @@ void Game::offerCardReward() {
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+            + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
         optionIndices.push_back(-1);
 
         leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
