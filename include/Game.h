@@ -21,6 +21,7 @@ private:
     int playerHealth;
     int maxPlayerHealth;
     int playerArmor;
+    int playerArmorPersistTurns; // FORTIFY defend cards: turns remaining before armor resets on its own
     int playerEnergy;
     int maxEnergy;
     int turnNumber;

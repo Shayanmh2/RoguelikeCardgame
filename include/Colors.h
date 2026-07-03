@@ -34,6 +34,7 @@ namespace Color {
     constexpr const char* BURN_CLR      = RED;
     constexpr const char* STUN_CLR      = YELLOW;
     constexpr const char* WEAK_CLR      = BLUE;
+    constexpr const char* STRENGTH_CLR  = DGREEN;
     constexpr const char* BOSS_CLR      = MAGENTA;
     constexpr const char* CARD_ATTACK   = RED;
     constexpr const char* CARD_DEFEND   = BLUE;

@@ -16,7 +16,10 @@ enum class CardEffect {
     STUN,
     WEAK,
     COUNTER,
-    PARRY
+    PARRY,
+    PIERCE,     // ATTACK: ignores enemy's base defense stat
+    FORTIFY,    // DEFEND: granted armor persists across turns instead of resetting
+    STRENGTH    // ATTACK: grants the player a temporary self attack buff
 };
 
 class Card {

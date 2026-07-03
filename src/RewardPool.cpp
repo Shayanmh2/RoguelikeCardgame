@@ -21,12 +21,15 @@ void RewardPool::initializeCardPool() {
         auto rareData = ConfigLoader::loadRareCards(configPath);
         
         auto toEffect = [](const std::string& e) -> CardEffect {
-            if (e == "POISON")  return CardEffect::POISON;
-            if (e == "BURN")    return CardEffect::BURN;
-            if (e == "STUN")    return CardEffect::STUN;
-            if (e == "WEAK")    return CardEffect::WEAK;
-            if (e == "COUNTER") return CardEffect::COUNTER;
-            if (e == "PARRY")   return CardEffect::PARRY;
+            if (e == "POISON")   return CardEffect::POISON;
+            if (e == "BURN")     return CardEffect::BURN;
+            if (e == "STUN")     return CardEffect::STUN;
+            if (e == "WEAK")     return CardEffect::WEAK;
+            if (e == "COUNTER")  return CardEffect::COUNTER;
+            if (e == "PARRY")    return CardEffect::PARRY;
+            if (e == "PIERCE")   return CardEffect::PIERCE;
+            if (e == "FORTIFY")  return CardEffect::FORTIFY;
+            if (e == "STRENGTH") return CardEffect::STRENGTH;
             return CardEffect::NONE;
         };
 

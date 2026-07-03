@@ -6,7 +6,18 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), counterAttackActive(false), parryActive(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), counterAttackActive(false), parryActive(false) {}
+
+// Maps an elemental CardEffect to its dedicated sound cue; non-elemental effects
+// (WEAK, COUNTER, PARRY) share the default "special" sound.
+static const char* effectSoundName(CardEffect effect) {
+    switch (effect) {
+        case CardEffect::POISON: return "poison";
+        case CardEffect::BURN:   return "fire";
+        case CardEffect::STUN:   return "volt";
+        default:                 return "special";
+    }
+}
 
 void Game::init() {
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
@@ -35,6 +46,8 @@ void Game::displayStatus() const {
     
     playerStatus.display("  YOU:   ");
     enemy.displayStatusEffects("  ENEMY: ");
+    if (playerArmorPersistTurns > 0)
+        std::cout << "  " << Color::CYAN << "[Fortified armor — " << playerArmorPersistTurns << " turns left]" << Color::RESET << "\n";
 
     // show bonuses only when they exist
     int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
@@ -193,9 +206,12 @@ void Game::playCardFromHand(int index) {
         std::cout << "Played: [" << playedCard.getName() << "] (Cost: " << playedCard.getCost() << ")\n";
 
         if (playedCard.getType() == CardType::ATTACK) {
-            int weakPenalty = playerStatus.getWeakPenalty();
-            int bonusDamage = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus - weakPenalty);
-            int damageDealt = calculateDamage(bonusDamage, enemy.getBaseDefense());
+            bool pierce         = (playedCard.getEffect() == CardEffect::PIERCE);
+            int  weakPenalty    = playerStatus.getWeakPenalty();
+            int  strengthBonus  = playerStatus.getStrengthBonus();
+            int  bonusDamage    = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
+            int  defenseValue   = pierce ? 0 : enemy.getBaseDefense();
+            int  damageDealt    = calculateDamage(bonusDamage, defenseValue);
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(damageDealt);
             int hpLost = hpBefore - enemy.getHealth();
@@ -207,17 +223,31 @@ void Game::playCardFromHand(int index) {
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
             if (weakPenalty > 0)
                 std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
+            if (strengthBonus > 0)
+                std::cout << " " << Color::STRENGTH_CLR << "[Strength +" << strengthBonus << "]" << Color::RESET;
+            if (pierce)
+                std::cout << " " << Color::MAGENTA << "[Armor-Piercing]" << Color::RESET;
             if (armorBlocked > 0)
                 std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
             std::cout << "\n";
+
+            if (playedCard.getEffect() == CardEffect::STRENGTH) {
+                playerStatus.apply(StatusType::STRENGTH, 2);
+                std::cout << "  " << Color::STRENGTH_CLR << "Bloodlust surges — +3 attack for 2 turns!" << Color::RESET << "\n";
+            }
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus() + equipArmorBonus;
             playerArmor += bonusArmor;
             Audio::playSFX("defend");
             std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
                       << Color::RESET << " (Total: " << Color::ARMOR_CLR << playerArmor << Color::RESET << ")\n";
+
+            if (playedCard.getEffect() == CardEffect::FORTIFY) {
+                playerArmorPersistTurns = 3;
+                std::cout << "  " << Color::CYAN << "Fortified! This armor won't fade for 3 turns (until broken)." << Color::RESET << "\n";
+            }
         } else if (playedCard.getType() == CardType::SPECIAL) {
-            Audio::playSFX("special");
+            Audio::playSFX(effectSoundName(playedCard.getEffect()));
             applyCardEffect(playedCard);
         }
         if (playerEnergy > 0)
@@ -356,11 +386,11 @@ void Game::enemyTurn() {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
             } else if (roll < 40) {
                 playerStatus.apply(StatusType::POISON, 3);
-                Audio::playSFX("special");
+                Audio::playSFX("poison");
                 std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! You are poisoned for 3 stacks." << Color::RESET << "\n";
             } else if (roll < 60) {
                 playerStatus.apply(StatusType::BURN, 2);
-                Audio::playSFX("special");
+                Audio::playSFX("fire");
                 std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
             } else {
                 doAttack(atk + 1, false);
@@ -379,7 +409,13 @@ void Game::displayTurnInfo() const {
 }
 
 void Game::resetArmor() {
-    playerArmor = 0;
+    // Fortified armor survives until its timer runs out or it's broken by damage,
+    // whichever comes first — everything else wipes at end of turn as usual.
+    if (playerArmorPersistTurns > 0) {
+        playerArmorPersistTurns--;
+    } else {
+        playerArmor = 0;
+    }
     enemy.resetArmor();
 }
 
@@ -414,8 +450,9 @@ void Game::endPlayerTurn() {
                   << playerHealth << Color::RESET << ")\n";
         UIHelper::pause(250);
     }
-    // WEAK ticks at end of player turn (after all attacks are resolved)
+    // WEAK/STRENGTH tick at end of player turn (after all attacks are resolved)
     playerStatus.processWeak();
+    playerStatus.processStrength();
 
     // Discard remaining hand cards and draw a fresh hand for next turn
     playerDeck.resetDeck();
@@ -477,6 +514,8 @@ void Game::handleInput() {
               << "   HP:" << hpColor(playerHealth, maxPlayerHealth) << playerHealth << "/" << maxPlayerHealth << Color::RESET
               << "  " << UIHelper::createHealthBar(playerHealth, maxPlayerHealth, 16)
               << "  ARM:" << Color::ARMOR_CLR << playerArmor << Color::RESET;
+    if (playerArmorPersistTurns > 0)
+        std::cout << " " << Color::CYAN << "[Fortified " << playerArmorPersistTurns << "]" << Color::RESET;
     if (totalDmg > 0) std::cout << "  +" << Color::CARD_ATTACK << totalDmg << "dmg" << Color::RESET;
     if (totalArm > 0) std::cout << "  +" << Color::ARMOR_CLR   << totalArm << "arm" << Color::RESET;
     std::cout << playerStatus.summary() << "\n";
@@ -712,7 +751,7 @@ void Game::bossAction() {
             } else if (roll < 70) {
                 playerStatus.apply(StatusType::POISON, 4);
                 playerStatus.apply(StatusType::BURN, 2);
-                Audio::playSFX("special");
+                Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts PLAGUE!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 4" + Color::RESET
                     + " and " + Color::BURN_CLR + "Burn 2" + Color::RESET + "!\n");
@@ -727,7 +766,7 @@ void Game::bossAction() {
                 UIHelper::pause(250);
             } else {
                 playerStatus.apply(StatusType::POISON, 6);
-                Audio::playSFX("special");
+                Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 6" + Color::RESET + "!\n");
                 UIHelper::pause(350);

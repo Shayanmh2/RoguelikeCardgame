@@ -56,6 +56,38 @@
       "type": "ATTACK",
       "cost": 2,
       "value": 12
+    },
+    {
+      "name": "Poison Dart",
+      "description": "Apply 3 Poison stacks.",
+      "type": "SPECIAL",
+      "effect": "POISON",
+      "cost": 1,
+      "value": 3
+    },
+    {
+      "name": "Torch",
+      "description": "Apply 2 Burn (5 dmg x2 turns).",
+      "type": "SPECIAL",
+      "effect": "BURN",
+      "cost": 1,
+      "value": 2
+    },
+    {
+      "name": "Stun Strike",
+      "description": "Stun enemy for 1 turn.",
+      "type": "SPECIAL",
+      "effect": "STUN",
+      "cost": 2,
+      "value": 1
+    },
+    {
+      "name": "Weaken",
+      "description": "Apply 3 Weak (-2 atk x3 turns).",
+      "type": "SPECIAL",
+      "effect": "WEAK",
+      "cost": 1,
+      "value": 3
     }
   ],
   "rareCards": [
@@ -90,8 +122,9 @@
     },
     {
       "name": "Uppercut",
-      "description": "Deal 10 damage.",
+      "description": "Deal 10 damage, ignoring enemy defense.",
       "type": "ATTACK",
+      "effect": "PIERCE",
       "cost": 2,
       "value": 10
     },
@@ -111,8 +144,9 @@
     },
     {
       "name": "Fortify",
-      "description": "Gain 9 armor.",
+      "description": "Gain 9 armor that persists for 3 turns (until broken).",
       "type": "DEFEND",
+      "effect": "FORTIFY",
       "cost": 2,
       "value": 9
     },
@@ -125,17 +159,18 @@
     },
     {
       "name": "Bastion",
-      "description": "Gain 14 armor.",
+      "description": "Gain 14 armor that persists for 3 turns (until broken).",
       "type": "DEFEND",
+      "effect": "FORTIFY",
       "cost": 4,
       "value": 14
     },
     {
       "name": "Finishing Blow",
-      "description": "Deal 15 damage.",
+      "description": "Deal 18 damage.",
       "type": "ATTACK",
       "cost": 4,
-      "value": 15
+      "value": 18
     },
     {
       "name": "Guardian",
@@ -146,8 +181,9 @@
     },
     {
       "name": "Onslaught",
-      "description": "Deal 13 damage.",
+      "description": "Deal 13 damage, ignoring enemy defense.",
       "type": "ATTACK",
+      "effect": "PIERCE",
       "cost": 3,
       "value": 13
     },
@@ -160,10 +196,43 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 16 damage.",
+      "description": "Deal 10 damage. Gain +3 attack for 2 turns.",
       "type": "ATTACK",
-      "cost": 5,
-      "value": 16
+      "effect": "STRENGTH",
+      "cost": 4,
+      "value": 10
+    },
+    {
+      "name": "Toxic Cloud",
+      "description": "Apply 6 Poison stacks.",
+      "type": "SPECIAL",
+      "effect": "POISON",
+      "cost": 2,
+      "value": 6
+    },
+    {
+      "name": "Inferno",
+      "description": "Apply 4 Burn (5 dmg x4 turns).",
+      "type": "SPECIAL",
+      "effect": "BURN",
+      "cost": 2,
+      "value": 4
+    },
+    {
+      "name": "Paralysis",
+      "description": "Stun enemy for 2 turns.",
+      "type": "SPECIAL",
+      "effect": "STUN",
+      "cost": 2,
+      "value": 2
+    },
+    {
+      "name": "Shatter",
+      "description": "Apply 5 Weak (-2 atk x5 turns).",
+      "type": "SPECIAL",
+      "effect": "WEAK",
+      "cost": 2,
+      "value": 5
     }
   ]
 }
