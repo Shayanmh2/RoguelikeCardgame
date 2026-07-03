@@ -2,8 +2,8 @@
 #include <iostream>
 #include <vector>
 
-Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e)
-    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0) {}
+Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare)
+    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare) {}
 
 std::string Card::getName() const {
     return name;
@@ -46,6 +46,10 @@ int Card::getUpgradeCount() const {
     return upgradeCount;
 }
 
+bool Card::isRare() const {
+    return rare;
+}
+
 std::string Card::getBaseName() const {
     std::string base = name;
     while (!base.empty() && base.back() == '+') base.pop_back();
@@ -55,13 +59,13 @@ std::string Card::getBaseName() const {
 int Card::getMaxUpgrades() const {
     // Starter cards (guaranteed by name — the reward pool filters out any card
     // whose base name the player already owns, so these names never duplicate
-    // via rewards) get one upgrade. Unlockable cards get up to three, to keep
-    // incentive on collecting new cards rather than just forging starters.
+    // via rewards) get one upgrade. Common cards get three. Rare cards get five,
+    // so a fully-forged rare card ends up strictly ahead of anything common.
     static const std::vector<std::string> starterNames = {"Quick Jab", "Strike", "Bash", "Defend"};
     std::string base = getBaseName();
     for (const auto& n : starterNames)
         if (base == n) return 1;
-    return 3;
+    return rare ? 5 : 3;
 }
 
 void Card::upgrade() {
@@ -69,11 +73,23 @@ void Card::upgrade() {
     if (cost > 0) cost--;
     name += "+";
     upgradeCount++;
-    // keep description in sync so the hand always shows the correct number
-    if (type == CardType::ATTACK)
-        description = "Deal " + std::to_string(value) + " damage";
-    else if (type == CardType::DEFEND)
-        description = "Gain " + std::to_string(value) + " armor";
+    // keep description in sync so the hand always shows the correct number,
+    // preserving each effect's flavor text rather than falling back to generic wording
+    if (type == CardType::ATTACK) {
+        if (effect == CardEffect::DOUBLE_HIT)
+            description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total)";
+        else if (effect == CardEffect::PIERCE)
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense.";
+        else if (effect == CardEffect::STRENGTH)
+            description = "Deal " + std::to_string(value) + " damage. Gain +3 attack for 2 turns.";
+        else
+            description = "Deal " + std::to_string(value) + " damage";
+    } else if (type == CardType::DEFEND) {
+        if (effect == CardEffect::FORTIFY)
+            description = "Gain " + std::to_string(value) + " armor that persists for 3 turns (until broken).";
+        else
+            description = "Gain " + std::to_string(value) + " armor";
+    }
     // SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
 }
 

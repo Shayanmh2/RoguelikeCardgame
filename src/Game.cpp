@@ -6,7 +6,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), counterAttackActive(false), parryActive(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false) {}
 
 // Maps an elemental CardEffect to its dedicated sound cue; non-elemental effects
 // (WEAK, COUNTER, PARRY) share the default "special" sound.
@@ -19,13 +19,35 @@ static const char* effectSoundName(CardEffect effect) {
     }
 }
 
+struct EquipTier { std::string name; int bonus; };
+
+// Weapon/armor names and bonuses scale up each time one is claimed, so gear
+// progression actually feels like progression instead of the same "Rusty
+// Blade" forever. The last tier repeats for any further pickups.
+static EquipTier weaponTierAt(int tier) {
+    static const std::vector<EquipTier> tiers = {
+        {"Rusty Blade", 3}, {"Iron Sword", 4}, {"Steel Blade", 5},
+        {"War Axe", 6}, {"Mythril Edge", 8}, {"Legendary Blade", 10}
+    };
+    int idx = std::min(tier, (int)tiers.size() - 1);
+    return tiers[idx];
+}
+static EquipTier armorTierAt(int tier) {
+    static const std::vector<EquipTier> tiers = {
+        {"Iron Plating", 3}, {"Steel Plating", 4}, {"Chainmail", 5},
+        {"Plate Armor", 6}, {"Mythril Plating", 8}, {"Legendary Aegis", 10}
+    };
+    int idx = std::min(tier, (int)tiers.size() - 1);
+    return tiers[idx];
+}
+
 void Game::init() {
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
     playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
-    playerDeck.addCard(Card("Bash", "Deal 8 damage", CardType::ATTACK, 2, 8));
+    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6));
+    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
@@ -207,29 +229,36 @@ void Game::playCardFromHand(int index) {
 
         if (playedCard.getType() == CardType::ATTACK) {
             bool pierce         = (playedCard.getEffect() == CardEffect::PIERCE);
+            bool doubleHit      = (playedCard.getEffect() == CardEffect::DOUBLE_HIT);
+            int  hits           = doubleHit ? 2 : 1;
             int  weakPenalty    = playerStatus.getWeakPenalty();
             int  strengthBonus  = playerStatus.getStrengthBonus();
-            int  bonusDamage    = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
-            int  defenseValue   = pierce ? 0 : enemy.getBaseDefense();
-            int  damageDealt    = calculateDamage(bonusDamage, defenseValue);
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(damageDealt);
-            int hpLost = hpBefore - enemy.getHealth();
-            int armorBlocked = damageDealt - hpLost;
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
-            std::cout << "  " << Color::PLAYER_ATTACK << "Dealt " << hpLost << " damage to enemy!"
-                      << Color::RESET << " (Enemy HP: "
-                      << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
-            if (weakPenalty > 0)
-                std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
-            if (strengthBonus > 0)
-                std::cout << " " << Color::STRENGTH_CLR << "[Strength +" << strengthBonus << "]" << Color::RESET;
-            if (pierce)
-                std::cout << " " << Color::MAGENTA << "[Armor-Piercing]" << Color::RESET;
-            if (armorBlocked > 0)
-                std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
-            std::cout << "\n";
+
+            for (int hitNum = 1; hitNum <= hits && enemy.isAlive(); hitNum++) {
+                int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
+                int defenseValue = pierce ? 0 : enemy.getBaseDefense();
+                int damageDealt  = calculateDamage(bonusDamage, defenseValue);
+                int hpBefore = enemy.getHealth();
+                enemy.takeDamage(damageDealt);
+                int hpLost = hpBefore - enemy.getHealth();
+                int armorBlocked = damageDealt - hpLost;
+                Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+                std::cout << "  " << Color::PLAYER_ATTACK
+                          << (hits > 1 ? ("Hit " + std::to_string(hitNum) + ": dealt ") : "Dealt ")
+                          << hpLost << " damage to enemy!"
+                          << Color::RESET << " (Enemy HP: "
+                          << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
+                if (weakPenalty > 0)
+                    std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
+                if (strengthBonus > 0)
+                    std::cout << " " << Color::STRENGTH_CLR << "[Strength +" << strengthBonus << "]" << Color::RESET;
+                if (pierce)
+                    std::cout << " " << Color::MAGENTA << "[Armor-Piercing]" << Color::RESET;
+                if (armorBlocked > 0)
+                    std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
+                std::cout << "\n";
+            }
 
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
                 playerStatus.apply(StatusType::STRENGTH, 2);
@@ -801,12 +830,7 @@ void Game::offerBossReward() {
     UIHelper::clearScreen();
     std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
 
-    if (rewards.empty()) {
-        std::cout << "No rare cards available.\n";
-        return;
-    }
-
-    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " — pick a rare card:\n\n";
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " — choose one:\n\n";
 
     std::vector<std::string> leftLines;
     std::vector<int>         optionIndices;
@@ -837,18 +861,71 @@ void Game::offerBossReward() {
 
         options.push_back("Select Card " + std::to_string(i + 1));
     }
+
+    EquipTier weapon = weaponTierAt(weaponTier);
+    EquipTier armor  = armorTierAt(armorTier);
+
+    int nextOpt = (int)options.size();
+    int weaponOptIdx = nextOpt++;
+    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(weaponOptIdx + 1) + "." + Color::RESET
+        + " [GEAR] " + Color::RED + weapon.name + Color::RESET);
+    optionIndices.push_back(weaponOptIdx);
+    leftLines.push_back(std::string("     ") + Color::DIM + "+" + std::to_string(weapon.bonus) + " permanent damage" + Color::RESET);
+    optionIndices.push_back(-1);
+    leftLines.push_back("");
+    optionIndices.push_back(-1);
+    options.push_back("Take " + weapon.name);
+
+    int armorOptIdx = nextOpt++;
+    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(armorOptIdx + 1) + "." + Color::RESET
+        + " [GEAR] " + Color::CYAN + armor.name + Color::RESET);
+    optionIndices.push_back(armorOptIdx);
+    leftLines.push_back(std::string("     ") + Color::DIM + "+" + std::to_string(armor.bonus) + " permanent armor per defend" + Color::RESET);
+    optionIndices.push_back(-1);
+    leftLines.push_back("");
+    optionIndices.push_back(-1);
+    options.push_back("Take " + armor.name);
+
+    int energyOptIdx = nextOpt++;
+    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(energyOptIdx + 1) + "." + Color::RESET
+        + " [VIGOR] " + Color::ENERGY_CLR + "Extra Play" + Color::RESET);
+    optionIndices.push_back(energyOptIdx);
+    leftLines.push_back(std::string("     ") + Color::DIM + "+1 max energy per turn (" + std::to_string(maxEnergy) + " -> " + std::to_string(maxEnergy + 1) + ")" + Color::RESET);
+    optionIndices.push_back(-1);
+    leftLines.push_back("");
+    optionIndices.push_back(-1);
+    options.push_back("Take Extra Play");
+
     options.push_back("Skip");
 
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 40);
-    if (choice < 0 || choice >= (int)rewards.size()) {
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 45);
+
+    if (choice < 0 || choice >= (int)options.size() - 1) {
         std::cout << "Skipping reward.\n";
         UIHelper::waitForKey();
         return;
     }
 
-    playerDeck.addCard(rewards[choice]);
-    runStats.addCardToRun();
-    std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+    if (choice < (int)rewards.size()) {
+        playerDeck.addCard(rewards[choice]);
+        runStats.addCardToRun();
+        std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+    } else if (choice == weaponOptIdx) {
+        equipDamageBonus += weapon.bonus;
+        weaponTier++;
+        std::cout << "\n" << Color::RED << "You claim the " << weapon.name << "! +" << weapon.bonus << " damage." << Color::RESET << "\n";
+        Audio::playSFX("upgrade");
+    } else if (choice == armorOptIdx) {
+        equipArmorBonus += armor.bonus;
+        armorTier++;
+        std::cout << "\n" << Color::CYAN << "You claim the " << armor.name << "! +" << armor.bonus << " armor per defend." << Color::RESET << "\n";
+        Audio::playSFX("upgrade");
+    } else if (choice == energyOptIdx) {
+        maxEnergy++;
+        playerEnergy = maxEnergy;
+        std::cout << "\n" << Color::ENERGY_CLR << "You feel invigorated! Max plays per turn increased to " << maxEnergy << "." << Color::RESET << "\n";
+        Audio::playSFX("upgrade");
+    }
     UIHelper::waitForKey();
 }
 
@@ -1137,30 +1214,46 @@ void Game::offerEquipmentDrop() {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::YELLOW << "Equipment" << Color::RESET << " — you spot some gear on the ground:\n\n";
 
+    EquipTier weapon = weaponTierAt(weaponTier);
+    EquipTier armor  = armorTierAt(armorTier);
+    int healAmt = 25;
+
     std::vector<std::string> leftLines = {
-        std::string("  ") + Color::RED + "[WEAPON]" + Color::RESET + " Rusty Blade",
-        std::string("     ") + Color::DIM + "+3 permanent damage on all attacks" + Color::RESET,
+        std::string("  ") + Color::RED + "[WEAPON]" + Color::RESET + " " + weapon.name,
+        std::string("     ") + Color::DIM + "+" + std::to_string(weapon.bonus) + " permanent damage on all attacks" + Color::RESET,
         "",
-        std::string("  ") + Color::ARMOR_CLR + "[ARMOR]" + Color::RESET + "  Iron Plating",
-        std::string("     ") + Color::DIM + "+3 permanent armor per defend" + Color::RESET,
+        std::string("  ") + Color::ARMOR_CLR + "[ARMOR]" + Color::RESET + "  " + armor.name,
+        std::string("     ") + Color::DIM + "+" + std::to_string(armor.bonus) + " permanent armor per defend" + Color::RESET,
+        "",
+        std::string("  ") + Color::HEAL + "[HEAL]" + Color::RESET + "   Healing Draught",
+        std::string("     ") + Color::DIM + "Restore " + std::to_string(healAmt) + " HP now (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + ")" + Color::RESET,
         "",
         std::string("  ") + Color::DIM + "Leave it behind" + Color::RESET,
         ""
     };
-    std::vector<int> optionIndices = {0, -1, -1, 1, -1, -1, 2, -1};
-    std::vector<std::string> options = {"Take Rusty Blade", "Take Iron Plating", "Leave it"};
+    std::vector<int> optionIndices = {0, -1, -1, 1, -1, -1, 2, -1, -1, 3, -1};
+    std::vector<std::string> options = {"Take " + weapon.name, "Take " + armor.name, "Drink Draught", "Leave it"};
 
     int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 44);
 
     if (choice == 0) {
-        equipDamageBonus += 3;
-        std::cout << Color::RED << "\nYou equip the Rusty Blade. +3 damage!" << Color::RESET << "\n";
+        equipDamageBonus += weapon.bonus;
+        weaponTier++;
+        std::cout << Color::RED << "\nYou equip the " << weapon.name << ". +" << weapon.bonus << " damage!" << Color::RESET << "\n";
         Audio::playSFX("upgrade");
         UIHelper::waitForKey();
     } else if (choice == 1) {
-        equipArmorBonus += 3;
-        std::cout << Color::CYAN << "\nYou equip the Iron Plating. +3 armor per defend!" << Color::RESET << "\n";
+        equipArmorBonus += armor.bonus;
+        armorTier++;
+        std::cout << Color::CYAN << "\nYou equip the " << armor.name << ". +" << armor.bonus << " armor per defend!" << Color::RESET << "\n";
         Audio::playSFX("upgrade");
+        UIHelper::waitForKey();
+    } else if (choice == 2) {
+        int before = playerHealth;
+        playerHealth = std::min(maxPlayerHealth, playerHealth + healAmt);
+        Audio::playSFX("heal");
+        std::cout << Color::HEAL << "\nYou drink the Healing Draught, recovering " << (playerHealth - before)
+                   << " HP! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
         UIHelper::waitForKey();
     } else {
         std::cout << Color::DIM << "\nYou leave it behind." << Color::RESET << "\n";

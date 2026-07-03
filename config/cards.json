@@ -93,24 +93,24 @@
   "rareCards": [
     {
       "name": "Power Strike",
-      "description": "Deal 12 damage.",
+      "description": "Deal 19 damage.",
       "type": "ATTACK",
       "cost": 3,
-      "value": 12
+      "value": 19
     },
     {
       "name": "Iron Skin",
-      "description": "Gain 12 armor.",
+      "description": "Gain 20 armor.",
       "type": "DEFEND",
       "cost": 3,
-      "value": 12
+      "value": 20
     },
     {
       "name": "Whirlwind",
-      "description": "Deal 9 damage.",
+      "description": "Deal 12 damage.",
       "type": "ATTACK",
       "cost": 2,
-      "value": 9
+      "value": 12
     },
     {
       "name": "Parry",
@@ -130,17 +130,18 @@
     },
     {
       "name": "Shield Wall",
-      "description": "Gain 10 armor.",
+      "description": "Gain 14 armor.",
       "type": "DEFEND",
       "cost": 2,
-      "value": 10
+      "value": 14
     },
     {
       "name": "Combo Strike",
-      "description": "Deal 11 damage.",
+      "description": "Deal 7 damage twice (14 total).",
       "type": "ATTACK",
+      "effect": "DOUBLE_HIT",
       "cost": 3,
-      "value": 11
+      "value": 7
     },
     {
       "name": "Fortify",
@@ -152,10 +153,10 @@
     },
     {
       "name": "Cleave",
-      "description": "Deal 14 damage.",
+      "description": "Deal 25 damage.",
       "type": "ATTACK",
       "cost": 4,
-      "value": 14
+      "value": 25
     },
     {
       "name": "Bastion",
@@ -167,25 +168,25 @@
     },
     {
       "name": "Finishing Blow",
-      "description": "Deal 18 damage.",
+      "description": "Deal 28 damage.",
       "type": "ATTACK",
       "cost": 4,
-      "value": 18
+      "value": 28
     },
     {
       "name": "Guardian",
-      "description": "Gain 11 armor.",
+      "description": "Gain 20 armor.",
       "type": "DEFEND",
       "cost": 3,
-      "value": 11
+      "value": 20
     },
     {
       "name": "Onslaught",
-      "description": "Deal 13 damage, ignoring enemy defense.",
+      "description": "Deal 14 damage, ignoring enemy defense.",
       "type": "ATTACK",
       "effect": "PIERCE",
       "cost": 3,
-      "value": 13
+      "value": 14
     },
     {
       "name": "Retaliate",
@@ -196,27 +197,27 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 10 damage. Gain +3 attack for 2 turns.",
+      "description": "Deal 12 damage. Gain +3 attack for 2 turns.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "cost": 4,
-      "value": 10
+      "value": 12
     },
     {
       "name": "Toxic Cloud",
-      "description": "Apply 6 Poison stacks.",
+      "description": "Apply 8 Poison stacks.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
-      "value": 6
+      "value": 8
     },
     {
       "name": "Inferno",
-      "description": "Apply 4 Burn (5 dmg x4 turns).",
+      "description": "Apply 6 Burn (5 dmg x6 turns).",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
-      "value": 4
+      "value": 6
     },
     {
       "name": "Paralysis",
@@ -228,11 +229,11 @@
     },
     {
       "name": "Shatter",
-      "description": "Apply 5 Weak (-2 atk x5 turns).",
+      "description": "Apply 7 Weak (-2 atk x7 turns).",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 2,
-      "value": 5
+      "value": 7
     }
   ]
 }

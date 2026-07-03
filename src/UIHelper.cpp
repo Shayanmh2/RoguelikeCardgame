@@ -271,44 +271,65 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
 
     int totalLines = (int)allLeft.size();
 
+    // Console width, used to figure out how many physical terminal rows a
+    // logical line actually consumes once it wraps — needed so the cursor-up
+    // redraw moves the right distance even when a description line is long.
+    // \033[s / \033[u (save/restore cursor) are NOT reliably supported by the
+    // Windows console, so we track physical rows ourselves instead.
+    int consoleWidth = 80;
+#ifdef _WIN32
+    {
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi) && csbi.dwSize.X > 0)
+            consoleWidth = csbi.dwSize.X;
+    }
+#endif
+
+    int printedRows = 0; // physical rows consumed by the most recent printAll()
+
     auto printAll = [&]() {
+        printedRows = 0;
         for (int i = 0; i < totalLines; i++) {
             std::cout << "\033[2K\r";
 
             int optIdx = allOpt[i];
             bool dis = (optIdx >= 0 && optIdx < n) && isDisabled(optIdx);
+            std::string rendered;
 
             if (isFooter[i] && optIdx >= 0 && optIdx < n) {
                 // Left-aligned action row — no column padding
                 if (optIdx == current)
-                    std::cout << " \033[1;36m> " << options[optIdx] << "\033[0m";
+                    rendered = " \033[1;36m> " + options[optIdx] + "\033[0m";
                 else if (dis)
-                    std::cout << "   \033[2m" << options[optIdx] << "\033[0m";
+                    rendered = "   \033[2m" + options[optIdx] + "\033[0m";
                 else
-                    std::cout << "   " << options[optIdx];
+                    rendered = "   " + options[optIdx];
             } else {
-                std::cout << allLeft[i];
+                rendered = allLeft[i];
                 int vlen = visibleLen(allLeft[i]);
                 int pad = leftColWidth - vlen;
-                if (pad > 0) std::cout << std::string(pad, ' ');
+                if (pad > 0) rendered += std::string(pad, ' ');
 
                 if (optIdx >= 0 && optIdx < n) {
                     if (optIdx == current)
-                        std::cout << " \033[1;36m> " << options[optIdx] << "\033[0m";
+                        rendered += " \033[1;36m> " + options[optIdx] + "\033[0m";
                     else if (dis)
-                        std::cout << "   \033[2m" << options[optIdx] << "\033[0m";
+                        rendered += "   \033[2m" + options[optIdx] + "\033[0m";
                     else
-                        std::cout << "   " << options[optIdx];
+                        rendered += "   " + options[optIdx];
                 }
             }
-            std::cout << "\n";
+
+            std::cout << rendered << "\n";
+
+            int visLen = visibleLen(rendered);
+            int rows = (visLen + consoleWidth - 1) / consoleWidth;
+            if (rows < 1) rows = 1;
+            printedRows += rows;
         }
         std::cout.flush();
     };
 
-    // Save cursor position before the initial draw so redraws can return here
-    // regardless of how many physical lines the content wraps to.
-    std::cout << "\033[s";
     printAll();
 
     while (true) {
@@ -321,7 +342,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[u\033[J";  // restore + erase to end
+                    std::cout << "\033[" << printedRows << "A";
                     printAll();
                 }
             } else if (dir == 80) {  // down
@@ -329,7 +350,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[u\033[J";
+                    std::cout << "\033[" << printedRows << "A";
                     printAll();
                 }
             }

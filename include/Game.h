@@ -30,6 +30,8 @@ private:
     bool inEncounter;
     int equipDamageBonus;
     int equipArmorBonus;
+    int weaponTier; // number of weapon upgrades claimed so far (picks the gear name/bonus tier)
+    int armorTier;  // number of armor upgrades claimed so far
     bool counterAttackActive;
     bool parryActive;
     
