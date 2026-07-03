@@ -149,19 +149,21 @@ std::vector<Card> Deck::getAllCardsOrdered() const {
 
 bool Deck::upgradeCardAt(int index) {
     if (index < 0) return false;
-    if (index < (int)cards.size()) {
-        cards[index].upgrade();
+    auto tryUpgrade = [](Card& c) -> bool {
+        if (c.getUpgradeCount() >= c.getMaxUpgrades()) return false;
+        c.upgrade();
         return true;
+    };
+    if (index < (int)cards.size()) {
+        return tryUpgrade(cards[index]);
     }
     index -= (int)cards.size();
     if (index < (int)hand.size()) {
-        hand[index].upgrade();
-        return true;
+        return tryUpgrade(hand[index]);
     }
     index -= (int)hand.size();
     if (index < (int)discard.size()) {
-        discard[index].upgrade();
-        return true;
+        return tryUpgrade(discard[index]);
     }
     return false;
 }

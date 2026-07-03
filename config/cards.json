@@ -37,10 +37,10 @@
     },
     {
       "name": "Jab",
-      "description": "Deal 3 damage.",
+      "description": "Deal 4 damage.",
       "type": "ATTACK",
       "cost": 1,
-      "value": 3
+      "value": 4
     },
     {
       "name": "Dodge",

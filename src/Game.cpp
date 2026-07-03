@@ -904,12 +904,39 @@ void Game::restSite() {
         }
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+
+        // Group identical cards (same exact name, incl. '+' upgrade markers) together
+        // so the list doesn't show a wall of indistinguishable duplicates.
+        std::vector<int>              groupRepIndex;  // first raw index for each group (the one we'll upgrade)
+        std::vector<int>              groupCount;
+        std::vector<const Card*>      groupCard;
+        for (size_t i = 0; i < allCards.size(); i++) {
+            const Card& c = allCards[i];
+            bool merged = false;
+            for (size_t g = 0; g < groupCard.size(); g++) {
+                if (groupCard[g]->getName() == c.getName()) {
+                    groupCount[g]++;
+                    merged = true;
+                    break;
+                }
+            }
+            if (!merged) {
+                groupRepIndex.push_back((int)i);
+                groupCount.push_back(1);
+                groupCard.push_back(&allCards[i]);
+            }
+        }
+
         std::vector<std::string> cardLines;
         std::vector<int>         cardOptIdx;
         std::vector<std::string> cardOptions;
+        std::vector<bool>        cardDisabled;
 
-        for (size_t i = 0; i < allCards.size(); i++) {
-            const Card& c = allCards[i];
+        for (size_t g = 0; g < groupCard.size(); g++) {
+            const Card& c = *groupCard[g];
+            int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
+            bool maxed = upgradesLeft <= 0;
+
             const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
                                   : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
                                   : Color::CARD_SPECIAL;
@@ -918,14 +945,17 @@ void Game::restSite() {
             std::string typePad = c.getTypeString();
             while ((int)typePad.size() < 6) typePad += ' ';
             std::string namePad = c.getName();
+            if (groupCount[g] > 1) namePad += " x" + std::to_string(groupCount[g]);
             while ((int)namePad.size() < 18) namePad += ' ';
 
-            cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
+            cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET
                 + " [" + typeColor + typePad + Color::RESET + "] "
                 + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-                + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
-            cardOptIdx.push_back((int)i);
+                + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+                + "  " + (maxed ? (std::string(Color::DIM) + "[MAXED]" + Color::RESET)
+                                : (std::string(Color::CYAN) + "[" + std::to_string(upgradesLeft) + " upgrade" + (upgradesLeft != 1 ? "s" : "") + " left]" + Color::RESET)));
+            cardOptIdx.push_back((int)g);
 
             cardLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
             cardOptIdx.push_back(-1);
@@ -933,17 +963,19 @@ void Game::restSite() {
             cardLines.push_back("");
             cardOptIdx.push_back(-1);
 
-            cardOptions.push_back("Select Card " + std::to_string(i + 1));
+            cardOptions.push_back("Select Card " + std::to_string(g + 1));
+            cardDisabled.push_back(maxed);
         }
         cardOptions.push_back("Cancel");
+        cardDisabled.push_back(false);
 
         UIHelper::clearScreen();
         std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET << " — pick a card to upgrade:\n\n";
-        int cardChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 50);
+        int groupChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 50, 0, cardDisabled);
 
-        if (cardChoice < 0 || cardChoice >= (int)allCards.size()) {
+        if (groupChoice < 0 || groupChoice >= (int)groupRepIndex.size()) {
             std::cout << "Cancelled.\n";
-        } else if (playerDeck.upgradeCardAt(cardChoice)) {
+        } else if (playerDeck.upgradeCardAt(groupRepIndex[groupChoice])) {
             Audio::playSFX("upgrade");
             std::cout << Color::GREEN << "\nCard upgraded!" << Color::RESET << "\n";
             UIHelper::waitForKey();

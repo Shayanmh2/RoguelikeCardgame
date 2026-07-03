@@ -1,8 +1,9 @@
 #include "Card.h"
 #include <iostream>
+#include <vector>
 
 Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e)
-    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgraded(false) {}
+    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0) {}
 
 std::string Card::getName() const {
     return name;
@@ -38,14 +39,36 @@ CardEffect Card::getEffect() const {
 }
 
 bool Card::isUpgraded() const {
-    return upgraded;
+    return upgradeCount > 0;
+}
+
+int Card::getUpgradeCount() const {
+    return upgradeCount;
+}
+
+std::string Card::getBaseName() const {
+    std::string base = name;
+    while (!base.empty() && base.back() == '+') base.pop_back();
+    return base;
+}
+
+int Card::getMaxUpgrades() const {
+    // Starter cards (guaranteed by name — the reward pool filters out any card
+    // whose base name the player already owns, so these names never duplicate
+    // via rewards) get one upgrade. Unlockable cards get up to three, to keep
+    // incentive on collecting new cards rather than just forging starters.
+    static const std::vector<std::string> starterNames = {"Quick Jab", "Strike", "Bash", "Defend"};
+    std::string base = getBaseName();
+    for (const auto& n : starterNames)
+        if (base == n) return 1;
+    return 3;
 }
 
 void Card::upgrade() {
     value += 3;
     if (cost > 0) cost--;
     name += "+";
-    upgraded = true;
+    upgradeCount++;
     // keep description in sync so the hand always shows the correct number
     if (type == CardType::ATTACK)
         description = "Deal " + std::to_string(value) + " damage";
