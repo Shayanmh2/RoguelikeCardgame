@@ -30,10 +30,10 @@
     },
     {
       "name": "Brace",
-      "description": "Gain 6 armor.",
+      "description": "Gain 8 armor.",
       "type": "DEFEND",
       "cost": 1,
-      "value": 6
+      "value": 8
     },
     {
       "name": "Jab",
@@ -114,10 +114,10 @@
     },
     {
       "name": "Parry",
-      "description": "Parry: if the enemy attacks, deflect and stun them for a turn. Fizzles if they don't.",
+      "description": "Parry: if the enemy attacks, deflect for no damage, riposte for 1.5x their attack (ignores defense), and stun them. Fizzles if they don't.",
       "type": "SPECIAL",
       "effect": "PARRY",
-      "cost": 2,
+      "cost": 0,
       "value": 8
     },
     {

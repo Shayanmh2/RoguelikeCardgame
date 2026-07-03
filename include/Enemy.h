@@ -2,6 +2,7 @@
 #define ENEMY_H
 
 #include "StatusEffect.h"
+#include "DamageType.h"
 #include <string>
 
 enum class EnemyType  { MELEE, RANGED, TANK, CASTER };
@@ -57,6 +58,11 @@ public:
 
     bool isAlive() const;
     void displayStatus() const;
+
+    // Weakness system: derived from enemy type, so no extra state to construct.
+    // Attacks whose phys/elem tag matches this take +50% damage.
+    DamageType  getWeakness() const;
+    std::string getWeaknessLabel() const; // e.g. "Pierce", empty if none
 
     static std::string generateName(EnemyType type, int encounter);
 };

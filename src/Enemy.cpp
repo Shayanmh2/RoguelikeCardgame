@@ -81,6 +81,22 @@ bool Enemy::isAlive() const {
     return health > 0;
 }
 
+DamageType Enemy::getWeakness() const {
+    // Fixed per archetype so it's learnable: bring the right card for the enemy.
+    // Bosses reuse their base EnemyType, so this covers them for free.
+    switch (type) {
+        case EnemyType::MELEE:  return DamageType::PIERCE; // lightly armored, mobile — precise strikes find the gaps
+        case EnemyType::TANK:   return DamageType::SMASH;  // heavy armor doesn't stop blunt trauma
+        case EnemyType::RANGED: return DamageType::WIND;   // agile skirmishers get knocked off balance
+        case EnemyType::CASTER: return DamageType::FIRE;   // robes and concentration both burn easily
+        default:                return DamageType::NONE;
+    }
+}
+
+std::string Enemy::getWeaknessLabel() const {
+    return damageTypeName(getWeakness());
+}
+
 void Enemy::displayStatus() const {
     std::cout << name << " - Health: " << health << "/" << maxHealth 
               << " | Armor: " << armor << " | Attack: " << baseAttack << " | Defense: " << baseDefense << "\n";

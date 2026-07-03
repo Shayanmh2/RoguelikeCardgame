@@ -14,6 +14,8 @@ public:
         std::string description;
         std::string type;
         std::string effect;
+        std::string physType; // optional: "SMASH" / "PIERCE"
+        std::string elemType; // optional: "FIRE" / "POISON" / "WIND"
         int cost;
         int value;
     };

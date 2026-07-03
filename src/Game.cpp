@@ -332,15 +332,22 @@ void Game::enemyTurn() {
     enemy.processWeak();
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
+        atk = std::max(0, atk - weakPenalty);
         if (parryActive) {
             parryActive = false;
+            int riposteDmg = (int)(atk * 1.5);
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
+            int hpLost = hpBefore - enemy.getHealth();
             enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Enemy is stunned!" << Color::RESET << "\n";
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
+            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
+                      << " damage! Enemy is stunned!" << Color::RESET
+                      << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             UIHelper::pause(300);
             return;
         }
-        atk = std::max(0, atk - weakPenalty);
         if (counterAttackActive) {
             counterAttackActive = false;
             int counterDmg = atk * 2;
@@ -712,9 +719,16 @@ void Game::bossAction() {
     auto doAttack = [&](int damage, bool raw) {
         if (parryActive) {
             parryActive = false;
+            int riposteDmg = (int)(damage * 1.5);
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
+            int hpLost = hpBefore - enemy.getHealth();
             enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Boss is stunned!" << Color::RESET << "\n";
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
+            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
+                      << " damage! Boss is stunned!" << Color::RESET
+                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             UIHelper::pause(300);
             return;
         }
@@ -1024,21 +1038,18 @@ void Game::restSite() {
         // Group identical cards (same exact name, incl. '+' upgrade markers) together
         // so the list doesn't show a wall of indistinguishable duplicates.
         std::vector<int>              groupRepIndex;  // first raw index for each group (the one we'll upgrade)
-        std::vector<int>              groupCount;
         std::vector<const Card*>      groupCard;
         for (size_t i = 0; i < allCards.size(); i++) {
             const Card& c = allCards[i];
             bool merged = false;
             for (size_t g = 0; g < groupCard.size(); g++) {
                 if (groupCard[g]->getName() == c.getName()) {
-                    groupCount[g]++;
                     merged = true;
                     break;
                 }
             }
             if (!merged) {
                 groupRepIndex.push_back((int)i);
-                groupCount.push_back(1);
                 groupCard.push_back(&allCards[i]);
             }
         }
@@ -1061,7 +1072,6 @@ void Game::restSite() {
             std::string typePad = c.getTypeString();
             while ((int)typePad.size() < 6) typePad += ' ';
             std::string namePad = c.getName();
-            if (groupCount[g] > 1) namePad += " x" + std::to_string(groupCount[g]);
             while ((int)namePad.size() < 18) namePad += ' ';
 
             cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET

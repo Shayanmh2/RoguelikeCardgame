@@ -2,8 +2,10 @@
 #include <iostream>
 #include <vector>
 
-Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare)
-    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare) {}
+Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare,
+           DamageType physT, DamageType elemT)
+    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare),
+      physType(physT), elemType(elemT) {}
 
 std::string Card::getName() const {
     return name;
@@ -50,6 +52,21 @@ bool Card::isRare() const {
     return rare;
 }
 
+DamageType Card::getPhysType() const {
+    return physType;
+}
+
+DamageType Card::getElemType() const {
+    return elemType;
+}
+
+std::string Card::getTypeTag() const {
+    std::string tag;
+    if (physType != DamageType::NONE) tag += std::string("[") + damageTypeName(physType) + "]";
+    if (elemType != DamageType::NONE) tag += std::string("[") + damageTypeName(elemType) + "]";
+    return tag;
+}
+
 std::string Card::getBaseName() const {
     std::string base = name;
     while (!base.empty() && base.back() == '+') base.pop_back();
@@ -87,6 +104,8 @@ void Card::upgrade() {
     } else if (type == CardType::DEFEND) {
         if (effect == CardEffect::FORTIFY)
             description = "Gain " + std::to_string(value) + " armor that persists for 3 turns (until broken).";
+        else if (effect == CardEffect::IMPAIR)
+            description = "Gain " + std::to_string(value) + " armor. 50% chance to Weaken the enemy.";
         else
             description = "Gain " + std::to_string(value) + " armor";
     }

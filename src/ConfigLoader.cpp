@@ -148,6 +148,24 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
             card.effect = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
     }
 
+    // Extract physType (optional)
+    size_t physStart = cardStr.find("\"physType\"");
+    if (physStart != std::string::npos) {
+        size_t quoteStart = cardStr.find('"', physStart + 10);
+        size_t quoteEnd   = cardStr.find('"', quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos)
+            card.physType = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
+    // Extract elemType (optional)
+    size_t elemStart = cardStr.find("\"elemType\"");
+    if (elemStart != std::string::npos) {
+        size_t quoteStart = cardStr.find('"', elemStart + 10);
+        size_t quoteEnd   = cardStr.find('"', quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos)
+            card.elemType = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
     // Extract type
     size_t typeStart = cardStr.find("\"type\"");
     if (typeStart != std::string::npos) {
