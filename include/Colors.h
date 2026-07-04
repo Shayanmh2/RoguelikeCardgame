@@ -41,6 +41,14 @@ namespace Color {
     constexpr const char* CARD_SPECIAL  = MAGENTA;
     constexpr const char* CARD_NAME     = WHITE;
     constexpr const char* SECTION       = CYAN;
+
+    // Rarity tints for card names — 256-color pastels so they're genuinely
+    // distinct from every other semantic color in this file (the basic 16
+    // colors are all already spoken for elsewhere) and read as light tints
+    // rather than the muted/dark look of the DGREEN/DBLUE/DMAGENTA aliases.
+    constexpr const char* COMMON_TINT     = "\033[38;5;120m"; // pale green
+    constexpr const char* RARE_TINT       = "\033[38;5;153m"; // pale sky blue
+    constexpr const char* SUPER_RARE_TINT = "\033[38;5;218m"; // pale pink
 }
 
 inline std::string colorize(const std::string& text, const char* color) {

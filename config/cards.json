@@ -8,51 +8,6 @@
       "value": 5
     },
     {
-      "name": "Bash",
-      "description": "Deal 8 damage.",
-      "type": "ATTACK",
-      "physType": "SMASH",
-      "cost": 2,
-      "value": 8
-    },
-    {
-      "name": "Defend",
-      "description": "Gain 5 armor.",
-      "type": "DEFEND",
-      "cost": 1,
-      "value": 5
-    },
-    {
-      "name": "Lunge",
-      "description": "Deal 6 damage.",
-      "type": "ATTACK",
-      "physType": "PIERCE",
-      "cost": 1,
-      "value": 6
-    },
-    {
-      "name": "Brace",
-      "description": "Gain 8 armor.",
-      "type": "DEFEND",
-      "cost": 1,
-      "value": 8
-    },
-    {
-      "name": "Jab",
-      "description": "Deal 4 damage.",
-      "type": "ATTACK",
-      "cost": 1,
-      "value": 4
-    },
-    {
-      "name": "Dodge",
-      "description": "Counter: if the enemy attacks, hit back for double their damage. Fizzles if they don't.",
-      "type": "SPECIAL",
-      "effect": "COUNTER",
-      "cost": 1,
-      "value": 0
-    },
-    {
       "name": "Pummel",
       "description": "Deal 12 damage.",
       "type": "ATTACK",
@@ -107,6 +62,46 @@
       "elemType": "FIRE",
       "cost": 1,
       "value": 6
+    },
+    {
+      "name": "Uppercut",
+      "description": "Deal 10 damage, ignoring enemy defense.",
+      "type": "ATTACK",
+      "effect": "PIERCE",
+      "physType": "SMASH",
+      "cost": 2,
+      "value": 10
+    },
+    {
+      "name": "Shield Bash",
+      "description": "Gain 4 armor. Deal 3 damage.",
+      "type": "DEFEND",
+      "effect": "CHIP",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Shield Wall",
+      "description": "Gain 11 armor.",
+      "type": "DEFEND",
+      "cost": 2,
+      "value": 11
+    },
+    {
+      "name": "Combo Strike",
+      "description": "Deal 7 damage twice (14 total).",
+      "type": "ATTACK",
+      "effect": "DOUBLE_HIT",
+      "cost": 3,
+      "value": 7
+    },
+    {
+      "name": "Lesser Heal",
+      "description": "Heal 15 HP.",
+      "type": "SPECIAL",
+      "effect": "HEAL",
+      "cost": 1,
+      "value": 15
     }
   ],
   "rareCards": [
@@ -118,14 +113,6 @@
       "value": 19
     },
     {
-      "name": "Iron Skin",
-      "description": "Gain 20 armor. 50% chance to Weaken the enemy.",
-      "type": "DEFEND",
-      "effect": "IMPAIR",
-      "cost": 3,
-      "value": 20
-    },
-    {
       "name": "Whirlwind",
       "description": "Deal 12 damage.",
       "type": "ATTACK",
@@ -133,38 +120,6 @@
       "elemType": "WIND",
       "cost": 2,
       "value": 12
-    },
-    {
-      "name": "Parry",
-      "description": "Parry: if the enemy attacks, deflect for no damage, riposte for 1.5x their attack (ignores defense), and stun them. Fizzles if they don't.",
-      "type": "SPECIAL",
-      "effect": "PARRY",
-      "cost": 0,
-      "value": 8
-    },
-    {
-      "name": "Uppercut",
-      "description": "Deal 10 damage, ignoring enemy defense.",
-      "type": "ATTACK",
-      "effect": "PIERCE",
-      "physType": "PIERCE",
-      "cost": 2,
-      "value": 10
-    },
-    {
-      "name": "Shield Wall",
-      "description": "Gain 14 armor.",
-      "type": "DEFEND",
-      "cost": 2,
-      "value": 14
-    },
-    {
-      "name": "Combo Strike",
-      "description": "Deal 7 damage twice (14 total).",
-      "type": "ATTACK",
-      "effect": "DOUBLE_HIT",
-      "cost": 3,
-      "value": 7
     },
     {
       "name": "Fortify",
@@ -176,26 +131,11 @@
     },
     {
       "name": "Cleave",
-      "description": "Deal 25 damage.",
+      "description": "Deal 18 damage.",
       "type": "ATTACK",
       "physType": "SMASH",
-      "cost": 4,
-      "value": 25
-    },
-    {
-      "name": "Bastion",
-      "description": "Gain 14 armor that persists for 3 turns (until broken).",
-      "type": "DEFEND",
-      "effect": "FORTIFY",
-      "cost": 4,
-      "value": 14
-    },
-    {
-      "name": "Finishing Blow",
-      "description": "Deal 28 damage.",
-      "type": "ATTACK",
-      "cost": 4,
-      "value": 28
+      "cost": 3,
+      "value": 18
     },
     {
       "name": "Guardian",
@@ -206,12 +146,11 @@
     },
     {
       "name": "Onslaught",
-      "description": "Deal 14 damage, ignoring enemy defense.",
+      "description": "Deal 10 damage twice (20 total).",
       "type": "ATTACK",
-      "effect": "PIERCE",
-      "physType": "PIERCE",
+      "effect": "DOUBLE_HIT",
       "cost": 3,
-      "value": 14
+      "value": 10
     },
     {
       "name": "Retaliate",
@@ -220,14 +159,6 @@
       "effect": "IMPAIR",
       "cost": 1,
       "value": 7
-    },
-    {
-      "name": "Bloodlust",
-      "description": "Deal 12 damage. Gain +3 attack for 2 turns.",
-      "type": "ATTACK",
-      "effect": "STRENGTH",
-      "cost": 4,
-      "value": 12
     },
     {
       "name": "Toxic Cloud",
@@ -262,13 +193,113 @@
       "value": 7
     },
     {
+      "name": "Heal",
+      "description": "Heal 26 HP.",
+      "type": "SPECIAL",
+      "effect": "HEAL",
+      "cost": 2,
+      "value": 26
+    },
+    {
+      "name": "Dodge",
+      "description": "Counters hits up to 18 dmg: block, hit back for double +6. Bigger hits catch you off guard.",
+      "type": "SPECIAL",
+      "effect": "COUNTER",
+      "superRare": true,
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Iron Skin",
+      "description": "Gain 24 armor. 50% chance to Weaken the enemy.",
+      "type": "DEFEND",
+      "effect": "IMPAIR",
+      "superRare": true,
+      "cost": 3,
+      "value": 24
+    },
+    {
+      "name": "Bastion",
+      "description": "Gain 14 armor that persists for 3 turns (until broken).",
+      "type": "DEFEND",
+      "effect": "FORTIFY",
+      "superRare": true,
+      "cost": 4,
+      "value": 14
+    },
+    {
+      "name": "Finishing Blow",
+      "description": "Deal 30 damage.",
+      "type": "ATTACK",
+      "physType": "PIERCE",
+      "physType2": "SMASH",
+      "superRare": true,
+      "cost": 4,
+      "value": 30
+    },
+    {
+      "name": "Bloodlust",
+      "description": "Deal 13 damage. Gain +3 attack for 2 turns.",
+      "type": "ATTACK",
+      "effect": "STRENGTH",
+      "superRare": true,
+      "cost": 4,
+      "value": 13
+    },
+    {
       "name": "Cyclone",
-      "description": "Deal 18 damage.",
+      "description": "Deal 25 damage.",
       "type": "ATTACK",
       "physType": "PIERCE",
       "elemType": "WIND",
+      "superRare": true,
       "cost": 3,
-      "value": 18
+      "value": 25
+    },
+    {
+      "name": "Virulent Plague",
+      "description": "Apply 14 Poison stacks.",
+      "type": "SPECIAL",
+      "effect": "POISON",
+      "superRare": true,
+      "cost": 3,
+      "value": 14
+    },
+    {
+      "name": "Hellfire",
+      "description": "Apply 10 Burn (5 dmg x10 turns).",
+      "type": "SPECIAL",
+      "effect": "BURN",
+      "superRare": true,
+      "cost": 3,
+      "value": 10
+    },
+    {
+      "name": "Lockdown",
+      "description": "Stun enemy for 4 turns.",
+      "type": "SPECIAL",
+      "effect": "STUN",
+      "superRare": true,
+      "cost": 3,
+      "value": 4
+    },
+    {
+      "name": "Sunder",
+      "description": "Apply 12 Weak (-2 atk x12 turns).",
+      "type": "SPECIAL",
+      "effect": "WEAK",
+      "superRare": true,
+      "cost": 3,
+      "value": 12
+    },
+    {
+      "name": "Great Heal",
+      "description": "Heal 40 HP.",
+      "type": "SPECIAL",
+      "effect": "HEAL",
+      "superRare": true,
+      "cost": 3,
+      "value": 40
     }
   ]
 }

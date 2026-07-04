@@ -36,6 +36,8 @@ void RewardPool::initializeCardPool() {
             if (e == "STRENGTH")   return CardEffect::STRENGTH;
             if (e == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
             if (e == "IMPAIR")     return CardEffect::IMPAIR;
+            if (e == "CHIP")       return CardEffect::CHIP;
+            if (e == "HEAL")       return CardEffect::HEAL;
             return CardEffect::NONE;
         };
         auto toPhysType = [](const std::string& s) -> DamageType {
@@ -63,7 +65,8 @@ void RewardPool::initializeCardPool() {
             if (data.type == "DEFEND")  type = CardType::DEFEND;
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
             rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true,
-                                      toPhysType(data.physType), toElemType(data.elemType)));
+                                      toPhysType(data.physType), toElemType(data.elemType), data.superRare,
+                                      toPhysType(data.physType2)));
         }
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
@@ -124,33 +127,47 @@ std::vector<Card> RewardPool::generateRewardChoices(int count) {
     return choices;
 }
 
-std::vector<Card> RewardPool::generateWeightedRewards(int encounterNumber, int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames) {
+std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    int rareChance = 20 + (encounterNumber * 5);
-    if (rarityBoost) rareChance += 20;
-    if (rareChance > 80) rareChance = 80;
+    // Fixed odds per slot: 80% Uncommon / 15% Rare / 5% Super Rare, or
+    // 60% / 25% / 15% with the "Fortunate Soul" rarity boost active.
+    int superRareChance = rarityBoost ? 15 : 5;
+    int rareChance       = rarityBoost ? 25 : 15;
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    std::vector<Card> commonPool, rarePool;
-    for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) commonPool.push_back(c);
-    for (const auto& c : rareCards)   if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) rarePool.push_back(c);
+    std::vector<Card> uncommonPool, rarePool, superRarePool;
+    for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) uncommonPool.push_back(c);
+    for (const auto& c : rareCards) {
+        if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
+        if (c.isSuperRare()) superRarePool.push_back(c);
+        else rarePool.push_back(c);
+    }
 
     std::uniform_int_distribution<> rollDis(1, 100);
 
     for (int i = 0; i < count; ++i) {
-        bool pickRare = !rarePool.empty() && (rollDis(gen) <= rareChance || commonPool.empty());
-        std::vector<Card>& pool = pickRare ? rarePool : commonPool;
+        int roll = rollDis(gen);
+        std::vector<Card>* pool;
+        if (roll <= superRareChance) pool = &superRarePool;
+        else if (roll <= superRareChance + rareChance) pool = &rarePool;
+        else pool = &uncommonPool;
 
-        if (pool.empty()) break;
+        // Fall back to whichever tier still has cards left, favoring the rolled tier first.
+        if (pool->empty()) {
+            if (!uncommonPool.empty()) pool = &uncommonPool;
+            else if (!rarePool.empty()) pool = &rarePool;
+            else if (!superRarePool.empty()) pool = &superRarePool;
+            else break;
+        }
 
-        std::uniform_int_distribution<> idxDis(0, (int)pool.size() - 1);
+        std::uniform_int_distribution<> idxDis(0, (int)pool->size() - 1);
         int index = idxDis(gen);
-        choices.push_back(pool[index]);
-        pool.erase(pool.begin() + index);
+        choices.push_back((*pool)[index]);
+        pool->erase(pool->begin() + index);
     }
 
     return choices;
@@ -163,13 +180,28 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    std::vector<Card> pool;
-    for (const auto& c : rareCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) pool.push_back(c);
-    for (int i = 0; i < count && !pool.empty(); ++i) {
-        std::uniform_int_distribution<> dis(0, (int)pool.size() - 1);
-        int index = dis(gen);
-        choices.push_back(pool[index]);
-        pool.erase(pool.begin() + index);
+    // Same 15:5 (3:1) ratio between Rare and Super Rare as the regular reward roll,
+    // just re-normalized to 100% since this pool is always Rare-or-better.
+    std::vector<Card> rarePool, superRarePool;
+    for (const auto& c : rareCards) {
+        if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
+        if (c.isSuperRare()) superRarePool.push_back(c);
+        else rarePool.push_back(c);
+    }
+
+    std::uniform_int_distribution<> rollDis(1, 100);
+
+    for (int i = 0; i < count; ++i) {
+        std::vector<Card>* pool = (rollDis(gen) <= 25) ? &superRarePool : &rarePool;
+        if (pool->empty()) {
+            if (!rarePool.empty()) pool = &rarePool;
+            else if (!superRarePool.empty()) pool = &superRarePool;
+            else break;
+        }
+        std::uniform_int_distribution<> idxDis(0, (int)pool->size() - 1);
+        int index = idxDis(gen);
+        choices.push_back((*pool)[index]);
+        pool->erase(pool->begin() + index);
     }
     return choices;
 }

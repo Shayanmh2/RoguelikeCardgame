@@ -6,7 +6,7 @@
 #include <iostream>
 #include <random>
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
 
 // Maps an elemental CardEffect to its dedicated sound cue; non-elemental effects
 // (WEAK, COUNTER, PARRY) share the default "special" sound.
@@ -15,8 +15,19 @@ static const char* effectSoundName(CardEffect effect) {
         case CardEffect::POISON: return "poison";
         case CardEffect::BURN:   return "fire";
         case CardEffect::STUN:   return "volt";
+        case CardEffect::HEAL:   return "heal";
         default:                 return "special";
     }
+}
+
+// Card name tint by rarity — starter cards stay plain white, common/rare/super
+// rare get a subtle green/blue/pink tint so a card's rarity reads at a glance
+// without competing with the cyan selection highlight.
+static const char* rarityTint(const Card& c) {
+    if (c.isStarter())   return Color::CARD_NAME;
+    if (c.isSuperRare()) return Color::SUPER_RARE_TINT;
+    if (c.isRare())      return Color::RARE_TINT;
+    return Color::COMMON_TINT;
 }
 
 struct EquipTier { std::string name; int bonus; };
@@ -42,18 +53,19 @@ static EquipTier armorTierAt(int tier) {
 }
 
 void Game::init() {
+    // One of each starter card — no built-in duplicates. From here the deck only
+    // grows via card rewards (RNG), so any duplicates the player ends up with are
+    // purely a consequence of what the run offers, not a hardcoded starting kit.
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
-    playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
+    playerDeck.addCard(Card("Jab", "Deal 4 damage", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
-    playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
+    playerDeck.addCard(Card("Lunge", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::PIERCE));
     playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
-    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
-    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
-    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
-    playerDeck.addCard(Card("Defend", "Gain 8 armor", CardType::DEFEND, 1, 8));
-    
+    playerDeck.addCard(Card("Brace", "Gain 8 armor", CardType::DEFEND, 1, 8));
+    playerDeck.addCard(Card("Parry",
+        "Parries hits up to 24 dmg: block, riposte 1.5x +8 (ignores defense), stun. Bigger hits break your guard.",
+        CardType::SPECIAL, 0, 8, CardEffect::PARRY));
+
     applyUpgrades();
     
     playerDeck.shuffle();
@@ -96,6 +108,9 @@ void Game::displayEnemyInfo() const {
     if (enemy.getWeakness() != DamageType::NONE)
         std::cout << "  " << Color::YELLOW << "Weakness: " << enemy.getWeaknessLabel()
                    << " (+50% dmg from matching attacks)" << Color::RESET << "\n";
+    if (enemy.getResistance() != DamageType::NONE)
+        std::cout << "  " << Color::DIM << "Resistant: " << enemy.getResistanceLabel()
+                   << " (-50% dmg from matching attacks)" << Color::RESET << "\n";
     enemy.displayStatusEffects("  ");
 
     std::cout << "\n" << Color::DIM << "Possible moves:" << Color::RESET << "\n";
@@ -116,6 +131,18 @@ void Game::displayEnemyInfo() const {
                 std::cout << "  " << Color::WEAK_CLR << "War Cry"      << Color::RESET << " (rare)    — weakens you\n";
                 std::cout << "  " << Color::RED      << "Heavy Strike"  << Color::RESET << " (common)  — attack, grows stronger each turn\n";
                 std::cout << "  " << Color::ARMOR_CLR<< "Defend"        << Color::RESET << " (uncommon)— gains armor\n";
+                break;
+            case BossType::HYDRA:
+                std::cout << "  " << Color::POISON_CLR << "Venomous Bite" << Color::RESET << " (common)  — poisons you heavily\n";
+                std::cout << "  " << Color::RED         << "Twin Strike"   << Color::RESET << " (common)  — hits you twice\n";
+                std::cout << "  " << Color::HEAL        << "Regrowth"      << Color::RESET << " (uncommon)— regrows a head, heals HP\n";
+                std::cout << "  " << Color::RED         << "Bite"          << Color::RESET << " (uncommon)— direct attack\n";
+                break;
+            case BossType::DRAGON:
+                std::cout << "  " << Color::BURN_CLR << "Fire Breath" << Color::RESET << " (common)  — burns you heavily\n";
+                std::cout << "  " << Color::RED       << "Claw Rake"   << Color::RESET << " (uncommon)— heavy strike, ignores armor\n";
+                std::cout << "  " << Color::WEAK_CLR   << "Wing Buffet" << Color::RESET << " (uncommon)— knocks you off balance, weakens you\n";
+                std::cout << "  " << Color::RED         << "Claw"        << Color::RESET << " (uncommon)— direct attack\n";
                 break;
             default: break;
         }
@@ -142,6 +169,15 @@ void Game::displayEnemyInfo() const {
                     std::cout << "  " << Color::HEAL    << "Heal"         << Color::RESET << " (likely, low HP!) — recovers ~" << (8 + def / 2) << " HP\n";
                 else
                     std::cout << "  " << Color::DIM     << "[May cast Heal if HP drops below 33%]" << Color::RESET << "\n";
+                break;
+            case EnemyType::BEAST:
+                std::cout << "  " << Color::RED       << "Attack"         << Color::RESET << " (likely)   — deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
+                std::cout << "  " << Color::POISON_CLR << "Venomous bite"  << Color::RESET << " (sometimes)— poisons you (3 stacks)\n";
+                std::cout << "  " << Color::ARMOR_CLR  << "Defend"         << Color::RESET << " (rarely)   — gains " << std::max(1, def - 1) << " armor\n";
+                break;
+            case EnemyType::UNDEAD:
+                std::cout << "  " << Color::RED      << "Attack"         << Color::RESET << " (likely)   — deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
+                std::cout << "  " << Color::WEAK_CLR << "Chilling touch" << Color::RESET << " (sometimes)— weakens you (-2 dmg for 2 turns)\n";
                 break;
         }
     }
@@ -205,12 +241,23 @@ void Game::applyCardEffect(const Card& card) {
             break;
         case CardEffect::COUNTER:
             counterAttackActive = true;
-            std::cout << "  " << Color::CYAN << "You brace for a counterattack. If they strike, you hit back for double." << Color::RESET << "\n";
+            counterBonusValue = val;
+            std::cout << "  " << Color::CYAN << "You brace for a counterattack. If they strike, you hit back for double"
+                      << (val > 0 ? (" +" + std::to_string(val)) : std::string()) << "." << Color::RESET << "\n";
             break;
         case CardEffect::PARRY:
             parryActive = true;
-            std::cout << "  " << Color::CYAN << "You raise your guard. If they attack, you'll parry and stun them." << Color::RESET << "\n";
+            parryBonusValue = val;
+            std::cout << "  " << Color::CYAN << "You raise your guard. If they attack, you'll parry"
+                      << (val > 0 ? (" (+" + std::to_string(val) + " riposte)") : std::string()) << " and stun them." << Color::RESET << "\n";
             break;
+        case CardEffect::HEAL: {
+            int before = playerHealth;
+            playerHealth = std::min(maxPlayerHealth, playerHealth + val);
+            std::cout << "  " << Color::HEAL << "Recovered " << (playerHealth - before) << " HP!" << Color::RESET
+                      << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
+            break;
+        }
         default:
             break;
     }
@@ -239,11 +286,17 @@ void Game::playCardFromHand(int index) {
 
             DamageType weakness = enemy.getWeakness();
             bool hitsWeakness = weakness != DamageType::NONE &&
-                                (playedCard.getPhysType() == weakness || playedCard.getElemType() == weakness);
+                                (playedCard.getPhysType() == weakness || playedCard.getPhysType2() == weakness
+                                 || playedCard.getElemType() == weakness);
+            DamageType resistance = enemy.getResistance();
+            bool hitsResistance = resistance != DamageType::NONE &&
+                                  (playedCard.getPhysType() == resistance || playedCard.getPhysType2() == resistance
+                                   || playedCard.getElemType() == resistance);
 
             for (int hitNum = 1; hitNum <= hits && enemy.isAlive(); hitNum++) {
                 int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
                 if (hitsWeakness) bonusDamage = (int)(bonusDamage * 1.5);
+                if (hitsResistance) bonusDamage = (int)(bonusDamage * 0.5);
                 int defenseValue = pierce ? 0 : enemy.getBaseDefense();
                 int damageDealt  = calculateDamage(bonusDamage, defenseValue);
                 int hpBefore = enemy.getHealth();
@@ -259,6 +312,8 @@ void Game::playCardFromHand(int index) {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")";
                 if (hitsWeakness)
                     std::cout << " " << Color::YELLOW << "[Weakness! x1.5]" << Color::RESET;
+                if (hitsResistance)
+                    std::cout << " " << Color::DIM << "[Resisted x0.5]" << Color::RESET;
                 if (weakPenalty > 0)
                     std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
                 if (strengthBonus > 0)
@@ -268,6 +323,9 @@ void Game::playCardFromHand(int index) {
                 if (armorBlocked > 0)
                     std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
                 std::cout << "\n";
+                // Give each hit's sound time to actually play — back-to-back playSFX
+                // calls cut each other off before the first is audible.
+                if (doubleHit && hitNum < hits) UIHelper::pause(300);
             }
 
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
@@ -295,6 +353,16 @@ void Game::playCardFromHand(int index) {
                 } else {
                     std::cout << "  " << Color::DIM << "(No impair this time.)" << Color::RESET << "\n";
                 }
+            }
+            if (playedCard.getEffect() == CardEffect::CHIP) {
+                int chipDmg = 3;
+                int hpBefore = enemy.getHealth();
+                enemy.takeDamageRaw(chipDmg);
+                int hpLost = hpBefore - enemy.getHealth();
+                Audio::playSFX(!enemy.isAlive() ? "dead" : "hit");
+                std::cout << "  " << Color::PLAYER_ATTACK << "The shield's edge bites — dealt " << hpLost << " damage!"
+                          << Color::RESET << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             }
         } else if (playedCard.getType() == CardType::SPECIAL) {
             Audio::playSFX(effectSoundName(playedCard.getEffect()));
@@ -354,24 +422,11 @@ void Game::enemyTurn() {
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
         atk = std::max(0, atk - weakPenalty);
-        if (parryActive) {
-            parryActive = false;
-            int riposteDmg = (int)(atk * 1.5);
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
-            int hpLost = hpBefore - enemy.getHealth();
-            enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
-                      << " damage! Enemy is stunned!" << Color::RESET
-                      << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(300);
-            return;
-        }
+        // Dodge takes priority over Parry when both are active — it's the top-end
+        // legendary skill and always fires first, uncapped.
         if (counterAttackActive) {
             counterAttackActive = false;
-            int counterDmg = atk * 2;
+            int counterDmg = atk * 2 + counterBonusValue;
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(counterDmg);
             int hpLost = hpBefore - enemy.getHealth();
@@ -381,6 +436,27 @@ void Game::enemyTurn() {
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             UIHelper::pause(200);
             return;
+        }
+        if (parryActive) {
+            int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
+            parryActive = false;
+            if (atk <= parryCap) {
+                int riposteDmg = (int)(atk * 1.5) + parryBonusValue;
+                int hpBefore = enemy.getHealth();
+                enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
+                int hpLost = hpBefore - enemy.getHealth();
+                enemy.applyStatus(StatusType::STUN, 1);
+                Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
+                std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
+                          << " damage! Enemy is stunned!" << Color::RESET
+                          << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                UIHelper::pause(300);
+                return;
+            } else {
+                std::cout << Color::BOLD << Color::RED << "The blow is too powerful to parry! Your guard breaks!" << Color::RESET << "\n";
+                UIHelper::pause(250);
+            }
         }
         int effectiveArmor = pierceHalfArmor ? (playerArmor / 2) : playerArmor;
         int actualDamage = atk - effectiveArmor;
@@ -451,6 +527,26 @@ void Game::enemyTurn() {
                 std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
             } else {
                 doAttack(atk + 1, false);
+            }
+            break;
+        case EnemyType::BEAST:
+            if (roll < 60) {
+                doAttack(atk, false);
+            } else if (roll < 85) {
+                playerStatus.apply(StatusType::POISON, 3);
+                Audio::playSFX("poison");
+                std::cout << Color::POISON_CLR << "Enemy sinks its fangs in — venomous bite! You are poisoned for 3 stacks." << Color::RESET << "\n";
+            } else {
+                doDefend(std::max(1, def - 1));
+            }
+            break;
+        case EnemyType::UNDEAD:
+            if (roll < 75) {
+                doAttack(atk, false);
+            } else {
+                playerStatus.apply(StatusType::WEAK, 2);
+                Audio::playSFX("special");
+                std::cout << Color::WEAK_CLR << "Enemy's chilling touch saps your strength! Weakened for 2 turns." << Color::RESET << "\n";
             }
             break;
         default:
@@ -637,7 +733,7 @@ void Game::handleInput() {
             std::string mainLine =
                 std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
                 + " [" + typeColor + typePad + Color::RESET + "] "
-                + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
+                + Color::BOLD + rarityTint(c) + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
                 + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET
                 + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
@@ -701,24 +797,35 @@ Enemy Game::generateBossEnemy() {
 
     switch (currentRun.getBossIndex()) {
         case 1:
-            name  = "The Vile Witch";
+            name  = "Vile Witch";
             etype = EnemyType::CASTER;
             btype = BossType::VILE_WITCH;
             break;
         case 2:
-            name  = "The Warlord";
+            name  = "Warlord";
             etype = EnemyType::MELEE;
             btype = BossType::WARLORD;
             break;
+        case 3:
+            name  = "Hydra";
+            etype = EnemyType::BEAST;
+            btype = BossType::HYDRA;
+            break;
+        case 4:
+            name  = "Dragon";
+            etype = EnemyType::RANGED; // flight/wind fits better than reusing Warlord's Melee slot
+            btype = BossType::DRAGON;
+            break;
         default: // 0, and fallback
-            name  = "The Stone Colossus";
+            name  = "Stone Colossus";
             etype = EnemyType::TANK;
             btype = BossType::STONE_COLOSSUS;
             break;
     }
 
-    // Add tier suffix on repeat cycles
-    int cycle = (enc / 5 - 1) / 3;
+    // Add tier prefix on repeat cycles through the full boss rotation
+    int occurrence = (enc / 8) - 1; // 0-indexed: which boss appearance this is
+    int cycle = occurrence / 5;
     if (cycle == 1) name = "Ancient " + name;
     else if (cycle >= 2) name = "Eternal " + name;
 
@@ -740,32 +847,44 @@ void Game::bossAction() {
 
     auto doAttack = [&](int damage, bool raw) {
         if (parryActive) {
+            int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
             parryActive = false;
-            int riposteDmg = (int)(damage * 1.5);
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
-            int hpLost = hpBefore - enemy.getHealth();
-            enemy.applyStatus(StatusType::STUN, 1);
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
-            std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
-                      << " damage! Boss is stunned!" << Color::RESET
-                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(300);
-            return;
+            if (damage <= parryCap) {
+                int riposteDmg = (int)(damage * 1.5) + parryBonusValue;
+                int hpBefore = enemy.getHealth();
+                enemy.takeDamage(riposteDmg); // ignores defense — takeDamage only accounts for armor
+                int hpLost = hpBefore - enemy.getHealth();
+                enemy.applyStatus(StatusType::STUN, 1);
+                Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
+                std::cout << Color::CYAN << "Parry! You deflect the blow — no damage taken. Riposte for " << hpLost
+                          << " damage! Boss is stunned!" << Color::RESET
+                          << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                UIHelper::pause(300);
+                return;
+            } else {
+                std::cout << Color::BOLD << Color::RED << "The blow is too powerful to parry! Your guard breaks!" << Color::RESET << "\n";
+                UIHelper::pause(250);
+            }
         }
         if (counterAttackActive) {
+            int counterCap = counterBonusValue * 3; // upgrading Dodge raises both counter bonus and this cap
             counterAttackActive = false;
-            int counterDmg = damage * 2;
-            int hpBefore = enemy.getHealth();
-            enemy.takeDamage(counterDmg);
-            int hpLost = hpBefore - enemy.getHealth();
-            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
-            std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
-                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-            UIHelper::pause(200);
-            return;
+            if (damage <= counterCap) {
+                int counterDmg = damage * 2 + counterBonusValue;
+                int hpBefore = enemy.getHealth();
+                enemy.takeDamage(counterDmg);
+                int hpLost = hpBefore - enemy.getHealth();
+                Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+                std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
+                          << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                UIHelper::pause(200);
+                return;
+            } else {
+                std::cout << Color::BOLD << Color::RED << "The blow is too powerful to dodge! You're caught off guard!" << Color::RESET << "\n";
+                UIHelper::pause(250);
+            }
         }
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
@@ -857,6 +976,57 @@ void Game::bossAction() {
             }
             break;
 
+        case BossType::HYDRA:
+            if (roll < 20) {
+                int healAmt = 18;
+                enemy.heal(healAmt);
+                std::cout << Color::MAGENTA << "Hydra regrows a severed head, healing " << Color::HEAL
+                          << healAmt << " HP!" << Color::RESET << " ("
+                          << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                UIHelper::pause(250);
+            } else if (roll < 50) {
+                playerStatus.apply(StatusType::POISON, 5);
+                Audio::playSFX("poison");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Hydra sinks its fangs in — VENOMOUS BITE!" + Color::RESET
+                    + " You gain " + Color::POISON_CLR + "Poison 5" + Color::RESET + "!\n");
+                UIHelper::pause(350);
+            } else if (roll < 75) {
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Hydra lashes out with TWIN STRIKE!" + Color::RESET + "\n");
+                UIHelper::pause(200);
+                doAttack(atk, false);
+                if (enemy.isAlive()) doAttack(atk, false);
+            } else {
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Hydra bites!" + Color::RESET + "\n");
+                UIHelper::pause(200);
+                doAttack(atk, false);
+            }
+            break;
+
+        case BossType::DRAGON:
+            if (roll < 20) {
+                playerStatus.apply(StatusType::BURN, 4);
+                Audio::playSFX("fire");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon unleashes FIRE BREATH!" + Color::RESET
+                    + " You gain " + Color::BURN_CLR + "Burn 4" + Color::RESET + "!\n");
+                UIHelper::pause(350);
+            } else if (roll < 45) {
+                playerStatus.apply(StatusType::WEAK, 3);
+                Audio::playSFX("special");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon's WING BUFFET knocks you off balance!" + Color::RESET
+                    + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
+                UIHelper::pause(350);
+            } else if (roll < 70) {
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon rakes with CLAW RAKE!" + Color::RESET + "\n");
+                UIHelper::pause(200);
+                doAttack(atk + 5, true);
+            } else {
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Dragon claws at you!" + Color::RESET + "\n");
+                UIHelper::pause(200);
+                doAttack(atk, false);
+            }
+            break;
+
         default:
             doAttack(atk, false);
     }
@@ -864,7 +1034,7 @@ void Game::bossAction() {
 
 void Game::offerBossReward() {
     UIHelper::clearScreen();
-    std::vector<Card> rewards = rewardPool.generateRareRewards(2, maxEnergy, playerDeck.getAllCardNames());
+    std::vector<Card> rewards = rewardPool.generateRareRewards(3, maxEnergy, playerDeck.getAllCardNames());
 
     std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " — choose one:\n\n";
 
@@ -882,7 +1052,7 @@ void Game::offerBossReward() {
 
         leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
             + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
-            + Color::BOLD + Color::YELLOW + c.getName() + Color::RESET);
+            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET);
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
@@ -898,70 +1068,41 @@ void Game::offerBossReward() {
 
         options.push_back("Select Card " + std::to_string(i + 1));
     }
-
-    EquipTier weapon = weaponTierAt(weaponTier);
-    EquipTier armor  = armorTierAt(armorTier);
-
-    int nextOpt = (int)options.size();
-    int weaponOptIdx = nextOpt++;
-    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(weaponOptIdx + 1) + "." + Color::RESET
-        + " [GEAR] " + Color::RED + weapon.name + Color::RESET);
-    optionIndices.push_back(weaponOptIdx);
-    leftLines.push_back(std::string("     ") + Color::DIM + "+" + std::to_string(weapon.bonus) + " permanent damage" + Color::RESET);
-    optionIndices.push_back(-1);
-    leftLines.push_back("");
-    optionIndices.push_back(-1);
-    options.push_back("Take " + weapon.name);
-
-    int armorOptIdx = nextOpt++;
-    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(armorOptIdx + 1) + "." + Color::RESET
-        + " [GEAR] " + Color::CYAN + armor.name + Color::RESET);
-    optionIndices.push_back(armorOptIdx);
-    leftLines.push_back(std::string("     ") + Color::DIM + "+" + std::to_string(armor.bonus) + " permanent armor per defend" + Color::RESET);
-    optionIndices.push_back(-1);
-    leftLines.push_back("");
-    optionIndices.push_back(-1);
-    options.push_back("Take " + armor.name);
-
-    int energyOptIdx = nextOpt++;
-    leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(energyOptIdx + 1) + "." + Color::RESET
-        + " [VIGOR] " + Color::ENERGY_CLR + "Extra Play" + Color::RESET);
-    optionIndices.push_back(energyOptIdx);
-    leftLines.push_back(std::string("     ") + Color::DIM + "+1 max energy per turn (" + std::to_string(maxEnergy) + " -> " + std::to_string(maxEnergy + 1) + ")" + Color::RESET);
-    optionIndices.push_back(-1);
-    leftLines.push_back("");
-    optionIndices.push_back(-1);
-    options.push_back("Take Extra Play");
-
     options.push_back("Skip");
 
     int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 45);
 
-    if (choice < 0 || choice >= (int)options.size() - 1) {
+    if (choice < 0 || choice >= (int)rewards.size()) {
         std::cout << "Skipping reward.\n";
         UIHelper::waitForKey();
         return;
     }
 
-    if (choice < (int)rewards.size()) {
-        playerDeck.addCard(rewards[choice]);
-        runStats.addCardToRun();
-        std::cout << "\n" << Color::YELLOW << "[RARE] Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
-    } else if (choice == weaponOptIdx) {
-        equipDamageBonus += weapon.bonus;
-        weaponTier++;
-        std::cout << "\n" << Color::RED << "You claim the " << weapon.name << "! +" << weapon.bonus << " damage." << Color::RESET << "\n";
-        Audio::playSFX("upgrade");
-    } else if (choice == armorOptIdx) {
-        equipArmorBonus += armor.bonus;
-        armorTier++;
-        std::cout << "\n" << Color::CYAN << "You claim the " << armor.name << "! +" << armor.bonus << " armor per defend." << Color::RESET << "\n";
-        Audio::playSFX("upgrade");
-    } else if (choice == energyOptIdx) {
+    playerDeck.addCard(rewards[choice]);
+    runStats.addCardToRun();
+    std::cout << "\n" << Color::YELLOW << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+    UIHelper::waitForKey();
+}
+
+void Game::offerExtraPlay() {
+    UIHelper::clearScreen();
+    std::cout << "\n" << Color::BOLD << Color::YELLOW << "A hard-won boss kill leaves you invigorated." << Color::RESET << "\n\n";
+
+    std::vector<std::string> leftLines = {
+        std::string("  ") + Color::ENERGY_CLR + "Extra Play" + Color::RESET
+            + " — +1 max energy per turn (" + std::to_string(maxEnergy) + " -> " + std::to_string(maxEnergy + 1) + ")",
+        std::string("  ") + Color::DIM + "Skip" + Color::RESET
+    };
+    std::vector<int> optionIndices = {0, 1};
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, {"Take Extra Play", "Skip"}, 55);
+
+    if (choice == 0) {
         maxEnergy++;
         playerEnergy = maxEnergy;
         std::cout << "\n" << Color::ENERGY_CLR << "You feel invigorated! Max plays per turn increased to " << maxEnergy << "." << Color::RESET << "\n";
         Audio::playSFX("upgrade");
+    } else {
+        std::cout << Color::DIM << "\nYou let it pass.\n" << Color::RESET;
     }
     UIHelper::waitForKey();
 }
@@ -982,19 +1123,23 @@ void Game::startEncounter() {
         int defense = currentRun.getEnemyDefense();
 
         int enc = currentRun.getCurrentEncounter();
-        int typeIndex = (enc - 1) % 4;
+        int typeIndex = (enc - 1) % 6;
         EnemyType etype;
         switch (typeIndex) {
             case 0: etype = EnemyType::MELEE;  break;
             case 1: etype = EnemyType::RANGED; break;
             case 2: etype = EnemyType::TANK;   break;
             case 3: etype = EnemyType::CASTER; break;
+            case 4: etype = EnemyType::BEAST;  break;
+            case 5: etype = EnemyType::UNDEAD; break;
             default: etype = EnemyType::MELEE; break;
         }
         std::string name = Enemy::generateName(etype, enc);
         std::string typeLabel = (etype == EnemyType::MELEE) ? "Melee"
                               : (etype == EnemyType::RANGED) ? "Ranged"
-                              : (etype == EnemyType::TANK)   ? "Tank" : "Caster";
+                              : (etype == EnemyType::TANK)   ? "Tank"
+                              : (etype == EnemyType::CASTER) ? "Caster"
+                              : (etype == EnemyType::BEAST)  ? "Beast" : "Undead";
         name += " (" + typeLabel + ")";
         enemy = Enemy(name, health, attack, defense, etype);
     }
@@ -1029,6 +1174,10 @@ void Game::nextEncounter() {
 }
 
 void Game::restSite() {
+    // Committing to a real action (rest, upgrade, discard) progresses the game
+    // as normal. Only backing out via Cancel/Return brings you back here to
+    // pick something else — no way to repeat an action to stack it.
+    while (true) {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n\n";
 
@@ -1037,11 +1186,13 @@ void Game::restSite() {
             + "  — heal to full (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + " HP)",
         std::string("  ") + Color::YELLOW + "Forge" + Color::RESET
             + " — upgrade a card (+3 value, -1 cost)",
+        std::string("  ") + Color::CYAN + "View Deck" + Color::RESET
+            + " — browse your cards, discard ones you dislike",
         std::string("  ") + Color::DIM + "Skip" + Color::RESET
             + "  — press on without resting"
     };
-    std::vector<int> optionIndices = {0, 1, 2};
-    std::vector<std::string> options = {"Rest", "Forge", "Skip"};
+    std::vector<int> optionIndices = {0, 1, 2, 3};
+    std::vector<std::string> options = {"Rest", "Forge", "View Deck", "Skip"};
 
     int siteChoice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 52);
 
@@ -1050,10 +1201,12 @@ void Game::restSite() {
         Audio::playSFX("heal");
         std::cout << Color::HEAL << "\nYou rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
         UIHelper::waitForKey();
+        break; // committed — progress as normal
     } else if (siteChoice == 1) {
         if (playerDeck.totalCards() == 0) {
             std::cout << "Your deck is empty — nothing to upgrade.\n";
-            return;
+            UIHelper::waitForKey();
+            continue; // nothing happened — back to the rest site menu
         }
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
@@ -1102,7 +1255,7 @@ void Game::restSite() {
 
             cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET
                 + " [" + typeColor + typePad + Color::RESET + "] "
-                + Color::BOLD + Color::CARD_NAME + namePad + Color::RESET
+                + Color::BOLD + rarityTint(c) + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
                 + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
                 + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET))
@@ -1129,6 +1282,8 @@ void Game::restSite() {
 
         if (groupChoice < 0 || groupChoice >= (int)groupCard.size()) {
             std::cout << "Cancelled.\n";
+            UIHelper::pause(500);
+            continue; // backed out — back to the rest site menu, no commitment made
         } else {
             std::string beforeName = groupCard[groupChoice]->getName();
             int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
@@ -1147,10 +1302,94 @@ void Game::restSite() {
                 std::cout << "\n";
                 UIHelper::waitForKey();
             }
+            break; // committed — progress as normal
         }
+    } else if (siteChoice == 2) {
+        bool discarded = viewDeckManage();
+        if (discarded) break;   // committed — progress as normal
+        else continue;          // just browsed/returned — back to the rest site menu
     } else {
         std::cout << Color::DIM << "\nYou press on without resting." << Color::RESET << "\n";
         UIHelper::waitForKey();
+        break;
+    }
+    } // while(true)
+}
+
+bool Game::viewDeckManage() {
+    while (true) {
+        UIHelper::clearScreen();
+        if (playerDeck.totalCards() == 0) {
+            std::cout << "\nYour deck is empty.\n";
+            UIHelper::waitForKey();
+            return false;
+        }
+
+        std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+
+        // Group identical cards (dupes are just how the deck deals out cards).
+        std::vector<const Card*> groupCard;
+        std::vector<int>         groupCount;
+        for (size_t i = 0; i < allCards.size(); i++) {
+            const Card& c = allCards[i];
+            bool merged = false;
+            for (size_t g = 0; g < groupCard.size(); g++) {
+                if (groupCard[g]->getName() == c.getName()) { groupCount[g]++; merged = true; break; }
+            }
+            if (!merged) { groupCard.push_back(&allCards[i]); groupCount.push_back(1); }
+        }
+
+        std::cout << "\n" << Color::BOLD << Color::CYAN << "Your Deck" << Color::RESET
+                   << " — " << allCards.size() << " cards, " << groupCard.size() << " unique\n\n";
+
+        auto buildCell = [&](const Card& c, int count, int idx) -> std::string {
+            const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                                  : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                                  : Color::CARD_SPECIAL;
+            const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                                 : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+            std::string name = c.getName();
+            if (count > 1) name += " x" + std::to_string(count);
+            return std::string(Color::DIM) + std::to_string(idx + 1) + "." + Color::RESET
+                + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
+                + Color::BOLD + rarityTint(c) + name + Color::RESET
+                + " " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+                + " c:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+                + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
+        };
+
+        // Grid: two cards per row.
+        const int cellWidth = 46;
+        for (size_t g = 0; g < groupCard.size(); g += 2) {
+            std::string cellA = buildCell(*groupCard[g], groupCount[g], (int)g);
+            int padA = cellWidth - UIHelper::visibleLen(cellA);
+            std::cout << "  " << cellA << (padA > 0 ? std::string(padA, ' ') : "");
+            if (g + 1 < groupCard.size())
+                std::cout << buildCell(*groupCard[g + 1], groupCount[g + 1], (int)(g + 1));
+            std::cout << "\n";
+        }
+        std::cout << "\n";
+
+        std::vector<std::string> options;
+        for (size_t g = 0; g < groupCard.size(); g++)
+            options.push_back("Discard 1x " + groupCard[g]->getName());
+        options.push_back("Return");
+
+        int choice = UIHelper::menuSelect(options);
+        if (choice < 0 || choice >= (int)groupCard.size()) return false; // Return or ESC — no commitment
+
+        if (playerDeck.totalCards() <= 1) {
+            std::cout << "\n" << Color::DIM << "You must keep at least one card." << Color::RESET << "\n";
+            UIHelper::waitForKey();
+            continue;
+        }
+
+        std::string name = groupCard[choice]->getName();
+        if (playerDeck.removeCardByName(name)) {
+            std::cout << "\n" << Color::RED << "Discarded one " << name << " from your deck." << Color::RESET << "\n";
+            UIHelper::waitForKey();
+            return true; // committed — let the rest site loop progress the game
+        }
     }
 }
 
@@ -1165,6 +1404,9 @@ void Game::handleEncounterWin() {
 
     if (enemy.isBoss()) {
         offerBossReward();
+        // Every 2nd boss defeated (occurrence 2, 4, 6...) also grants a shot at +1 max energy.
+        int bossOccurrence = currentRun.getCurrentEncounter() / 8;
+        if (bossOccurrence % 2 == 0) offerExtraPlay();
     } else {
         offerCardReward();
     }
@@ -1198,10 +1440,12 @@ void Game::handleEncounterWin() {
 void Game::offerCardReward() {
     UIHelper::clearScreen();
     bool rarityBoost = upgrades.isActive(6);
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(currentRun.getCurrentEncounter(), 3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
 
     if (rewards.empty()) {
-        std::cout << "No cards available as rewards.\n";
+        std::cout << "\n" << Color::DIM << "No new cards left to offer — you already own everything available at this cost."
+                   << Color::RESET << "\n";
+        UIHelper::waitForKey();
         return;
     }
 
@@ -1221,7 +1465,7 @@ void Game::offerCardReward() {
 
         leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
             + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
-            + Color::BOLD + Color::WHITE + c.getName() + Color::RESET);
+            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET);
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
@@ -1269,7 +1513,7 @@ void Game::offerEquipmentDrop() {
 
     EquipTier weapon = weaponTierAt(weaponTier);
     EquipTier armor  = armorTierAt(armorTier);
-    int healAmt = 25;
+    int hpBoost = 15;
 
     std::vector<std::string> leftLines = {
         std::string("  ") + Color::RED + "[WEAPON]" + Color::RESET + " " + weapon.name,
@@ -1278,14 +1522,14 @@ void Game::offerEquipmentDrop() {
         std::string("  ") + Color::ARMOR_CLR + "[ARMOR]" + Color::RESET + "  " + armor.name,
         std::string("     ") + Color::DIM + "+" + std::to_string(armor.bonus) + " permanent armor per defend" + Color::RESET,
         "",
-        std::string("  ") + Color::HEAL + "[HEAL]" + Color::RESET + "   Healing Draught",
-        std::string("     ") + Color::DIM + "Restore " + std::to_string(healAmt) + " HP now (" + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + ")" + Color::RESET,
+        std::string("  ") + Color::HEAL + "[VIGOR]" + Color::RESET + "  Health Pouch",
+        std::string("     ") + Color::DIM + "+" + std::to_string(hpBoost) + " max HP, permanently (" + std::to_string(maxPlayerHealth) + " -> " + std::to_string(maxPlayerHealth + hpBoost) + ")" + Color::RESET,
         "",
         std::string("  ") + Color::DIM + "Leave it behind" + Color::RESET,
         ""
     };
     std::vector<int> optionIndices = {0, -1, -1, 1, -1, -1, 2, -1, -1, 3, -1};
-    std::vector<std::string> options = {"Take " + weapon.name, "Take " + armor.name, "Drink Draught", "Leave it"};
+    std::vector<std::string> options = {"Take " + weapon.name, "Take " + armor.name, "Take Health Pouch", "Leave it"};
 
     int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 44);
 
@@ -1302,11 +1546,11 @@ void Game::offerEquipmentDrop() {
         Audio::playSFX("upgrade");
         UIHelper::waitForKey();
     } else if (choice == 2) {
-        int before = playerHealth;
-        playerHealth = std::min(maxPlayerHealth, playerHealth + healAmt);
+        maxPlayerHealth += hpBoost;
+        playerHealth += hpBoost;
         Audio::playSFX("heal");
-        std::cout << Color::HEAL << "\nYou drink the Healing Draught, recovering " << (playerHealth - before)
-                   << " HP! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
+        std::cout << Color::HEAL << "\nYou consume the Health Pouch! Max HP permanently increased by " << hpBoost
+                   << "! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
         UIHelper::waitForKey();
     } else {
         std::cout << Color::DIM << "\nYou leave it behind." << Color::RESET << "\n";
@@ -1323,11 +1567,84 @@ void Game::displayRunStats() const {
     currentRun.displayRunStats();
 }
 
+bool Game::showMainMenu() {
+    while (true) {
+        std::cout << "\n";
+        int choice = UIHelper::menuSelect({"Start Game", "How to Play", "Quit"});
+        if (choice == 0) return true;
+        if (choice == 1) {
+            showHowToPlay();
+            UIHelper::clearScreen();
+            UIHelper::printTitle();
+            continue;
+        }
+        return false; // Quit or ESC
+    }
+}
+
+void Game::showHowToPlay() const {
+    UIHelper::clearScreen();
+    std::cout << "\n" << Color::BOLD << Color::CYAN << "HOW TO PLAY" << Color::RESET << "\n\n";
+
+    std::cout << Color::BOLD << "GOAL" << Color::RESET << "\n";
+    std::cout << "  Survive as many encounters as you can. Build your deck, upgrade your\n";
+    std::cout << "  best cards, and defeat the bosses that appear every 8th fight.\n\n";
+
+    std::cout << Color::BOLD << "YOUR TURN" << Color::RESET << "\n";
+    std::cout << "  Each turn you draw a hand and get a number of \"plays\" (energy).\n";
+    std::cout << "  Playing a card costs plays. When you're done, End Turn to let the\n";
+    std::cout << "  enemy act, then a new turn begins.\n\n";
+
+    std::cout << Color::BOLD << "CARD TYPES" << Color::RESET << "\n";
+    std::cout << "  " << Color::CARD_ATTACK  << "ATTACK " << Color::RESET << " deals damage to the enemy\n";
+    std::cout << "  " << Color::CARD_DEFEND  << "DEFEND " << Color::RESET << " grants you armor, which absorbs incoming damage\n";
+    std::cout << "  " << Color::CARD_SPECIAL << "SPECIAL" << Color::RESET << " buffs, debuffs, and unique effects\n\n";
+
+    std::cout << Color::BOLD << "DAMAGE TYPES & WEAKNESSES" << Color::RESET << "\n";
+    std::cout << "  Some cards carry a damage-type tag: " << Color::YELLOW << "Smash, Pierce" << Color::RESET
+              << " (physical) or\n";
+    std::cout << "  " << Color::YELLOW << "Fire, Poison, Wind" << Color::RESET << " (elemental). Every enemy is WEAK to one type\n";
+    std::cout << "  (+50% damage) and some RESIST another (-50% damage). Check \"View\n";
+    std::cout << "  Enemy\" in combat to plan your attacks.\n\n";
+
+    std::cout << Color::BOLD << "STATUS EFFECTS" << Color::RESET << "\n";
+    std::cout << "  " << Color::POISON_CLR << "Poison" << Color::RESET << " / " << Color::BURN_CLR << "Burn" << Color::RESET
+              << "     damage over time, ticks down each turn\n";
+    std::cout << "  " << Color::STUN_CLR << "Stun" << Color::RESET << "          skip the target's next turn entirely\n";
+    std::cout << "  " << Color::WEAK_CLR << "Weak" << Color::RESET << "          -2 attack for a number of turns\n";
+    std::cout << "  " << Color::STRENGTH_CLR << "Strength" << Color::RESET << "      +3 attack for a number of turns (buff)\n\n";
+
+    std::cout << Color::BOLD << "CARD RARITY" << Color::RESET << "\n";
+    std::cout << "  Common (starter) < " << Color::COMMON_TINT << "Uncommon" << Color::RESET << " < "
+              << Color::RARE_TINT << "Rare" << Color::RESET << " < " << Color::SUPER_RARE_TINT << "Super Rare" << Color::RESET << "\n";
+    std::cout << "  Higher rarity cards hit harder and can be upgraded more times at the Forge.\n\n";
+
+    std::cout << Color::BOLD << "REST SITES" << Color::RESET << "\n";
+    std::cout << "  After winning a fight: Rest (heal to full), Forge (upgrade a card —\n";
+    std::cout << "  all copies upgrade together), or View Deck (discard cards you don't\n";
+    std::cout << "  want). Only Skip moves you on to the next fight.\n\n";
+
+    std::cout << Color::BOLD << "REWARDS" << Color::RESET << "\n";
+    std::cout << "  Win a fight -> pick a new card. Every 3rd encounter -> equipment (a\n";
+    std::cout << "  permanent weapon, armor, or a Health Pouch for +max HP). Beat a boss\n";
+    std::cout << "  -> choose a rare card, gear, or +1 max energy.\n\n";
+
+    std::cout << Color::BOLD << "BETWEEN RUNS" << Color::RESET << "\n";
+    std::cout << "  Winning encounters and collecting cards unlocks permanent upgrades\n";
+    std::cout << "  (more HP, more damage, more energy...) you can toggle on for your next run.\n\n";
+
+    UIHelper::waitForKey("  (press any key to return to the menu)");
+}
+
 void Game::run() {
     init();
-    
+
     UIHelper::printTitle();
-    
+
+    if (!showMainMenu()) {
+        return;
+    }
+
     upgrades.checkAndUnlockUpgrades(0, 0);
     upgrades.displayUpgradeInfo();
     

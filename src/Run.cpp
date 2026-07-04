@@ -55,7 +55,7 @@ bool Run::isBossEncounter() const {
 }
 
 int Run::getBossIndex() const {
-    return ((currentEncounter / 8) - 1) % 3;
+    return ((currentEncounter / 8) - 1) % 5; // 5 bosses in rotation
 }
 
 std::string Run::getDifficultyTier() const {

@@ -89,12 +89,27 @@ DamageType Enemy::getWeakness() const {
         case EnemyType::TANK:   return DamageType::SMASH;  // heavy armor doesn't stop blunt trauma
         case EnemyType::RANGED: return DamageType::WIND;   // agile skirmishers get knocked off balance
         case EnemyType::CASTER: return DamageType::FIRE;   // robes and concentration both burn easily
+        case EnemyType::BEAST:  return DamageType::POISON; // no resistance built up to toxins
+        case EnemyType::UNDEAD: return DamageType::FIRE;    // fire is the classic answer to the restless dead
         default:                return DamageType::NONE;
     }
 }
 
 std::string Enemy::getWeaknessLabel() const {
     return damageTypeName(getWeakness());
+}
+
+DamageType Enemy::getResistance() const {
+    // Only some archetypes get one — not every enemy needs a hard counter-counter.
+    switch (type) {
+        case EnemyType::TANK:   return DamageType::PIERCE; // armor plating shrugs off precise strikes
+        case EnemyType::UNDEAD: return DamageType::POISON; // nothing left alive in there for poison to work on
+        default:                return DamageType::NONE;
+    }
+}
+
+std::string Enemy::getResistanceLabel() const {
+    return damageTypeName(getResistance());
 }
 
 void Enemy::displayStatus() const {
@@ -123,6 +138,14 @@ std::string Enemy::generateName(EnemyType type, int encounter) {
         }
         case EnemyType::CASTER: {
             std::vector<std::string> names = {"Wizard", "Sage", "Sorcerer", "Warlock", "Enchanter", "Mystic", "Archon", "Spellmaster"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        case EnemyType::BEAST: {
+            std::vector<std::string> names = {"Wolf", "Spider", "Serpent", "Wyvern", "Basilisk", "Chimera", "Manticore", "Direwolf"};
+            return prefix + names[(encounter - 1) % names.size()];
+        }
+        case EnemyType::UNDEAD: {
+            std::vector<std::string> names = {"Skeleton", "Zombie", "Wraith", "Ghoul", "Lich", "Revenant", "Banshee", "Specter"};
             return prefix + names[(encounter - 1) % names.size()];
         }
         default:

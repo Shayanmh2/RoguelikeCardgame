@@ -157,6 +157,15 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
             card.physType = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
     }
 
+    // Extract physType2 (optional — only Finishing Blow uses both)
+    size_t phys2Start = cardStr.find("\"physType2\"");
+    if (phys2Start != std::string::npos) {
+        size_t quoteStart = cardStr.find('"', phys2Start + 11);
+        size_t quoteEnd   = cardStr.find('"', quoteStart + 1);
+        if (quoteStart != std::string::npos && quoteEnd != std::string::npos)
+            card.physType2 = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
     // Extract elemType (optional)
     size_t elemStart = cardStr.find("\"elemType\"");
     if (elemStart != std::string::npos) {
@@ -164,6 +173,15 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
         size_t quoteEnd   = cardStr.find('"', quoteStart + 1);
         if (quoteStart != std::string::npos && quoteEnd != std::string::npos)
             card.elemType = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+    }
+
+    // Extract superRare (optional boolean)
+    size_t superRareStart = cardStr.find("\"superRare\"");
+    if (superRareStart != std::string::npos) {
+        size_t colonPos = cardStr.find(':', superRareStart);
+        if (colonPos != std::string::npos)
+            card.superRare = cardStr.find("true", colonPos) != std::string::npos &&
+                              cardStr.find("true", colonPos) < cardStr.find_first_of(",}", colonPos);
     }
 
     // Extract type

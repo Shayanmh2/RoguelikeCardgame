@@ -5,8 +5,8 @@
 #include "DamageType.h"
 #include <string>
 
-enum class EnemyType  { MELEE, RANGED, TANK, CASTER };
-enum class BossType   { NONE, STONE_COLOSSUS, VILE_WITCH, WARLORD };
+enum class EnemyType  { MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD };
+enum class BossType   { NONE, STONE_COLOSSUS, VILE_WITCH, WARLORD, HYDRA, DRAGON };
 
 class Enemy {
 private:
@@ -59,10 +59,14 @@ public:
     bool isAlive() const;
     void displayStatus() const;
 
-    // Weakness system: derived from enemy type, so no extra state to construct.
-    // Attacks whose phys/elem tag matches this take +50% damage.
+    // Weakness/resistance system: both derived from enemy type, so no extra state
+    // to construct. Attacks whose phys/elem tag matches the weakness take +50%
+    // damage; attacks matching the resistance take -50% damage. A type can have
+    // a resistance without a matching opposite weakness (they're independent).
     DamageType  getWeakness() const;
     std::string getWeaknessLabel() const; // e.g. "Pierce", empty if none
+    DamageType  getResistance() const;
+    std::string getResistanceLabel() const; // e.g. "Pierce", empty if none
 
     static std::string generateName(EnemyType type, int encounter);
 };

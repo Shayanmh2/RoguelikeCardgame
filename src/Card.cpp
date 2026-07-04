@@ -3,9 +3,9 @@
 #include <vector>
 
 Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare,
-           DamageType physT, DamageType elemT)
+           DamageType physT, DamageType elemT, bool isSuperRare, DamageType physT2)
     : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare),
-      physType(physT), elemType(elemT) {}
+      superRare(isSuperRare), physType(physT), physType2(physT2), elemType(elemT) {}
 
 std::string Card::getName() const {
     return name;
@@ -52,8 +52,28 @@ bool Card::isRare() const {
     return rare;
 }
 
+bool Card::isSuperRare() const {
+    return superRare;
+}
+
+static const std::vector<std::string>& starterCardNames() {
+    static const std::vector<std::string> names = {"Quick Jab", "Jab", "Bash", "Lunge", "Defend", "Brace", "Parry"};
+    return names;
+}
+
+bool Card::isStarter() const {
+    std::string base = getBaseName();
+    for (const auto& n : starterCardNames())
+        if (base == n) return true;
+    return false;
+}
+
 DamageType Card::getPhysType() const {
     return physType;
+}
+
+DamageType Card::getPhysType2() const {
+    return physType2;
 }
 
 DamageType Card::getElemType() const {
@@ -62,8 +82,9 @@ DamageType Card::getElemType() const {
 
 std::string Card::getTypeTag() const {
     std::string tag;
-    if (physType != DamageType::NONE) tag += std::string("[") + damageTypeName(physType) + "]";
-    if (elemType != DamageType::NONE) tag += std::string("[") + damageTypeName(elemType) + "]";
+    if (physType  != DamageType::NONE) tag += std::string("[") + damageTypeName(physType) + "]";
+    if (physType2 != DamageType::NONE) tag += std::string("[") + damageTypeName(physType2) + "]";
+    if (elemType  != DamageType::NONE) tag += std::string("[") + damageTypeName(elemType) + "]";
     return tag;
 }
 
@@ -76,13 +97,11 @@ std::string Card::getBaseName() const {
 int Card::getMaxUpgrades() const {
     // Starter cards (guaranteed by name — the reward pool filters out any card
     // whose base name the player already owns, so these names never duplicate
-    // via rewards) get one upgrade. Common cards get three. Rare cards get five,
-    // so a fully-forged rare card ends up strictly ahead of anything common.
-    static const std::vector<std::string> starterNames = {"Quick Jab", "Strike", "Bash", "Defend"};
-    std::string base = getBaseName();
-    for (const auto& n : starterNames)
-        if (base == n) return 1;
-    return rare ? 5 : 3;
+    // via rewards) get one upgrade. Common cards get three, rare cards four,
+    // super rare cards five — so each tier ends up strictly ahead once maxed.
+    if (isStarter()) return 1;
+    if (superRare) return 5;
+    return rare ? 4 : 3;
 }
 
 void Card::upgrade() {
@@ -106,10 +125,19 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor that persists for 3 turns (until broken).";
         else if (effect == CardEffect::IMPAIR)
             description = "Gain " + std::to_string(value) + " armor. 50% chance to Weaken the enemy.";
+        else if (effect == CardEffect::CHIP)
+            description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
         else
             description = "Gain " + std::to_string(value) + " armor";
+    } else if (type == CardType::SPECIAL) {
+        if (effect == CardEffect::COUNTER)
+            description = "Counters hits up to " + std::to_string(value * 3) + " dmg: block, hit back for double +"
+                        + std::to_string(value) + ". Bigger hits catch you off guard.";
+        else if (effect == CardEffect::PARRY)
+            description = "Parries hits up to " + std::to_string(value * 3) + " dmg: block, riposte 1.5x +"
+                        + std::to_string(value) + " (ignores defense), stun. Bigger hits break your guard.";
+        // other SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
     }
-    // SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
 }
 
 void Card::display() const {

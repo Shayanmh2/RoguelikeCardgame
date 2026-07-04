@@ -34,6 +34,8 @@ private:
     int armorTier;  // number of armor upgrades claimed so far
     bool counterAttackActive;
     bool parryActive;
+    int  counterBonusValue; // Dodge's current value — added as flat bonus riposte damage
+    int  parryBonusValue;   // Parry's current value — added as flat bonus riposte damage
     
     int calculateDamage(int attackValue, int defenseValue) const;
     void playerAttack(int cardValue, int cost);
@@ -56,12 +58,16 @@ private:
     Enemy generateBossEnemy();
     void  bossAction();
     void  offerBossReward();
+    void  offerExtraPlay(); // every 2nd boss kill — separate from the card reward
     void displayRunStats() const;
     void displayEnemyInfo() const;
     void offerCardReward();
     void offerEquipmentDrop();
     void applyUpgrades();
     void selectUpgrades();
+    bool viewDeckManage(); // returns true if a card was actually discarded (vs. just Return/browse)
+    bool showMainMenu();   // returns true if "Start Game" was chosen, false if "Quit"
+    void showHowToPlay() const;
 
 public:
     Game();
