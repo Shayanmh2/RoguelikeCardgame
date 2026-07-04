@@ -1058,22 +1058,24 @@ void Game::restSite() {
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
 
-        // Group identical cards (same exact name, incl. '+' upgrade markers) together
-        // so the list doesn't show a wall of indistinguishable duplicates.
-        std::vector<int>              groupRepIndex;  // first raw index for each group (the one we'll upgrade)
-        std::vector<const Card*>      groupCard;
+        // Group identical cards (same exact name, incl. '+' upgrade markers) together —
+        // duplicates are just how the starter deck deals out cards, not separate upgrade
+        // slots, so picking a group upgrades every copy of it at once.
+        std::vector<const Card*> groupCard;
+        std::vector<int>         groupCount;
         for (size_t i = 0; i < allCards.size(); i++) {
             const Card& c = allCards[i];
             bool merged = false;
             for (size_t g = 0; g < groupCard.size(); g++) {
                 if (groupCard[g]->getName() == c.getName()) {
+                    groupCount[g]++;
                     merged = true;
                     break;
                 }
             }
             if (!merged) {
-                groupRepIndex.push_back((int)i);
                 groupCard.push_back(&allCards[i]);
+                groupCount.push_back(1);
             }
         }
 
@@ -1095,7 +1097,8 @@ void Game::restSite() {
             std::string typePad = c.getTypeString();
             while ((int)typePad.size() < 6) typePad += ' ';
             std::string namePad = c.getName();
-            while ((int)namePad.size() < 18) namePad += ' ';
+            if (groupCount[g] > 1) namePad += " (x" + std::to_string(groupCount[g]) + ")";
+            while ((int)namePad.size() < 22) namePad += ' ';
 
             cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET
                 + " [" + typeColor + typePad + Color::RESET + "] "
@@ -1120,15 +1123,30 @@ void Game::restSite() {
         cardDisabled.push_back(false);
 
         UIHelper::clearScreen();
-        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET << " — pick a card to upgrade:\n\n";
-        int groupChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 50, 0, cardDisabled);
+        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET
+                   << " — pick a card to upgrade (all copies upgrade together):\n\n";
+        int groupChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 54, 0, cardDisabled);
 
-        if (groupChoice < 0 || groupChoice >= (int)groupRepIndex.size()) {
+        if (groupChoice < 0 || groupChoice >= (int)groupCard.size()) {
             std::cout << "Cancelled.\n";
-        } else if (playerDeck.upgradeCardAt(groupRepIndex[groupChoice])) {
-            Audio::playSFX("upgrade");
-            std::cout << Color::GREEN << "\nCard upgraded!" << Color::RESET << "\n";
-            UIHelper::waitForKey();
+        } else {
+            std::string beforeName = groupCard[groupChoice]->getName();
+            int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
+            if (upgradedCount > 0) {
+                Audio::playSFX("upgrade");
+                std::string afterName = beforeName + "+";
+                std::vector<Card> updated = playerDeck.getAllCardsOrdered();
+                auto it = std::find_if(updated.begin(), updated.end(),
+                                        [&](const Card& c) { return c.getName() == afterName; });
+                std::cout << Color::GREEN << "\n"
+                          << (upgradedCount > 1 ? ("All " + std::to_string(upgradedCount) + " ") : std::string())
+                          << beforeName << (upgradedCount > 1 ? " cards" : "") << " upgraded to " << afterName << "!"
+                          << Color::RESET;
+                if (it != updated.end())
+                    std::cout << " (cost:" << it->getCost() << " val:" << it->getValue() << ")";
+                std::cout << "\n";
+                UIHelper::waitForKey();
+            }
         }
     } else {
         std::cout << Color::DIM << "\nYou press on without resting." << Color::RESET << "\n";

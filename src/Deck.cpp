@@ -147,23 +147,44 @@ std::vector<Card> Deck::getAllCardsOrdered() const {
     return all;
 }
 
-bool Deck::upgradeCardAt(int index) {
-    if (index < 0) return false;
-    auto tryUpgrade = [](Card& c) -> bool {
-        if (c.getUpgradeCount() >= c.getMaxUpgrades()) return false;
-        c.upgrade();
-        return true;
+int Deck::upgradeCardGroup(const std::string& exactName) {
+    // All copies share the same upgrade count (they're always upgraded together),
+    // so checking any one instance's cap tells us whether the whole group can upgrade.
+    bool capReached = false;
+    bool found = false;
+    auto checkCap = [&](const Card& c) {
+        if (c.getName() != exactName) return;
+        found = true;
+        if (c.getUpgradeCount() >= c.getMaxUpgrades()) capReached = true;
     };
-    if (index < (int)cards.size()) {
-        return tryUpgrade(cards[index]);
+    for (const auto& c : cards)   checkCap(c);
+    for (const auto& c : hand)    checkCap(c);
+    for (const auto& c : discard) checkCap(c);
+    if (!found || capReached) return 0;
+
+    int upgraded = 0;
+    auto upgradeMatching = [&](Card& c) {
+        if (c.getName() == exactName) { c.upgrade(); upgraded++; }
+    };
+    for (auto& c : cards)   upgradeMatching(c);
+    for (auto& c : hand)    upgradeMatching(c);
+    for (auto& c : discard) upgradeMatching(c);
+    return upgraded;
+}
+
+bool Deck::removeCardByName(const std::string& exactName) {
+    for (size_t i = 0; i < cards.size(); i++) {
+        if (cards[i].getName() == exactName) { cards.erase(cards.begin() + i); return true; }
     }
-    index -= (int)cards.size();
-    if (index < (int)hand.size()) {
-        return tryUpgrade(hand[index]);
+    for (size_t i = 0; i < hand.size(); i++) {
+        if (hand[i].getName() == exactName) {
+            hand.erase(hand.begin() + i);
+            if (i < handUsed.size()) handUsed.erase(handUsed.begin() + i);
+            return true;
+        }
     }
-    index -= (int)hand.size();
-    if (index < (int)discard.size()) {
-        return tryUpgrade(discard[index]);
+    for (size_t i = 0; i < discard.size(); i++) {
+        if (discard[i].getName() == exactName) { discard.erase(discard.begin() + i); return true; }
     }
     return false;
 }

@@ -34,9 +34,13 @@ public:
     void displayAllCards() const;
 
     int totalCards() const;
-    bool upgradeCardAt(int index);
+    // Upgrades every copy of the named card at once (duplicates are just how the
+    // starter deck/RNG deals cards — the player thinks of them as one card, not N
+    // separate upgrade slots). Returns how many copies were upgraded (0 if maxed/not found).
+    int upgradeCardGroup(const std::string& exactName);
+    bool removeCardByName(const std::string& exactName); // removes exactly one copy; true if found
     std::vector<std::string> getAllCardNames() const; // base names (trailing '+' stripped)
-    std::vector<Card> getAllCardsOrdered() const;     // cards + hand + discard, same order as upgradeCardAt
+    std::vector<Card> getAllCardsOrdered() const;     // cards + hand + discard
 };
 
 #endif

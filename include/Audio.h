@@ -11,6 +11,8 @@ public:
     // e.g. Audio::playSFX("attack") plays sounds/attack.wav. Silent if file absent.
     static void playSFX(const std::string& name);
 
-private:
+    // Directory containing the running exe (with trailing separator). Use this
+    // to resolve bundled data files (config, sounds) — NOT the working directory,
+    // which can differ depending on how the exe was launched.
     static std::string exeDir();
 };

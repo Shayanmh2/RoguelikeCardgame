@@ -1,5 +1,6 @@
 #include "RewardPool.h"
 #include "Colors.h"
+#include "Audio.h"
 #include <random>
 #include <iostream>
 #include <filesystem>
@@ -10,8 +11,11 @@ RewardPool::RewardPool() {
 }
 
 void RewardPool::initializeCardPool() {
-    // Try to load from config file
-    std::string configPath = "config/cards.json";
+    // Resolve relative to the exe's own folder, not the current working directory —
+    // cwd can differ depending on how the exe was launched (shortcut, opened from
+    // inside an unextracted zip, etc.), which was silently dropping us into the
+    // old hardcoded fallback deck below.
+    std::string configPath = Audio::exeDir() + "config/cards.json";
     
     // Check if config file exists
     if (std::filesystem::exists(configPath)) {
@@ -64,6 +68,9 @@ void RewardPool::initializeCardPool() {
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
     } else {
+        std::cout << Color::YELLOW << "Warning: " << configPath << " not found — using a reduced built-in fallback deck "
+                   << "(no Parry/Dodge, no damage types). Reinstall or verify config/ sits next to the exe." << Color::RESET << "\n";
+
         // Starter cards excluded — player already has them
 
         // Common ATTACK

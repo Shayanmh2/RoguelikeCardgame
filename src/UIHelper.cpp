@@ -10,12 +10,17 @@
 #include <windows.h>
 #include <conio.h>
 static void platSleep(int ms) { Sleep(ms); }
+// Discards any keypresses buffered during animations/pauses so a menu's first
+// _getch() reads a fresh key instead of instantly consuming a stale one
+// (this was causing "skipped" selections and cards getting auto-played).
+static void flushInputBuffer() { while (_kbhit()) _getch(); }
 #else
 #include <thread>
 #include <chrono>
 static void platSleep(int ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
+static void flushInputBuffer() {}
 #endif
 
 void UIHelper::printLine(int width, char c) {
@@ -224,6 +229,7 @@ void UIHelper::waitForKey(const std::string& prompt) {
     std::cout << "\033[2m" << prompt << "\033[0m";
     std::cout.flush();
 #ifdef _WIN32
+    flushInputBuffer();
     _getch();
 #else
     if (std::cin.peek() == '\n') std::cin.ignore();
@@ -331,6 +337,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
     };
 
     printAll();
+    flushInputBuffer();
 
     while (true) {
 #ifdef _WIN32
@@ -387,23 +394,43 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
     while (current < n && isDisabled(current)) current++;
     if (current >= n) current = 0;
 
+    // Same wrap-aware row tracking as menuSelectRight — \033[s/\033[u aren't
+    // reliably supported, and long option text (e.g. upgrade descriptions) can
+    // wrap and desync a naive per-line cursor-up redraw.
+    int consoleWidth = 80;
+#ifdef _WIN32
+    {
+        CONSOLE_SCREEN_BUFFER_INFO csbi;
+        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi) && csbi.dwSize.X > 0)
+            consoleWidth = csbi.dwSize.X;
+    }
+#endif
+    int printedRows = 0;
+
     auto printOptions = [&]() {
+        printedRows = 0;
         for (int i = 0; i < n; i++) {
             std::cout << "\033[2K\r";
+            std::string rendered;
             if (i == current) {
-                std::cout << "\033[1;36m> " << options[i] << "\033[0m";
+                rendered = "\033[1;36m> " + options[i] + "\033[0m";
             } else if (isDisabled(i)) {
-                std::cout << "  \033[2m" << options[i] << "\033[0m";
+                rendered = "  \033[2m" + options[i] + "\033[0m";
             } else {
-                std::cout << "  " << options[i];
+                rendered = "  " + options[i];
             }
-            std::cout << "\n";
+            std::cout << rendered << "\n";
+
+            int visLen = visibleLen(rendered);
+            int rows = (visLen + consoleWidth - 1) / consoleWidth;
+            if (rows < 1) rows = 1;
+            printedRows += rows;
         }
         std::cout.flush();
     };
 
-    std::cout << "\033[s";
     printOptions();
+    flushInputBuffer();
 
     while (true) {
 #ifdef _WIN32
@@ -415,7 +442,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[u\033[J";
+                    std::cout << "\033[" << printedRows << "A";
                     printOptions();
                 }
             } else if (dir == 80) {  // down
@@ -423,7 +450,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[u\033[J";
+                    std::cout << "\033[" << printedRows << "A";
                     printOptions();
                 }
             }
