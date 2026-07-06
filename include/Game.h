@@ -65,7 +65,7 @@ private:
     void offerEquipmentDrop();
     void applyUpgrades();
     void selectUpgrades();
-    bool viewDeckManage(); // returns true if a card was actually discarded (vs. just Return/browse)
+    void viewDeckManage(); // browse/discard cards; never costs the rest site visit — always returns to its menu
     bool showMainMenu();   // returns true if "Start Game" was chosen, false if "Quit"
     void showHowToPlay() const;
 

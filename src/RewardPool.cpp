@@ -66,7 +66,7 @@ void RewardPool::initializeCardPool() {
             else if (data.type == "SPECIAL") type = CardType::SPECIAL;
             rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true,
                                       toPhysType(data.physType), toElemType(data.elemType), data.superRare,
-                                      toPhysType(data.physType2)));
+                                      toPhysType(data.physType2), data.legendary));
         }
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
@@ -134,7 +134,8 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
 
     // Fixed odds per slot: 80% Uncommon / 15% Rare / 5% Super Rare, or
     // 60% / 25% / 15% with the "Fortunate Soul" rarity boost active.
-    int superRareChance = rarityBoost ? 15 : 5;
+    // Legendary (Dodge) is intentionally excluded — it only ever drops from boss rewards.
+    int superRareChance  = rarityBoost ? 15 : 5;
     int rareChance       = rarityBoost ? 25 : 15;
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
@@ -142,7 +143,7 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     std::vector<Card> uncommonPool, rarePool, superRarePool;
     for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) uncommonPool.push_back(c);
     for (const auto& c : rareCards) {
-        if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
+        if (c.isLegendary() || c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
         if (c.isSuperRare()) superRarePool.push_back(c);
         else rarePool.push_back(c);
     }
@@ -180,22 +181,29 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    // Same 15:5 (3:1) ratio between Rare and Super Rare as the regular reward roll,
-    // just re-normalized to 100% since this pool is always Rare-or-better.
-    std::vector<Card> rarePool, superRarePool;
+    // Boss rewards are always Rare-or-better: 70% Rare / 25% Super Rare / 5% Legendary.
+    // This is the ONLY place Legendary (Dodge) can drop — regular rewards never roll it.
+    std::vector<Card> rarePool, superRarePool, legendaryPool;
     for (const auto& c : rareCards) {
         if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
-        if (c.isSuperRare()) superRarePool.push_back(c);
+        if (c.isLegendary()) legendaryPool.push_back(c);
+        else if (c.isSuperRare()) superRarePool.push_back(c);
         else rarePool.push_back(c);
     }
 
     std::uniform_int_distribution<> rollDis(1, 100);
 
     for (int i = 0; i < count; ++i) {
-        std::vector<Card>* pool = (rollDis(gen) <= 25) ? &superRarePool : &rarePool;
+        int roll = rollDis(gen);
+        std::vector<Card>* pool;
+        if (roll <= 5) pool = &legendaryPool;
+        else if (roll <= 30) pool = &superRarePool;
+        else pool = &rarePool;
+
         if (pool->empty()) {
             if (!rarePool.empty()) pool = &rarePool;
             else if (!superRarePool.empty()) pool = &superRarePool;
+            else if (!legendaryPool.empty()) pool = &legendaryPool;
             else break;
         }
         std::uniform_int_distribution<> idxDis(0, (int)pool->size() - 1);

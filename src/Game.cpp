@@ -22,8 +22,10 @@ static const char* effectSoundName(CardEffect effect) {
 
 // Card name tint by rarity — starter cards stay plain white, common/rare/super
 // rare get a subtle green/blue/pink tint so a card's rarity reads at a glance
-// without competing with the cyan selection highlight.
+// without competing with the cyan selection highlight. Legendary (Dodge only)
+// gets a bold neon gold instead of the pastel family, so it stands apart.
 static const char* rarityTint(const Card& c) {
+    if (c.isLegendary()) return Color::LEGENDARY_TINT;
     if (c.isStarter())   return Color::CARD_NAME;
     if (c.isSuperRare()) return Color::SUPER_RARE_TINT;
     if (c.isRare())      return Color::RARE_TINT;
@@ -56,7 +58,7 @@ void Game::init() {
     // One of each starter card — no built-in duplicates. From here the deck only
     // grows via card rewards (RNG), so any duplicates the player ends up with are
     // purely a consequence of what the run offers, not a hardcoded starting kit.
-    playerDeck.addCard(Card("Quick Jab", "Deal 3 damage (free)", CardType::ATTACK, 0, 3));
+    playerDeck.addCard(Card("Quick Jab", "Deal 3 damage", CardType::ATTACK, 0, 3));
     playerDeck.addCard(Card("Jab", "Deal 4 damage", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
     playerDeck.addCard(Card("Lunge", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::PIERCE));
@@ -812,7 +814,7 @@ Enemy Game::generateBossEnemy() {
             btype = BossType::HYDRA;
             break;
         case 4:
-            name  = "Dragon";
+            name  = "Undead Dragon";
             etype = EnemyType::RANGED; // flight/wind fits better than reusing Warlord's Melee slot
             btype = BossType::DRAGON;
             break;
@@ -846,6 +848,21 @@ void Game::bossAction() {
     int atk = std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack() - weakPenalty);
 
     auto doAttack = [&](int damage, bool raw) {
+        // Dodge takes priority over Parry when both are active — it's the top-end
+        // legendary skill and always fires first, uncapped.
+        if (counterAttackActive) {
+            counterAttackActive = false;
+            int counterDmg = damage * 2 + counterBonusValue;
+            int hpBefore = enemy.getHealth();
+            enemy.takeDamage(counterDmg);
+            int hpLost = hpBefore - enemy.getHealth();
+            Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
+            std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
+                      << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                      << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            UIHelper::pause(200);
+            return;
+        }
         if (parryActive) {
             int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
             parryActive = false;
@@ -864,25 +881,6 @@ void Game::bossAction() {
                 return;
             } else {
                 std::cout << Color::BOLD << Color::RED << "The blow is too powerful to parry! Your guard breaks!" << Color::RESET << "\n";
-                UIHelper::pause(250);
-            }
-        }
-        if (counterAttackActive) {
-            int counterCap = counterBonusValue * 3; // upgrading Dodge raises both counter bonus and this cap
-            counterAttackActive = false;
-            if (damage <= counterCap) {
-                int counterDmg = damage * 2 + counterBonusValue;
-                int hpBefore = enemy.getHealth();
-                enemy.takeDamage(counterDmg);
-                int hpLost = hpBefore - enemy.getHealth();
-                Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
-                std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
-                          << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
-                          << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
-                UIHelper::pause(200);
-                return;
-            } else {
-                std::cout << Color::BOLD << Color::RED << "The blow is too powerful to dodge! You're caught off guard!" << Color::RESET << "\n";
                 UIHelper::pause(250);
             }
         }
@@ -1305,9 +1303,8 @@ void Game::restSite() {
             break; // committed — progress as normal
         }
     } else if (siteChoice == 2) {
-        bool discarded = viewDeckManage();
-        if (discarded) break;   // committed — progress as normal
-        else continue;          // just browsed/returned — back to the rest site menu
+        viewDeckManage();
+        continue; // browsing/discarding never costs your rest site visit — back to the rest site menu
     } else {
         std::cout << Color::DIM << "\nYou press on without resting." << Color::RESET << "\n";
         UIHelper::waitForKey();
@@ -1316,13 +1313,13 @@ void Game::restSite() {
     } // while(true)
 }
 
-bool Game::viewDeckManage() {
+void Game::viewDeckManage() {
     while (true) {
         UIHelper::clearScreen();
         if (playerDeck.totalCards() == 0) {
             std::cout << "\nYour deck is empty.\n";
             UIHelper::waitForKey();
-            return false;
+            return;
         }
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
@@ -1358,14 +1355,18 @@ bool Game::viewDeckManage() {
                 + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
         };
 
-        // Grid: two cards per row.
-        const int cellWidth = 46;
-        for (size_t g = 0; g < groupCard.size(); g += 2) {
-            std::string cellA = buildCell(*groupCard[g], groupCount[g], (int)g);
-            int padA = cellWidth - UIHelper::visibleLen(cellA);
-            std::cout << "  " << cellA << (padA > 0 ? std::string(padA, ' ') : "");
-            if (g + 1 < groupCard.size())
-                std::cout << buildCell(*groupCard[g + 1], groupCount[g + 1], (int)(g + 1));
+        // Grid: three cards per row.
+        const int cellWidth = 32;
+        for (size_t g = 0; g < groupCard.size(); g += 3) {
+            for (size_t col = 0; col < 3 && g + col < groupCard.size(); col++) {
+                std::string cell = buildCell(*groupCard[g + col], groupCount[g + col], (int)(g + col));
+                if (col + 1 < 3 && g + col + 1 < groupCard.size()) {
+                    int pad = cellWidth - UIHelper::visibleLen(cell);
+                    std::cout << "  " << cell << (pad > 0 ? std::string(pad, ' ') : "");
+                } else {
+                    std::cout << "  " << cell;
+                }
+            }
             std::cout << "\n";
         }
         std::cout << "\n";
@@ -1376,7 +1377,7 @@ bool Game::viewDeckManage() {
         options.push_back("Return");
 
         int choice = UIHelper::menuSelect(options);
-        if (choice < 0 || choice >= (int)groupCard.size()) return false; // Return or ESC — no commitment
+        if (choice < 0 || choice >= (int)groupCard.size()) return; // Return or ESC
 
         if (playerDeck.totalCards() <= 1) {
             std::cout << "\n" << Color::DIM << "You must keep at least one card." << Color::RESET << "\n";
@@ -1388,7 +1389,7 @@ bool Game::viewDeckManage() {
         if (playerDeck.removeCardByName(name)) {
             std::cout << "\n" << Color::RED << "Discarded one " << name << " from your deck." << Color::RESET << "\n";
             UIHelper::waitForKey();
-            return true; // committed — let the rest site loop progress the game
+            // stay on this screen — browsing/discarding never costs the rest site visit
         }
     }
 }

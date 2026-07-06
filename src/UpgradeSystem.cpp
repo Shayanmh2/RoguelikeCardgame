@@ -67,6 +67,7 @@ void UpgradeSystem::selectActiveUpgrades() {
         }
         options.push_back("Done");
 
+        UIHelper::clearScreen();
         std::cout << "\nUpgrades — select to toggle:\n";
         int choice = UIHelper::menuSelect(options);
 

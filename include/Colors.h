@@ -49,6 +49,11 @@ namespace Color {
     constexpr const char* COMMON_TINT     = "\033[38;5;120m"; // pale green
     constexpr const char* RARE_TINT       = "\033[38;5;153m"; // pale sky blue
     constexpr const char* SUPER_RARE_TINT = "\033[38;5;218m"; // pale pink
+
+    // Legendary is a step up from the pastel family on purpose — bold, saturated
+    // neon gold, so Dodge (the only legendary card) visually stands out rather
+    // than just being another pastel.
+    constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
 }
 
 inline std::string colorize(const std::string& text, const char* color) {

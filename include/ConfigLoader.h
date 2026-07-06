@@ -18,6 +18,7 @@ public:
         std::string physType2; // optional: second physical tag — only Finishing Blow uses both
         std::string elemType;  // optional: "FIRE" / "POISON" / "WIND"
         bool superRare = false; // optional: marks a standout rare card for a distinct tint
+        bool legendary = false; // optional: marks the single legendary-tier card (Dodge)
         int cost;
         int value;
     };

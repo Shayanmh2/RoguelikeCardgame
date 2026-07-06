@@ -277,24 +277,17 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
 
     int totalLines = (int)allLeft.size();
 
-    // Console width, used to figure out how many physical terminal rows a
-    // logical line actually consumes once it wraps — needed so the cursor-up
-    // redraw moves the right distance even when a description line is long.
-    // \033[s / \033[u (save/restore cursor) are NOT reliably supported by the
-    // Windows console, so we track physical rows ourselves instead.
-    int consoleWidth = 80;
-#ifdef _WIN32
-    {
-        CONSOLE_SCREEN_BUFFER_INFO csbi;
-        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi) && csbi.dwSize.X > 0)
-            consoleWidth = csbi.dwSize.X;
-    }
-#endif
-
-    int printedRows = 0; // physical rows consumed by the most recent printAll()
-
+    // Redraw by asking the terminal itself to remember/restore the cursor
+    // position (DECSC/DECRC, "\0337"/"\0338") rather than computing a row count
+    // ourselves — every prior approach here (estimating rows from visible text
+    // length, or querying/re-setting the position via the Win32 console API)
+    // could drift or desync once the console buffer scrolled, especially under
+    // ConPTY-backed terminals (Windows Terminal, VS Code) where the Win32
+    // console API's view of the buffer and the terminal's actual rendering are
+    // two separate translation layers. Save/restore is a single pair of plain
+    // VT sequences the terminal itself honors directly, so there's nothing here
+    // for us to get wrong.
     auto printAll = [&]() {
-        printedRows = 0;
         for (int i = 0; i < totalLines; i++) {
             std::cout << "\033[2K\r";
 
@@ -327,15 +320,11 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
             }
 
             std::cout << rendered << "\n";
-
-            int visLen = visibleLen(rendered);
-            int rows = (visLen + consoleWidth - 1) / consoleWidth;
-            if (rows < 1) rows = 1;
-            printedRows += rows;
         }
         std::cout.flush();
     };
 
+    std::cout << "\0337"; // DECSC — remember exactly where this menu block starts
     printAll();
     flushInputBuffer();
 
@@ -349,7 +338,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[" << printedRows << "A";
+                    std::cout << "\0338"; // DECRC — jump back to the saved start, then reprint
                     printAll();
                 }
             } else if (dir == 80) {  // down
@@ -357,7 +346,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[" << printedRows << "A";
+                    std::cout << "\0338";
                     printAll();
                 }
             }
@@ -394,21 +383,9 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
     while (current < n && isDisabled(current)) current++;
     if (current >= n) current = 0;
 
-    // Same wrap-aware row tracking as menuSelectRight — \033[s/\033[u aren't
-    // reliably supported, and long option text (e.g. upgrade descriptions) can
-    // wrap and desync a naive per-line cursor-up redraw.
-    int consoleWidth = 80;
-#ifdef _WIN32
-    {
-        CONSOLE_SCREEN_BUFFER_INFO csbi;
-        if (GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi) && csbi.dwSize.X > 0)
-            consoleWidth = csbi.dwSize.X;
-    }
-#endif
-    int printedRows = 0;
-
+    // See menuSelectRight for why this uses DECSC/DECRC (terminal-native
+    // save/restore cursor) instead of computing a row count ourselves.
     auto printOptions = [&]() {
-        printedRows = 0;
         for (int i = 0; i < n; i++) {
             std::cout << "\033[2K\r";
             std::string rendered;
@@ -420,15 +397,11 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 rendered = "  " + options[i];
             }
             std::cout << rendered << "\n";
-
-            int visLen = visibleLen(rendered);
-            int rows = (visLen + consoleWidth - 1) / consoleWidth;
-            if (rows < 1) rows = 1;
-            printedRows += rows;
         }
         std::cout.flush();
     };
 
+    std::cout << "\0337"; // DECSC — remember exactly where this menu block starts
     printOptions();
     flushInputBuffer();
 
@@ -442,7 +415,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\033[" << printedRows << "A";
+                    std::cout << "\0338"; // DECRC — jump back to the saved start, then reprint
                     printOptions();
                 }
             } else if (dir == 80) {  // down
@@ -450,7 +423,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next < n && isDisabled(next)) next++;
                 if (next < n) {
                     current = next;
-                    std::cout << "\033[" << printedRows << "A";
+                    std::cout << "\0338";
                     printOptions();
                 }
             }

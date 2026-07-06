@@ -3,9 +3,9 @@
 #include <vector>
 
 Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare,
-           DamageType physT, DamageType elemT, bool isSuperRare, DamageType physT2)
+           DamageType physT, DamageType elemT, bool isSuperRare, DamageType physT2, bool isLegendary)
     : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare),
-      superRare(isSuperRare), physType(physT), physType2(physT2), elemType(elemT) {}
+      superRare(isSuperRare), legendary(isLegendary), physType(physT), physType2(physT2), elemType(elemT) {}
 
 std::string Card::getName() const {
     return name;
@@ -56,6 +56,10 @@ bool Card::isSuperRare() const {
     return superRare;
 }
 
+bool Card::isLegendary() const {
+    return legendary;
+}
+
 static const std::vector<std::string>& starterCardNames() {
     static const std::vector<std::string> names = {"Quick Jab", "Jab", "Bash", "Lunge", "Defend", "Brace", "Parry"};
     return names;
@@ -100,7 +104,7 @@ int Card::getMaxUpgrades() const {
     // via rewards) get one upgrade. Common cards get three, rare cards four,
     // super rare cards five — so each tier ends up strictly ahead once maxed.
     if (isStarter()) return 1;
-    if (superRare) return 5;
+    if (legendary || superRare) return 5;
     return rare ? 4 : 3;
 }
 
@@ -131,8 +135,8 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor";
     } else if (type == CardType::SPECIAL) {
         if (effect == CardEffect::COUNTER)
-            description = "Counters hits up to " + std::to_string(value * 3) + " dmg: block, hit back for double +"
-                        + std::to_string(value) + ". Bigger hits catch you off guard.";
+            description = "Counter: if the enemy attacks, hit back for double their damage +" + std::to_string(value)
+                        + ". Fizzles if they don't. Always fires before Parry.";
         else if (effect == CardEffect::PARRY)
             description = "Parries hits up to " + std::to_string(value * 3) + " dmg: block, riposte 1.5x +"
                         + std::to_string(value) + " (ignores defense), stun. Bigger hits break your guard.";

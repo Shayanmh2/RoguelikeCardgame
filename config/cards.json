@@ -202,10 +202,10 @@
     },
     {
       "name": "Dodge",
-      "description": "Counters hits up to 18 dmg: block, hit back for double +6. Bigger hits catch you off guard.",
+      "description": "Counter: if the enemy attacks, hit back for double their damage +6. Fizzles if they don't. Always fires before Parry.",
       "type": "SPECIAL",
       "effect": "COUNTER",
-      "superRare": true,
+      "legendary": true,
       "cost": 1,
       "value": 6
     },

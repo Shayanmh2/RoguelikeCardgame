@@ -184,6 +184,15 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
                               cardStr.find("true", colonPos) < cardStr.find_first_of(",}", colonPos);
     }
 
+    // Extract legendary (optional boolean)
+    size_t legendaryStart = cardStr.find("\"legendary\"");
+    if (legendaryStart != std::string::npos) {
+        size_t colonPos = cardStr.find(':', legendaryStart);
+        if (colonPos != std::string::npos)
+            card.legendary = cardStr.find("true", colonPos) != std::string::npos &&
+                              cardStr.find("true", colonPos) < cardStr.find_first_of(",}", colonPos);
+    }
+
     // Extract type
     size_t typeStart = cardStr.find("\"type\"");
     if (typeStart != std::string::npos) {

@@ -38,6 +38,7 @@ private:
     int upgradeCount;
     bool rare;      // true if drawn from the rare reward pool (raises the upgrade cap)
     bool superRare; // true for a curated subset of standout rare cards (visual tint only)
+    bool legendary; // true only for Dodge — a tier above Super Rare (visual tint only)
     DamageType physType;  // physical school tag (SMASH/PIERCE), NONE if untyped
     DamageType physType2; // second physical school tag — only Finishing Blow uses both
     DamageType elemType;  // elemental tag (FIRE/POISON/WIND), NONE if untyped
@@ -46,7 +47,8 @@ public:
     Card(std::string n, std::string desc, CardType t, int c, int v,
          CardEffect e = CardEffect::NONE, bool isRare = false,
          DamageType physT = DamageType::NONE, DamageType elemT = DamageType::NONE,
-         bool isSuperRare = false, DamageType physT2 = DamageType::NONE);
+         bool isSuperRare = false, DamageType physT2 = DamageType::NONE,
+         bool isLegendary = false);
 
     std::string getName() const;
     std::string getDescription() const;
@@ -59,6 +61,7 @@ public:
     int getUpgradeCount() const;
     bool isRare() const;
     bool isSuperRare() const;
+    bool isLegendary() const;
     bool isStarter() const; // true for the fixed starting-deck cards
     int getMaxUpgrades() const;   // starter cards cap at 1, common at 3, rare at 5
     std::string getBaseName() const; // name with trailing '+' upgrade markers stripped
