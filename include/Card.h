@@ -38,9 +38,9 @@ private:
     int upgradeCount;
     bool rare;      // true if drawn from the rare reward pool (raises the upgrade cap)
     bool superRare; // true for a curated subset of standout rare cards (visual tint only)
-    bool legendary; // true only for Dodge — a tier above Super Rare (visual tint only)
+    bool legendary; // true only for Dodge - a tier above Super Rare (visual tint only)
     DamageType physType;  // physical school tag (SMASH/PIERCE), NONE if untyped
-    DamageType physType2; // second physical school tag — only Finishing Blow uses both
+    DamageType physType2; // second physical school tag - only Finishing Blow uses both
     DamageType elemType;  // elemental tag (FIRE/POISON/WIND), NONE if untyped
 
 public:

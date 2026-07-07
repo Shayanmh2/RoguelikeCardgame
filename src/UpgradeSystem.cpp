@@ -45,12 +45,12 @@ void UpgradeSystem::selectActiveUpgrades() {
         std::vector<std::string> options;
         for (int i : idxMap) {
             std::string status = activeUpgrades[i] ? "[ON]  " : "[   ] ";
-            options.push_back(status + allUpgrades[i].getName() + " — " + allUpgrades[i].getDescription());
+            options.push_back(status + allUpgrades[i].getName() + " - " + allUpgrades[i].getDescription());
         }
         options.push_back("Done");
 
         UIHelper::clearScreen();
-        std::cout << "\nUpgrades — select to toggle:\n";
+        std::cout << "\nUpgrades - select to toggle:\n";
         int choice = UIHelper::menuSelect(options);
 
         if (choice < 0 || choice >= (int)idxMap.size()) break;  // Done or ESC

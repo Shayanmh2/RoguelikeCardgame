@@ -20,7 +20,7 @@ static void setupWindow() {
     // Window title.
     SetConsoleTitleA("Roguelike Cardgame");
 
-    // Font: Consolas 18pt — clean, supports Unicode block chars.
+    // Font: Consolas 18pt - clean, supports Unicode block chars.
     CONSOLE_FONT_INFOEX fontEx = {};
     fontEx.cbSize    = sizeof(fontEx);
     fontEx.dwFontSize.Y = 18;

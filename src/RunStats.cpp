@@ -54,7 +54,7 @@ void RunStats::displayCumulativeStats() const {
 }
 
 void RunStats::displayRunSummary(int encountersWon) const {
-    std::cout << "\nRun over — " << encountersWon << " encounter" << (encountersWon != 1 ? "s" : "") << " won";
+    std::cout << "\nRun over - " << encountersWon << " encounter" << (encountersWon != 1 ? "s" : "") << " won";
     std::cout << ", " << cardsAddedThisRun << " card" << (cardsAddedThisRun != 1 ? "s" : "") << " collected.\n";
     if (totalRunsCompleted > 0) {
         std::cout << "Best run: " << bestRunEncounters << " encounters\n";

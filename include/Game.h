@@ -34,9 +34,18 @@ private:
     int armorTier;  // number of armor upgrades claimed so far
     bool counterAttackActive;
     bool parryActive;
-    int  counterBonusValue; // Dodge's current value — added as flat bonus riposte damage
-    int  parryBonusValue;   // Parry's current value — added as flat bonus riposte damage
-    
+    int  counterBonusValue; // Dodge's current value - added as flat bonus riposte damage
+    int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
+
+    // Set by playCardFromHand() every time a card is played, so callers (the tutorial)
+    // can tell what was just played even if that same handleInput() call also auto-ended
+    // the turn and reset the hand - a hand-reset wipes the "used" flags this would
+    // otherwise need to diff against.
+    bool lastActionWasCardPlay = false;
+    CardType lastPlayedCardType = CardType::ATTACK;
+    DamageType lastPlayedPhysType = DamageType::NONE;
+    DamageType lastPlayedPhysType2 = DamageType::NONE;
+
     int calculateDamage(int attackValue, int defenseValue) const;
     bool spendEnergy(int cost);
     void resetEnergy();
@@ -56,16 +65,17 @@ private:
     Enemy generateBossEnemy();
     void  bossAction();
     void  offerBossReward();
-    void  offerExtraPlay(); // every 2nd boss kill — separate from the card reward
+    void  offerExtraPlay(); // every 2nd boss kill - separate from the card reward
     void displayRunStats() const;
     void displayEnemyInfo() const;
     void offerCardReward();
     void offerEquipmentDrop();
     void applyUpgrades();
     void selectUpgrades();
-    void viewDeckManage(); // browse/discard cards; never costs the rest site visit — always returns to its menu
+    void viewDeckManage(); // browse/discard cards; never costs the rest site visit - always returns to its menu
     bool showMainMenu();   // returns true if "Start Game" was chosen, false if "Quit"
-    void showHowToPlay() const;
+    void showHowToPlay();
+    void showTutorial();   // interactive practice fight vs. a Training Dummy; restores state on exit
 
 public:
     Game();

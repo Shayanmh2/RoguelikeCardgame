@@ -68,10 +68,10 @@ void RewardPool::initializeCardPool() {
         
         std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
     } else {
-        std::cout << Color::YELLOW << "Warning: " << configPath << " not found — using a reduced built-in fallback deck "
+        std::cout << Color::YELLOW << "Warning: " << configPath << " not found - using a reduced built-in fallback deck "
                    << "(no Parry/Dodge, no damage types). Reinstall or verify config/ sits next to the exe." << Color::RESET << "\n";
 
-        // Starter cards excluded — player already has them
+        // Starter cards excluded - player already has them
 
         // Common ATTACK
         commonCards.push_back(Card("Quick Jab",     "Deal 4 damage",                    CardType::ATTACK,  0, 4));
@@ -111,7 +111,7 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
 
     // Fixed odds per slot: 80% Uncommon / 15% Rare / 5% Super Rare, or
     // 60% / 25% / 15% with the "Fortunate Soul" rarity boost active.
-    // Legendary (Dodge) is intentionally excluded — it only ever drops from boss rewards.
+    // Legendary (Dodge) is intentionally excluded - it only ever drops from boss rewards.
     int superRareChance  = rarityBoost ? 15 : 5;
     int rareChance       = rarityBoost ? 25 : 15;
 
@@ -159,7 +159,7 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
     // Boss rewards are always Rare-or-better: 70% Rare / 25% Super Rare / 5% Legendary.
-    // This is the ONLY place Legendary (Dodge) can drop — regular rewards never roll it.
+    // This is the ONLY place Legendary (Dodge) can drop - regular rewards never roll it.
     std::vector<Card> rarePool, superRarePool, legendaryPool;
     for (const auto& c : rareCards) {
         if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;

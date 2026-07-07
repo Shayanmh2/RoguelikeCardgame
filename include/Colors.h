@@ -24,14 +24,17 @@ namespace Color {
     constexpr const char* DMAGENTA= "\033[35m";
     constexpr const char* DCYAN   = "\033[36m";
 
-    // Semantic aliases — use these in game code for consistency
+    // 256-color extras - the basic 16 colors are all already spoken for above
+    constexpr const char* ORANGE  = "\033[38;5;208m";
+
+    // Semantic aliases - use these in game code for consistency
     constexpr const char* DAMAGE        = RED;      // player takes damage
     constexpr const char* PLAYER_ATTACK = GREEN;    // player deals damage
     constexpr const char* HEAL          = GREEN;
     constexpr const char* ARMOR_CLR     = BLUE;
     constexpr const char* ENERGY_CLR    = YELLOW;
     constexpr const char* POISON_CLR    = DGREEN;
-    constexpr const char* BURN_CLR      = RED;
+    constexpr const char* BURN_CLR      = ORANGE;
     constexpr const char* STUN_CLR      = YELLOW;
     constexpr const char* WEAK_CLR      = BLUE;
     constexpr const char* STRENGTH_CLR  = DGREEN;
@@ -42,7 +45,7 @@ namespace Color {
     constexpr const char* CARD_NAME     = WHITE;
     constexpr const char* SECTION       = CYAN;
 
-    // Rarity tints for card names — 256-color pastels so they're genuinely
+    // Rarity tints for card names - 256-color pastels so they're genuinely
     // distinct from every other semantic color in this file (the basic 16
     // colors are all already spoken for elsewhere) and read as light tints
     // rather than the muted/dark look of the DGREEN/DBLUE/DMAGENTA aliases.
@@ -50,7 +53,7 @@ namespace Color {
     constexpr const char* RARE_TINT       = "\033[38;5;153m"; // pale sky blue
     constexpr const char* SUPER_RARE_TINT = "\033[38;5;218m"; // pale pink
 
-    // Legendary is a step up from the pastel family on purpose — bold, saturated
+    // Legendary is a step up from the pastel family on purpose - bold, saturated
     // neon gold, so Dodge (the only legendary card) visually stands out rather
     // than just being another pastel.
     constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
