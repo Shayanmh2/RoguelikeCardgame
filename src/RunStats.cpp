@@ -42,10 +42,6 @@ int RunStats::getBestRunEncounters() const {
     return bestRunEncounters;
 }
 
-void RunStats::displayRunStats() const {
-    std::cout << "Cards collected this run: " << cardsAddedThisRun << "\n";
-}
-
 void RunStats::displayCumulativeStats() const {
     std::cout << "\nCareer stats:\n";
     std::cout << "  Runs: " << totalRunsCompleted << "\n";

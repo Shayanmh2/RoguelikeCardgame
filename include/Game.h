@@ -38,8 +38,6 @@ private:
     int  parryBonusValue;   // Parry's current value — added as flat bonus riposte damage
     
     int calculateDamage(int attackValue, int defenseValue) const;
-    void playerAttack(int cardValue, int cost);
-    void playerDefend(int cardValue, int cost);
     bool spendEnergy(int cost);
     void resetEnergy();
     void playCardFromHand(int index);
@@ -76,8 +74,6 @@ public:
     void run();
     void displayStatus() const;
     void handleInput();
-    void update();
-    void render() const;
 };
 
 #endif

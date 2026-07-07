@@ -19,7 +19,6 @@ public:
     void checkAndUnlockUpgrades(int totalEncounters, int totalCards);
     
     // Selection screen
-    void displayUnlockedUpgrades();
     void selectActiveUpgrades();
     
     // Apply upgrades to game state

@@ -7,7 +7,6 @@ class Run {
 private:
     int currentEncounter;
     int encountersWon;
-    int startingHealth;
     bool runActive;
     
 public:
@@ -27,14 +26,13 @@ public:
     int getEnemyAttack() const;
     int getEnemyDefense() const;
     
-    bool isBossEncounter() const;   // true when currentEncounter % 5 == 0
-    int  getBossIndex() const;       // 0/1/2 cycling for the three boss types
+    bool isBossEncounter() const;   // true when currentEncounter % 8 == 0
+    int  getBossIndex() const;       // cycles through the 5 boss types
 
     std::string getDifficultyTier() const;
     std::string getEncounterDifficulty() const;
     std::string getEncounterTier() const;
     void displayRunStats() const;
-    void displayEncounterDifficulty() const;
 };
 
 #endif

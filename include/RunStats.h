@@ -28,7 +28,6 @@ public:
     int getTotalRunsCompleted() const;
     int getBestRunEncounters() const;
     
-    void displayRunStats() const;
     void displayCumulativeStats() const;
     void displayRunSummary(int encountersWon) const;
 };

@@ -1,7 +1,6 @@
 #include "UIHelper.h"
 #include "Colors.h"
 #include <iostream>
-#include <iomanip>
 #include <cmath>
 #include <cctype>
 
@@ -10,9 +9,7 @@
 #include <windows.h>
 #include <conio.h>
 static void platSleep(int ms) { Sleep(ms); }
-// Discards any keypresses buffered during animations/pauses so a menu's first
-// _getch() reads a fresh key instead of instantly consuming a stale one
-// (this was causing "skipped" selections and cards getting auto-played).
+// Drop buffered keypresses so a menu's first _getch() reads a fresh key, not a stale one
 static void flushInputBuffer() { while (_kbhit()) _getch(); }
 #else
 #include <thread>
@@ -38,10 +35,6 @@ void UIHelper::printBox(const std::string& title, int width) {
                   << Color::BOLD << Color::CYAN << title << Color::RESET << "\n";
         printLine(width, '=');
     }
-}
-
-void UIHelper::printBoxEnd(int width) {
-    printLine(width, '=');
 }
 
 std::string UIHelper::createHealthBar(int current, int max, int width) {
@@ -74,10 +67,6 @@ void UIHelper::printCentered(const std::string& text, int width) {
     int padding = (width - (int)text.length()) / 2;
     if (padding < 0) padding = 0;
     std::cout << std::string(padding, ' ') << text << "\n";
-}
-
-void UIHelper::printStatusHeader() {
-    printBox("ROGUELIKE CARDGAME", 60);
 }
 
 void UIHelper::printEncounterHeader(int encounterNum, const std::string& difficulty, const std::string& tierLabel) {
@@ -135,28 +124,6 @@ void UIHelper::printCombatStatus(int playerHP, int playerMaxHP, int playerArmor,
               << " | DEF: " << Color::BLUE  << enemyDefense << Color::RESET << "\n";
 
     printLine(60, '-');
-}
-
-void UIHelper::printCardHeader(int count) {
-    printBox("HAND (" + std::to_string(count) + " cards)", 60);
-}
-
-void UIHelper::printCardRow(int index, const std::string& type, const std::string& name,
-                             int cost, int value, const std::string& description) {
-    // Pick color for card type tag
-    const char* typeColor = Color::WHITE;
-    if      (type == "ATTACK")  typeColor = Color::CARD_ATTACK;
-    else if (type == "DEFEND")  typeColor = Color::CARD_DEFEND;
-    else if (type == "SPECIAL") typeColor = Color::CARD_SPECIAL;
-
-    const char* valLabel = (type == "ATTACK") ? "DMG"
-                        : (type == "DEFEND") ? "ARM" : "STK";
-    std::cout << "  " << Color::DIM << index << "." << Color::RESET
-              << " [" << typeColor << std::setw(6) << std::left << type << Color::RESET << "] "
-              << Color::BOLD << Color::CARD_NAME << std::setw(18) << std::left << name << Color::RESET
-              << " (Cost: " << Color::ENERGY_CLR << cost << Color::RESET
-              << ", " << valLabel << ": " << Color::GREEN << value << Color::RESET << ")\n";
-    std::cout << "     " << Color::DIM << description << Color::RESET << "\n\n";
 }
 
 void UIHelper::printTitle() {
@@ -277,16 +244,8 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
 
     int totalLines = (int)allLeft.size();
 
-    // Redraw by asking the terminal itself to remember/restore the cursor
-    // position (DECSC/DECRC, "\0337"/"\0338") rather than computing a row count
-    // ourselves — every prior approach here (estimating rows from visible text
-    // length, or querying/re-setting the position via the Win32 console API)
-    // could drift or desync once the console buffer scrolled, especially under
-    // ConPTY-backed terminals (Windows Terminal, VS Code) where the Win32
-    // console API's view of the buffer and the terminal's actual rendering are
-    // two separate translation layers. Save/restore is a single pair of plain
-    // VT sequences the terminal itself honors directly, so there's nothing here
-    // for us to get wrong.
+    // Redraw via terminal-native save/restore cursor (DECSC/DECRC) rather than
+    // computing a row count ourselves — avoids drift under ConPTY terminals.
     auto printAll = [&]() {
         for (int i = 0; i < totalLines; i++) {
             std::cout << "\033[2K\r";

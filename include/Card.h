@@ -57,13 +57,12 @@ public:
     CardEffect getEffect() const;
     int getCost() const;
     int getValue() const;
-    bool isUpgraded() const;
     int getUpgradeCount() const;
     bool isRare() const;
     bool isSuperRare() const;
     bool isLegendary() const;
     bool isStarter() const; // true for the fixed starting-deck cards
-    int getMaxUpgrades() const;   // starter cards cap at 1, common at 3, rare at 5
+    int getMaxUpgrades() const;   // starter caps at 1, common at 3, rare at 4, super rare/legendary at 5
     std::string getBaseName() const; // name with trailing '+' upgrade markers stripped
     DamageType getPhysType() const;
     DamageType getPhysType2() const;
@@ -71,7 +70,6 @@ public:
     std::string getTypeTag() const; // bracketed display tag, e.g. "[PIERCE][WIND]", empty if untyped
 
     void upgrade();
-    void display() const;
 };
 
 #endif

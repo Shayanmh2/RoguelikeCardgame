@@ -8,8 +8,7 @@
 
 Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
 
-// Maps an elemental CardEffect to its dedicated sound cue; non-elemental effects
-// (WEAK, COUNTER, PARRY) share the default "special" sound.
+// Elemental effects get a matching sound; everything else uses "special".
 static const char* effectSoundName(CardEffect effect) {
     switch (effect) {
         case CardEffect::POISON: return "poison";
@@ -20,10 +19,7 @@ static const char* effectSoundName(CardEffect effect) {
     }
 }
 
-// Card name tint by rarity — starter cards stay plain white, common/rare/super
-// rare get a subtle green/blue/pink tint so a card's rarity reads at a glance
-// without competing with the cyan selection highlight. Legendary (Dodge only)
-// gets a bold neon gold instead of the pastel family, so it stands apart.
+// Card name tint by rarity; legendary gets bold gold instead of a pastel.
 static const char* rarityTint(const Card& c) {
     if (c.isLegendary()) return Color::LEGENDARY_TINT;
     if (c.isStarter())   return Color::CARD_NAME;
@@ -34,9 +30,7 @@ static const char* rarityTint(const Card& c) {
 
 struct EquipTier { std::string name; int bonus; };
 
-// Weapon/armor names and bonuses scale up each time one is claimed, so gear
-// progression actually feels like progression instead of the same "Rusty
-// Blade" forever. The last tier repeats for any further pickups.
+// Gear name/bonus escalates per tier claimed; the last tier repeats after that.
 static EquipTier weaponTierAt(int tier) {
     static const std::vector<EquipTier> tiers = {
         {"Rusty Blade", 3}, {"Iron Sword", 4}, {"Steel Blade", 5},
@@ -55,9 +49,7 @@ static EquipTier armorTierAt(int tier) {
 }
 
 void Game::init() {
-    // One of each starter card — no built-in duplicates. From here the deck only
-    // grows via card rewards (RNG), so any duplicates the player ends up with are
-    // purely a consequence of what the run offers, not a hardcoded starting kit.
+    // One of each starter card; duplicates only ever come from later card rewards.
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage", CardType::ATTACK, 0, 3));
     playerDeck.addCard(Card("Jab", "Deal 4 damage", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage", CardType::ATTACK, 1, 6, CardEffect::NONE, false, DamageType::SMASH));
@@ -205,23 +197,6 @@ void Game::resetEnergy() {
     playerEnergy = maxEnergy;
 }
 
-void Game::playerAttack(int cardValue, int cost) {
-    if (!spendEnergy(cost)) return;
-    
-    int damageDealt = calculateDamage(cardValue, enemy.getBaseDefense());
-    enemy.takeDamage(damageDealt);
-    std::cout << "You attacked for " << damageDealt << " damage! (Attack: " << cardValue 
-              << " - Defense: " << enemy.getBaseDefense() << ")\n";
-    std::cout << "Enemy Health: " << enemy.getHealth() << "/" << enemy.getMaxHealth() << "\n";
-}
-
-void Game::playerDefend(int cardValue, int cost) {
-    if (!spendEnergy(cost)) return;
-    
-    playerArmor += cardValue;
-    std::cout << "You gained " << cardValue << " armor! (Total armor: " << playerArmor << ")\n";
-}
-
 void Game::applyCardEffect(const Card& card) {
     int val = card.getValue();
     switch (card.getEffect()) {
@@ -325,8 +300,7 @@ void Game::playCardFromHand(int index) {
                 if (armorBlocked > 0)
                     std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
                 std::cout << "\n";
-                // Give each hit's sound time to actually play — back-to-back playSFX
-                // calls cut each other off before the first is audible.
+                // let each hit's sound finish before the next one cuts in
                 if (doubleHit && hitNum < hits) UIHelper::pause(300);
             }
 
@@ -424,8 +398,7 @@ void Game::enemyTurn() {
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
         atk = std::max(0, atk - weakPenalty);
-        // Dodge takes priority over Parry when both are active — it's the top-end
-        // legendary skill and always fires first, uncapped.
+        // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
             int counterDmg = atk * 2 + counterBonusValue;
@@ -564,8 +537,7 @@ void Game::displayTurnInfo() const {
 }
 
 void Game::resetArmor() {
-    // Fortified armor survives until its timer runs out or it's broken by damage,
-    // whichever comes first — everything else wipes at end of turn as usual.
+    // Fortified armor lasts until its timer runs out or it's broken; the rest wipes each turn
     if (playerArmorPersistTurns > 0) {
         playerArmorPersistTurns--;
     } else {
@@ -726,7 +698,6 @@ void Game::handleInput() {
             std::string valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
                                  : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
 
-            // Pad type to 6, name to 18 (matching printCardRow exactly)
             std::string typePad = c.getTypeString();
             while ((int)typePad.size() < 6) typePad += ' ';
             std::string namePad = c.getName();
@@ -777,14 +748,6 @@ void Game::handleInput() {
         displayStatus();
         UIHelper::waitForKey();
     }
-}
-
-void Game::update() {
-    // Placeholder for game logic
-}
-
-void Game::render() const {
-    displayStatus();
 }
 
 Enemy Game::generateBossEnemy() {
@@ -848,8 +811,7 @@ void Game::bossAction() {
     int atk = std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack() - weakPenalty);
 
     auto doAttack = [&](int damage, bool raw) {
-        // Dodge takes priority over Parry when both are active — it's the top-end
-        // legendary skill and always fires first, uncapped.
+        // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
             int counterDmg = damage * 2 + counterBonusValue;
@@ -1172,9 +1134,7 @@ void Game::nextEncounter() {
 }
 
 void Game::restSite() {
-    // Committing to a real action (rest, upgrade, discard) progresses the game
-    // as normal. Only backing out via Cancel/Return brings you back here to
-    // pick something else — no way to repeat an action to stack it.
+    // Rest/Forge commit and end the visit; Cancel/Return loops back to this menu.
     while (true) {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::CYAN << "Rest site" << Color::RESET << "\n\n";
@@ -1209,9 +1169,7 @@ void Game::restSite() {
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
 
-        // Group identical cards (same exact name, incl. '+' upgrade markers) together —
-        // duplicates are just how the starter deck deals out cards, not separate upgrade
-        // slots, so picking a group upgrades every copy of it at once.
+        // Group identical cards together — picking a group upgrades every copy at once.
         std::vector<const Card*> groupCard;
         std::vector<int>         groupCount;
         for (size_t i = 0; i < allCards.size(); i++) {
@@ -1700,9 +1658,7 @@ void Game::run() {
                 runStats.displayCumulativeStats();
             }
         }
-        
-        update();
     }
-    
+
     std::cout << "Thanks for playing!\n";
 }

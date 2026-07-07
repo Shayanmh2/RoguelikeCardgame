@@ -1,15 +1,13 @@
 #ifndef DAMAGE_TYPE_H
 #define DAMAGE_TYPE_H
 
-// Damage typing used for the enemy-weakness system. A card can carry a
-// physical school tag (SMASH/PIERCE) and/or an elemental tag (FIRE/POISON/WIND)
-// independently — e.g. Whirlwind is PIERCE + WIND. Enemies have a single
-// weakness drawn from this same enum; matching either of a card's tags
-// against it grants bonus damage.
+// A card can carry a physical tag (SMASH/PIERCE) and/or an elemental tag
+// (FIRE/POISON/WIND) independently, e.g. Whirlwind is PIERCE + WIND. Enemies
+// have one weakness type; matching either tag against it grants bonus damage.
 enum class DamageType {
     NONE,
-    SMASH,   // heavy blunt/crushing strikes — punishes armored, sturdy enemies
-    PIERCE,  // precise, gap-finding strikes — punishes mobile, lightly-armored enemies
+    SMASH,
+    PIERCE,
     FIRE,
     POISON,
     WIND

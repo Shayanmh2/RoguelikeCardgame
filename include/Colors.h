@@ -56,10 +56,6 @@ namespace Color {
     constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
 }
 
-inline std::string colorize(const std::string& text, const char* color) {
-    return std::string(color) + text + Color::RESET;
-}
-
 // Returns an ANSI color for an HP value relative to its maximum
 inline const char* hpColor(int hp, int maxHp) {
     if (maxHp <= 0) return Color::WHITE;

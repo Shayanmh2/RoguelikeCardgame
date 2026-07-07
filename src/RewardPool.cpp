@@ -11,10 +11,7 @@ RewardPool::RewardPool() {
 }
 
 void RewardPool::initializeCardPool() {
-    // Resolve relative to the exe's own folder, not the current working directory —
-    // cwd can differ depending on how the exe was launched (shortcut, opened from
-    // inside an unextracted zip, etc.), which was silently dropping us into the
-    // old hardcoded fallback deck below.
+    // Resolve relative to the exe's folder, not cwd (which varies by launch method)
     std::string configPath = Audio::exeDir() + "config/cards.json";
     
     // Check if config file exists
@@ -107,26 +104,6 @@ void RewardPool::initializeCardPool() {
 }
 
 
-std::vector<Card> RewardPool::generateRewardChoices(int count) {
-    std::vector<Card> choices;
-    std::random_device rd;
-    std::mt19937 gen(rd());
-
-    std::vector<Card> allCards;
-    allCards.insert(allCards.end(), commonCards.begin(), commonCards.end());
-    allCards.insert(allCards.end(), rareCards.begin(), rareCards.end());
-
-    for (int i = 0; i < count && !allCards.empty(); ++i) {
-        // Recreate distribution each iteration so size stays valid after erasing
-        std::uniform_int_distribution<> dis(0, (int)allCards.size() - 1);
-        int index = dis(gen);
-        choices.push_back(allCards[index]);
-        allCards.erase(allCards.begin() + index);
-    }
-
-    return choices;
-}
-
 std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames) {
     std::vector<Card> choices;
     std::random_device rd;
@@ -212,27 +189,4 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
         pool->erase(pool->begin() + index);
     }
     return choices;
-}
-
-void RewardPool::displayRewardChoices(const std::vector<Card>& choices) {
-    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Card reward" << Color::RESET << " — pick one to add to your deck:\n\n";
-
-    for (size_t i = 0; i < choices.size(); ++i) {
-        const Card& c = choices[i];
-
-        const char* typeColor = Color::WHITE;
-        if      (c.getTypeString() == "ATTACK")  typeColor = Color::CARD_ATTACK;
-        else if (c.getTypeString() == "DEFEND")  typeColor = Color::CARD_DEFEND;
-        else if (c.getTypeString() == "SPECIAL") typeColor = Color::CARD_SPECIAL;
-
-        std::cout << "  " << Color::BOLD << (i + 1) << "." << Color::RESET
-                  << " [" << typeColor << c.getTypeString() << Color::RESET << "] "
-                  << Color::BOLD << Color::WHITE << c.getName() << Color::RESET << "\n";
-        const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
-                            : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
-        std::cout << "     Cost: " << Color::ENERGY_CLR << c.getCost() << Color::RESET
-                  << " | " << valLabel << ": " << Color::GREEN << c.getValue() << Color::RESET << "\n";
-        std::cout << "     " << Color::DIM << c.getDescription() << Color::RESET << "\n\n";
-    }
-
 }

@@ -1,7 +1,7 @@
 #include "Run.h"
 #include <iostream>
 
-Run::Run() : currentEncounter(0), encountersWon(0), startingHealth(100), runActive(false) {}
+Run::Run() : currentEncounter(0), encountersWon(0), runActive(false) {}
 
 void Run::startRun() {
     currentEncounter = 1;
@@ -77,12 +77,6 @@ std::string Run::getEncounterDifficulty() const {
 std::string Run::getEncounterTier() const {
     int tier = (currentEncounter - 1) / 5;
     return "Tier " + std::to_string(tier + 1);
-}
-
-void Run::displayEncounterDifficulty() const {
-    std::cout << "Difficulty: " << getDifficultyTier();
-    int tier = (currentEncounter - 1) / 5;
-    std::cout << " [Tier " << (tier + 1) << "]\n";
 }
 
 void Run::displayRunStats() const {

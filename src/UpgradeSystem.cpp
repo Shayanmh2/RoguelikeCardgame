@@ -28,24 +28,6 @@ void UpgradeSystem::checkAndUnlockUpgrades(int totalEncounters, int totalCards) 
     if (totalEncounters >= 8) unlockedUpgrades[6] = true;
 }
 
-void UpgradeSystem::displayUnlockedUpgrades() {
-    std::cout << "\nUpgrades (toggle on/off for next run):\n\n";
-    
-    int unlockedCount = 0;
-    for (size_t i = 0; i < allUpgrades.size(); ++i) {
-        if (unlockedUpgrades[i]) {
-            unlockedCount++;
-            std::string status = activeUpgrades[i] ? "[ACTIVE]" : "[ ]";
-            std::cout << (i + 1) << ". " << status << " " << allUpgrades[i].getName() << "\n";
-            std::cout << "   " << allUpgrades[i].getDescription() << "\n\n";
-        }
-    }
-    
-    if (unlockedCount == 0) {
-        std::cout << "No upgrades unlocked yet.\n";
-    }
-}
-
 void UpgradeSystem::selectActiveUpgrades() {
     bool anyUnlocked = false;
     for (bool u : unlockedUpgrades) if (u) { anyUnlocked = true; break; }

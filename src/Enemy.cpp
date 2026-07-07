@@ -73,7 +73,6 @@ int  Enemy::processBurn()    { return statusEffects.processBurn(); }
 bool Enemy::processStun()    { return statusEffects.processStun(); }
 int  Enemy::getWeakPenalty() const { return statusEffects.getWeakPenalty(); }
 void Enemy::processWeak()    { statusEffects.processWeak(); }
-bool Enemy::hasStatusEffects() const { return statusEffects.hasAny(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
 std::string Enemy::statusSummary() const { return statusEffects.summary(); }
 
@@ -82,15 +81,14 @@ bool Enemy::isAlive() const {
 }
 
 DamageType Enemy::getWeakness() const {
-    // Fixed per archetype so it's learnable: bring the right card for the enemy.
-    // Bosses reuse their base EnemyType, so this covers them for free.
+    // Fixed per archetype (bosses reuse their base EnemyType, so this covers them too)
     switch (type) {
-        case EnemyType::MELEE:  return DamageType::PIERCE; // lightly armored, mobile — precise strikes find the gaps
-        case EnemyType::TANK:   return DamageType::SMASH;  // heavy armor doesn't stop blunt trauma
-        case EnemyType::RANGED: return DamageType::WIND;   // agile skirmishers get knocked off balance
-        case EnemyType::CASTER: return DamageType::FIRE;   // robes and concentration both burn easily
-        case EnemyType::BEAST:  return DamageType::POISON; // no resistance built up to toxins
-        case EnemyType::UNDEAD: return DamageType::FIRE;    // fire is the classic answer to the restless dead
+        case EnemyType::MELEE:  return DamageType::PIERCE;
+        case EnemyType::TANK:   return DamageType::SMASH;
+        case EnemyType::RANGED: return DamageType::WIND;
+        case EnemyType::CASTER: return DamageType::FIRE;
+        case EnemyType::BEAST:  return DamageType::POISON;
+        case EnemyType::UNDEAD: return DamageType::FIRE;
         default:                return DamageType::NONE;
     }
 }
@@ -100,21 +98,16 @@ std::string Enemy::getWeaknessLabel() const {
 }
 
 DamageType Enemy::getResistance() const {
-    // Only some archetypes get one — not every enemy needs a hard counter-counter.
+    // Not every archetype has one
     switch (type) {
-        case EnemyType::TANK:   return DamageType::PIERCE; // armor plating shrugs off precise strikes
-        case EnemyType::UNDEAD: return DamageType::POISON; // nothing left alive in there for poison to work on
+        case EnemyType::TANK:   return DamageType::PIERCE;
+        case EnemyType::UNDEAD: return DamageType::POISON;
         default:                return DamageType::NONE;
     }
 }
 
 std::string Enemy::getResistanceLabel() const {
     return damageTypeName(getResistance());
-}
-
-void Enemy::displayStatus() const {
-    std::cout << name << " - Health: " << health << "/" << maxHealth 
-              << " | Armor: " << armor << " | Attack: " << baseAttack << " | Defense: " << baseDefense << "\n";
 }
 
 std::string Enemy::generateName(EnemyType type, int encounter) {

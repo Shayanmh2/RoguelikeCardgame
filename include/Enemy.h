@@ -45,7 +45,6 @@ public:
     bool processStun();
     int  getWeakPenalty() const;
     void processWeak();
-    bool hasStatusEffects() const;
     void displayStatusEffects(const std::string& prefix) const;
     std::string statusSummary() const;
 
@@ -57,12 +56,8 @@ public:
     void      addBonusAttack(int amount);
 
     bool isAlive() const;
-    void displayStatus() const;
 
-    // Weakness/resistance system: both derived from enemy type, so no extra state
-    // to construct. Attacks whose phys/elem tag matches the weakness take +50%
-    // damage; attacks matching the resistance take -50% damage. A type can have
-    // a resistance without a matching opposite weakness (they're independent).
+    // Matching weakness = +50% damage; matching resistance = -50% damage
     DamageType  getWeakness() const;
     std::string getWeaknessLabel() const; // e.g. "Pierce", empty if none
     DamageType  getResistance() const;

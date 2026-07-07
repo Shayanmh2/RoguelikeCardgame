@@ -1,9 +1,6 @@
 #include "Deck.h"
-#include "UIHelper.h"
-#include "Colors.h"
 #include <algorithm>
 #include <random>
-#include <iostream>
 
 Deck::Deck() {}
 
@@ -33,15 +30,6 @@ Card Deck::drawCard() {
     return drawnCard;
 }
 
-void Deck::discardCard(const Card& card) {
-    auto it = std::find_if(hand.begin(), hand.end(),
-                          [&card](const Card& c) { return c.getName() == card.getName(); });
-    if (it != hand.end()) {
-        discard.push_back(*it);
-        hand.erase(it);
-    }
-}
-
 void Deck::resetDeck() {
     for (const auto& card : hand) {
         discard.push_back(card);
@@ -52,14 +40,6 @@ void Deck::resetDeck() {
 
 int Deck::handSize() const {
     return hand.size();
-}
-
-int Deck::deckSize() const {
-    return cards.size();
-}
-
-int Deck::discardSize() const {
-    return discard.size();
 }
 
 const Card& Deck::getCardFromHand(int index) const {
@@ -81,45 +61,6 @@ Card Deck::playCard(int index) {
 bool Deck::isCardUsed(int index) const {
     if (index < 0 || index >= static_cast<int>(handUsed.size())) return true;
     return handUsed[index];
-}
-
-void Deck::displayHand(int weakPenalty, int damageBonus, int armorBonus) const {
-    UIHelper::printCardHeader(hand.size());
-    for (size_t i = 0; i < hand.size(); ++i) {
-        if (i < handUsed.size() && handUsed[i]) {
-            std::cout << "  " << Color::DIM << (i + 1) << ". [USED]" << Color::RESET << "\n\n";
-            continue;
-        }
-        const Card& c = hand[i];
-        int dispVal = c.getValue();
-        if (c.getType() == CardType::ATTACK)
-            dispVal = std::max(0, dispVal + damageBonus - weakPenalty);
-        else if (c.getType() == CardType::DEFEND)
-            dispVal = dispVal + armorBonus;
-        UIHelper::printCardRow(static_cast<int>(i) + 1, c.getTypeString(), c.getName(),
-                               c.getCost(), dispVal, c.getDescription());
-    }
-    UIHelper::printBoxEnd();
-}
-
-void Deck::displayDeck() const {
-    UIHelper::printLine(60, '=');
-    std::cout << "DECK STATUS\n";
-    std::cout << "  Cards: " << cards.size() << " | Hand: " << hand.size()
-              << " | Discard: " << discard.size() << "\n";
-    UIHelper::printLine(60, '=');
-}
-
-void Deck::displayAllCards() const {
-    UIHelper::printCardHeader(totalCards());
-    int idx = 1;
-    for (const auto& c : cards)
-        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
-    for (const auto& c : hand)
-        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
-    for (const auto& c : discard)
-        UIHelper::printCardRow(idx++, c.getTypeString(), c.getName(), c.getCost(), c.getValue(), c.getDescription());
-    UIHelper::printBoxEnd();
 }
 
 int Deck::totalCards() const {
