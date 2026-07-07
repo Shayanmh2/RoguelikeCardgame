@@ -314,6 +314,9 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
             return current;
         } else if (ch == 27) {
             return -1;
+        } else if (ch == 'H') {  // Shift+H — manual refresh if the screen ever looks glitched
+            clearScreen();
+            printAll();
         }
 #else
         std::string line;
@@ -391,6 +394,9 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
             return current;
         } else if (ch == 27) {  // ESC
             return -1;
+        } else if (ch == 'H') {  // Shift+H — manual refresh if the screen ever looks glitched
+            clearScreen();
+            printOptions();
         }
 #else
         std::string line;
