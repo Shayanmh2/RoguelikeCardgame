@@ -112,16 +112,14 @@ void UIHelper::printCombatStatus(int playerHP, int playerMaxHP, int playerArmor,
     std::cout << "  PLAYS: "
               << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << "\n\n";
 
-    // Enemy
+    // Enemy - ARM and DEF are shown as one combined DEF figure (both are flat
+    // damage reduction; showing them separately just for the enemy read as confusing)
     std::cout << Color::BOLD << Color::RED << "ENEMY: " << enemyName << Color::RESET << "\n";
     std::cout << "  HP:  "
               << hpColor(enemyHP, enemyMaxHP) << enemyHP << "/" << enemyMaxHP << Color::RESET
               << "  " << createHealthBar(enemyHP, enemyMaxHP) << "\n";
-    std::cout << "  ARM: "
-              << Color::ARMOR_CLR << enemyArmor << Color::RESET
-              << "  " << createArmorBar(enemyArmor) << "\n";
     std::cout << "  ATK: " << Color::RED    << enemyAttack  << Color::RESET
-              << " | DEF: " << Color::BLUE  << enemyDefense << Color::RESET << "\n";
+              << " | DEF: " << Color::BLUE  << (enemyDefense + enemyArmor) << Color::RESET << "\n";
 
     printLine(60, '-');
 }
@@ -180,7 +178,7 @@ int UIHelper::visibleLen(const std::string& s) {
             while (i < s.size() && !std::isalpha((unsigned char)s[i])) i++;
             if (i < s.size()) i++;
         } else if (c >= 0xC0) {
-            // UTF-8 multibyte sequence — counts as one visual cell
+            // UTF-8 multibyte sequence - counts as one visual cell
             len++;
             i++;
             while (i < s.size() && (unsigned char)s[i] >= 0x80 && (unsigned char)s[i] < 0xC0) i++;
@@ -231,7 +229,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
     while ((int)allLeft.size() < (int)allOpt.size()) { allLeft.push_back(""); isFooter.push_back(false); }
     while ((int)allOpt.size()  < (int)allLeft.size()) allOpt.push_back(-1);
 
-    // Append lines for options not yet mapped — these render left-aligned (no column padding)
+    // Append lines for options not yet mapped - these render left-aligned (no column padding)
     std::vector<bool> covered(n, false);
     for (int idx : allOpt) if (idx >= 0 && idx < n) covered[idx] = true;
     for (int i = 0; i < n; i++) {
@@ -245,7 +243,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
     int totalLines = (int)allLeft.size();
 
     // Redraw via terminal-native save/restore cursor (DECSC/DECRC) rather than
-    // computing a row count ourselves — avoids drift under ConPTY terminals.
+    // computing a row count ourselves - avoids drift under ConPTY terminals.
     auto printAll = [&]() {
         for (int i = 0; i < totalLines; i++) {
             std::cout << "\033[2K\r";
@@ -255,7 +253,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
             std::string rendered;
 
             if (isFooter[i] && optIdx >= 0 && optIdx < n) {
-                // Left-aligned action row — no column padding
+                // Left-aligned action row - no column padding
                 if (optIdx == current)
                     rendered = " \033[1;36m> " + options[optIdx] + "\033[0m";
                 else if (dis)
@@ -283,7 +281,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
         std::cout.flush();
     };
 
-    std::cout << "\0337"; // DECSC — remember exactly where this menu block starts
+    std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
     printAll();
     flushInputBuffer();
 
@@ -297,7 +295,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\0338"; // DECRC — jump back to the saved start, then reprint
+                    std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
                     printAll();
                 }
             } else if (dir == 80) {  // down
@@ -314,7 +312,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
             return current;
         } else if (ch == 27) {
             return -1;
-        } else if (ch == 'H') {  // Shift+H — manual refresh if the screen ever looks glitched
+        } else if (ch == 'H') {  // Shift+H - manual refresh if the screen ever looks glitched
             clearScreen();
             printAll();
         }
@@ -363,7 +361,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
         std::cout.flush();
     };
 
-    std::cout << "\0337"; // DECSC — remember exactly where this menu block starts
+    std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
     printOptions();
     flushInputBuffer();
 
@@ -377,7 +375,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
                 while (next >= 0 && isDisabled(next)) next--;
                 if (next >= 0) {
                     current = next;
-                    std::cout << "\0338"; // DECRC — jump back to the saved start, then reprint
+                    std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
                     printOptions();
                 }
             } else if (dir == 80) {  // down
@@ -394,7 +392,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
             return current;
         } else if (ch == 27) {  // ESC
             return -1;
-        } else if (ch == 'H') {  // Shift+H — manual refresh if the screen ever looks glitched
+        } else if (ch == 'H') {  // Shift+H - manual refresh if the screen ever looks glitched
             clearScreen();
             printOptions();
         }
@@ -419,7 +417,7 @@ void UIHelper::typeWrite(const std::string& text, int msPerChar) {
         unsigned char c = (unsigned char)text[i];
 
         if (c == '\033' && i + 1 < text.size() && (unsigned char)text[i + 1] == '[') {
-            // ANSI escape sequence — print the whole thing atomically (no delay).
+            // ANSI escape sequence - print the whole thing atomically (no delay).
             size_t j = i + 2;
             while (j < text.size() && !std::isalpha((unsigned char)text[j])) j++;
             if (j < text.size()) j++; // include the terminating letter
@@ -427,7 +425,7 @@ void UIHelper::typeWrite(const std::string& text, int msPerChar) {
             std::cout.flush();
             i = j;
         } else if (c >= 0xC0) {
-            // UTF-8 multi-byte lead byte — print entire codepoint atomically.
+            // UTF-8 multi-byte lead byte - print entire codepoint atomically.
             size_t j = i + 1;
             while (j < text.size() &&
                    (unsigned char)text[j] >= 0x80 &&

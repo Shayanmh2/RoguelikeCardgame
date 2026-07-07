@@ -54,7 +54,7 @@ Card Deck::playCard(int index) {
         throw std::out_of_range("Invalid card index");
     }
     Card card = hand[index];
-    handUsed[index] = true; // mark slot — card stays in hand until resetDeck()
+    handUsed[index] = true; // mark slot - card stays in hand until resetDeck()
     return card;
 }
 

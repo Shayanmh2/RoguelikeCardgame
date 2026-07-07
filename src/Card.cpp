@@ -102,7 +102,9 @@ int Card::getMaxUpgrades() const {
 
 void Card::upgrade() {
     value += 3;
-    if (cost > 0) cost--;
+    // Cost floors at 1, not 0 - a card should never become fully free from upgrades
+    // alone, so extra plays (from beating bosses) stay worth taking.
+    if (cost > 1) cost--;
     name += "+";
     upgradeCount++;
     // keep description text in sync with the new value
@@ -129,8 +131,7 @@ void Card::upgrade() {
             description = "Counter: if the enemy attacks, hit back for double their damage +" + std::to_string(value)
                         + ". Fizzles if they don't. Always fires before Parry.";
         else if (effect == CardEffect::PARRY)
-            description = "Parries hits up to " + std::to_string(value * 3) + " dmg: block, riposte 1.5x +"
-                        + std::to_string(value) + " (ignores defense), stun. Bigger hits break your guard.";
+            description = "Parries the attack, then riposte for 1.5x damage.";
         // other SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
     }
 }

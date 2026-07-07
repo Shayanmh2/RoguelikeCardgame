@@ -135,7 +135,7 @@ ConfigLoader::CardData ConfigLoader::parseCard(const std::string& cardStr) {
             card.physType = cardStr.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
     }
 
-    // Extract physType2 (optional — only Finishing Blow uses both)
+    // Extract physType2 (optional - only Finishing Blow uses both)
     size_t phys2Start = cardStr.find("\"physType2\"");
     if (phys2Start != std::string::npos) {
         size_t quoteStart = cardStr.find('"', phys2Start + 11);

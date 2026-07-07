@@ -12,7 +12,7 @@ public:
     static void playSFX(const std::string& name);
 
     // Directory containing the running exe (with trailing separator). Use this
-    // to resolve bundled data files (config, sounds) — NOT the working directory,
+    // to resolve bundled data files (config, sounds) - NOT the working directory,
     // which can differ depending on how the exe was launched.
     static std::string exeDir();
 };

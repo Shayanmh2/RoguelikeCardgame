@@ -35,14 +35,14 @@ static void bgmLoop(const std::string& path) {
 void Audio::playBGM() {
     std::string soundsDir = exeDir() + "sounds\\";
 
-    // Prefer WAV, fall back to MP3 — both use the MCI thread loop.
+    // Prefer WAV, fall back to MP3 - both use the MCI thread loop.
     std::string wav = soundsDir + "bgm.wav";
     std::string mp3 = soundsDir + "bgm.mp3";
 
     std::string bgmPath;
     if      (fileExists(wav)) bgmPath = wav;
     else if (fileExists(mp3)) bgmPath = mp3;
-    else return; // no BGM file found — run silently
+    else return; // no BGM file found - run silently
 
     bgmRunning = true;
     std::thread(bgmLoop, bgmPath).detach();
@@ -59,7 +59,7 @@ void Audio::playSFX(const std::string& name) {
     std::string path;
     if      (fileExists(dir + name + ".wav")) path = dir + name + ".wav";
     else if (fileExists(dir + name + ".mp3")) path = dir + name + ".mp3";
-    else return; // no file found — silent
+    else return; // no file found - silent
 
     // Close any previously playing SFX, then open and play async.
     mciSendStringA("close sfx", nullptr, 0, nullptr);
@@ -69,7 +69,7 @@ void Audio::playSFX(const std::string& name) {
 }
 
 #else
-// Non-Windows stubs — compile cleanly but do nothing.
+// Non-Windows stubs - compile cleanly but do nothing.
 std::string Audio::exeDir() { return ""; }
 void Audio::playBGM()                        {}
 void Audio::stopBGM()                        {}
