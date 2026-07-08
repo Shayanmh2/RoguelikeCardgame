@@ -13,94 +13,64 @@ RewardPool::RewardPool() {
 void RewardPool::initializeCardPool() {
     // Resolve relative to the exe's folder, not cwd (which varies by launch method)
     std::string configPath = Audio::exeDir() + "config/cards.json";
-    
-    // Check if config file exists
-    if (std::filesystem::exists(configPath)) {
-        std::cout << "Loading cards from " << configPath << "\n";
-        
-        auto commonData = ConfigLoader::loadCommonCards(configPath);
-        auto rareData = ConfigLoader::loadRareCards(configPath);
-        
-        auto toEffect = [](const std::string& e) -> CardEffect {
-            if (e == "POISON")     return CardEffect::POISON;
-            if (e == "BURN")       return CardEffect::BURN;
-            if (e == "STUN")       return CardEffect::STUN;
-            if (e == "WEAK")       return CardEffect::WEAK;
-            if (e == "COUNTER")    return CardEffect::COUNTER;
-            if (e == "PARRY")      return CardEffect::PARRY;
-            if (e == "PIERCE")     return CardEffect::PIERCE;
-            if (e == "FORTIFY")    return CardEffect::FORTIFY;
-            if (e == "STRENGTH")   return CardEffect::STRENGTH;
-            if (e == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
-            if (e == "IMPAIR")     return CardEffect::IMPAIR;
-            if (e == "CHIP")       return CardEffect::CHIP;
-            if (e == "HEAL")       return CardEffect::HEAL;
-            return CardEffect::NONE;
-        };
-        auto toPhysType = [](const std::string& s) -> DamageType {
-            if (s == "SMASH")  return DamageType::SMASH;
-            if (s == "PIERCE") return DamageType::PIERCE;
-            return DamageType::NONE;
-        };
-        auto toElemType = [](const std::string& s) -> DamageType {
-            if (s == "FIRE")   return DamageType::FIRE;
-            if (s == "POISON") return DamageType::POISON;
-            if (s == "WIND")   return DamageType::WIND;
-            return DamageType::NONE;
-        };
 
-        for (const auto& data : commonData) {
-            CardType type = CardType::ATTACK;
-            if (data.type == "DEFEND")  type = CardType::DEFEND;
-            else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), false,
-                                       toPhysType(data.physType), toElemType(data.elemType)));
-        }
-
-        for (const auto& data : rareData) {
-            CardType type = CardType::ATTACK;
-            if (data.type == "DEFEND")  type = CardType::DEFEND;
-            else if (data.type == "SPECIAL") type = CardType::SPECIAL;
-            rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true,
-                                      toPhysType(data.physType), toElemType(data.elemType), data.superRare,
-                                      toPhysType(data.physType2), data.legendary));
-        }
-        
-        std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
-    } else {
-        std::cout << Color::YELLOW << "Warning: " << configPath << " not found - using a reduced built-in fallback deck "
-                   << "(no Parry/Dodge, no damage types). Reinstall or verify config/ sits next to the exe." << Color::RESET << "\n";
-
-        // Starter cards excluded - player already has them
-
-        // Common ATTACK
-        commonCards.push_back(Card("Quick Jab",     "Deal 4 damage",                    CardType::ATTACK,  0, 4));
-        commonCards.push_back(Card("Slice",         "Deal 9 damage",                    CardType::ATTACK,  1, 9));
-        commonCards.push_back(Card("Heavy Blow",    "Deal 16 damage",                   CardType::ATTACK,  2, 16));
-        commonCards.push_back(Card("Reckless Swing","Deal 25 damage",                   CardType::ATTACK,  3, 25));
-        // Common DEFEND
-        commonCards.push_back(Card("Iron Guard",    "Gain 9 armor",                     CardType::DEFEND,  1, 9));
-        commonCards.push_back(Card("Fortify",       "Gain 16 armor",                    CardType::DEFEND,  2, 16));
-        commonCards.push_back(Card("Bulwark",       "Gain 25 armor",                    CardType::DEFEND,  3, 25));
-        // Common SPECIAL
-        commonCards.push_back(Card("Poison Dart",   "Apply 3 Poison stacks",            CardType::SPECIAL, 1, 3, CardEffect::POISON));
-        commonCards.push_back(Card("Torch",         "Apply 2 Burn (5 dmg x2 turns)",    CardType::SPECIAL, 1, 2, CardEffect::BURN));
-        commonCards.push_back(Card("Stun Strike",   "Stun enemy for 1 turn",            CardType::SPECIAL, 2, 1, CardEffect::STUN));
-        commonCards.push_back(Card("Weaken",        "Apply 3 Weak (-2 atk x3 turns)",   CardType::SPECIAL, 1, 3, CardEffect::WEAK));
-
-        // Rare ATTACK
-        rareCards.push_back(Card("Power Strike",    "Deal 20 damage",                   CardType::ATTACK,  2, 20, CardEffect::NONE, true));
-        rareCards.push_back(Card("Cleave",          "Deal 28 damage",                   CardType::ATTACK,  3, 28, CardEffect::NONE, true));
-        rareCards.push_back(Card("Annihilate",      "Deal 35 damage",                   CardType::ATTACK,  3, 35, CardEffect::NONE, true));
-        // Rare DEFEND
-        rareCards.push_back(Card("Iron Skin",       "Gain 20 armor",                    CardType::DEFEND,  2, 20, CardEffect::NONE, true));
-        rareCards.push_back(Card("Diamond Wall",    "Gain 32 armor",                    CardType::DEFEND,  3, 32, CardEffect::NONE, true));
-        // Rare SPECIAL
-        rareCards.push_back(Card("Toxic Cloud",     "Apply 6 Poison stacks",            CardType::SPECIAL, 2, 6, CardEffect::POISON, true));
-        rareCards.push_back(Card("Inferno",         "Apply 4 Burn (5 dmg x4 turns)",    CardType::SPECIAL, 2, 4, CardEffect::BURN, true));
-        rareCards.push_back(Card("Paralysis",       "Stun enemy for 2 turns",           CardType::SPECIAL, 2, 2, CardEffect::STUN, true));
-        rareCards.push_back(Card("Shatter",         "Apply 5 Weak (-2 atk x5 turns)",   CardType::SPECIAL, 2, 5, CardEffect::WEAK, true));
+    if (!std::filesystem::exists(configPath)) {
+        std::cout << Color::YELLOW << "Warning: " << configPath << " not found - no card rewards will be available. "
+                   << "Reinstall or verify config/ sits next to the exe." << Color::RESET << "\n";
+        return;
     }
+
+    std::cout << "Loading cards from " << configPath << "\n";
+
+    auto commonData = ConfigLoader::loadCommonCards(configPath);
+    auto rareData = ConfigLoader::loadRareCards(configPath);
+
+    auto toEffect = [](const std::string& e) -> CardEffect {
+        if (e == "POISON")     return CardEffect::POISON;
+        if (e == "BURN")       return CardEffect::BURN;
+        if (e == "STUN")       return CardEffect::STUN;
+        if (e == "WEAK")       return CardEffect::WEAK;
+        if (e == "COUNTER")    return CardEffect::COUNTER;
+        if (e == "PARRY")      return CardEffect::PARRY;
+        if (e == "PIERCE")     return CardEffect::PIERCE;
+        if (e == "FORTIFY")    return CardEffect::FORTIFY;
+        if (e == "STRENGTH")   return CardEffect::STRENGTH;
+        if (e == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
+        if (e == "IMPAIR")     return CardEffect::IMPAIR;
+        if (e == "CHIP")       return CardEffect::CHIP;
+        if (e == "HEAL")       return CardEffect::HEAL;
+        return CardEffect::NONE;
+    };
+    auto toPhysType = [](const std::string& s) -> DamageType {
+        if (s == "SMASH")  return DamageType::SMASH;
+        if (s == "PIERCE") return DamageType::PIERCE;
+        return DamageType::NONE;
+    };
+    auto toElemType = [](const std::string& s) -> DamageType {
+        if (s == "FIRE")   return DamageType::FIRE;
+        if (s == "POISON") return DamageType::POISON;
+        if (s == "WIND")   return DamageType::WIND;
+        return DamageType::NONE;
+    };
+
+    for (const auto& data : commonData) {
+        CardType type = CardType::ATTACK;
+        if (data.type == "DEFEND")  type = CardType::DEFEND;
+        else if (data.type == "SPECIAL") type = CardType::SPECIAL;
+        commonCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), false,
+                                   toPhysType(data.physType), toElemType(data.elemType)));
+    }
+
+    for (const auto& data : rareData) {
+        CardType type = CardType::ATTACK;
+        if (data.type == "DEFEND")  type = CardType::DEFEND;
+        else if (data.type == "SPECIAL") type = CardType::SPECIAL;
+        rareCards.push_back(Card(data.name, data.description, type, data.cost, data.value, toEffect(data.effect), true,
+                                  toPhysType(data.physType), toElemType(data.elemType), data.superRare,
+                                  toPhysType(data.physType2), data.legendary));
+    }
+
+    std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
 }
 
 
