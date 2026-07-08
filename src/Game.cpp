@@ -124,9 +124,9 @@ void Game::displayEnemyInfo() const {
                 std::cout << "  " << Color::RED         << "Strike"       << Color::RESET << " (uncommon)- direct attack\n";
                 break;
             case BossType::WARLORD:
-                std::cout << "  " << Color::CARD_SPECIAL << "War Cry"      << Color::RESET << " (rare)    - weakens you\n";
-                std::cout << "  " << Color::RED      << "Heavy Strike"  << Color::RESET << " (common)  - attack, grows stronger each turn\n";
-                std::cout << "  " << Color::ARMOR_CLR<< "Defend"        << Color::RESET << " (uncommon)- gains armor\n";
+                std::cout << "  " << Color::STUN_CLR << "Thunderstrike" << Color::RESET << " (rare)    - stuns you, then attacks\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "War Cry"   << Color::RESET << " (uncommon)- weakens you, then attacks\n";
+                std::cout << "  " << Color::RED      << "Heavy Strike"  << Color::RESET << " (common)  - attacks, grows stronger each turn\n";
                 break;
             case BossType::HYDRA:
                 std::cout << "  " << Color::CARD_SPECIAL << "Venomous Bite" << Color::RESET << " (common)  - poisons you heavily\n";
@@ -424,6 +424,17 @@ void Game::enemyTurn() {
             int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
             parryActive = false;
             if (atk <= parryCap) {
+                // Regular Ranged enemies attack from a distance - you can still block
+                // the hit, but you're too far away to riposte or stun them for it.
+                // Bosses skip this even if typed RANGED (e.g. the Dragon's claws are melee-range).
+                bool tooFarToRiposte = !enemy.isBoss() && enemy.getType() == EnemyType::RANGED;
+                if (tooFarToRiposte) {
+                    Audio::playSFX("special");
+                    std::cout << Color::CYAN << "Parry! You block the shot - no damage taken, but they're too far away to riposte."
+                              << Color::RESET << "\n";
+                    UIHelper::pause(300);
+                    return;
+                }
                 int riposteDmg = (int)(atk * 1.5) + parryBonusValue;
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
@@ -556,46 +567,61 @@ void Game::resetArmor() {
 
 void Game::endPlayerTurn() {
     playerTurnActive = false;
-    UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Enemy's Turn ---" + Color::RESET + "\n");
-    UIHelper::pause(350);
-    enemyTurn();
-    counterAttackActive = false;
-    parryActive = false;
-    resetArmor();
-    turnNumber++;
+
+    // Loops instead of running once: if the player's new turn opens stunned, that
+    // turn is skipped entirely (no hand shown, straight to another enemy turn) -
+    // same as how a stunned enemy loses its turn in enemyTurn().
+    bool playerStunned;
+    do {
+        UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Enemy's Turn ---" + Color::RESET + "\n");
+        UIHelper::pause(350);
+        enemyTurn();
+        counterAttackActive = false;
+        parryActive = false;
+        resetArmor();
+        turnNumber++;
+        resetEnergy();
+
+        // Tick player status effects (start of player's new turn)
+        int playerPoisonDmg = playerStatus.processPoison();
+        if (playerPoisonDmg > 0) {
+            playerHealth = std::max(0, playerHealth - playerPoisonDmg);
+            std::cout << Color::POISON_CLR << "Poison:" << Color::RESET
+                      << " you take " << Color::DAMAGE << playerPoisonDmg << Color::RESET
+                      << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
+                      << playerHealth << Color::RESET << ")\n";
+            UIHelper::pause(250);
+        }
+        int playerBurnDmg = playerStatus.processBurn();
+        if (playerBurnDmg > 0) {
+            playerHealth = std::max(0, playerHealth - playerBurnDmg);
+            std::cout << Color::BURN_CLR << "Burn:" << Color::RESET
+                      << " you take " << Color::DAMAGE << playerBurnDmg << Color::RESET
+                      << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
+                      << playerHealth << Color::RESET << ")\n";
+            UIHelper::pause(250);
+        }
+        // WEAK/STRENGTH tick at end of player turn (after all attacks are resolved)
+        playerStatus.processWeak();
+        playerStatus.processStrength();
+
+        // Discard remaining hand cards and draw a fresh hand for next turn
+        playerDeck.resetDeck();
+        int drawCount = 5 + upgrades.getDrawBonus();
+        for (int i = 0; i < drawCount; ++i) {
+            try { playerDeck.drawCard(); } catch (...) { break; }
+        }
+
+        if (playerHealth <= 0 || !enemy.isAlive()) { playerTurnActive = true; return; }
+
+        playerStunned = playerStatus.processStun();
+        if (playerStunned) {
+            UIHelper::typeWrite(std::string(Color::STUN_CLR) + "You are STUNNED and lose your turn!" + Color::RESET + "\n");
+            UIHelper::pause(400);
+        }
+    } while (playerStunned);
+
     playerTurnActive = true;
-    resetEnergy();
-
-    // Tick player status effects (start of player's new turn)
-    int playerPoisonDmg = playerStatus.processPoison();
-    if (playerPoisonDmg > 0) {
-        playerHealth = std::max(0, playerHealth - playerPoisonDmg);
-        std::cout << Color::POISON_CLR << "Poison:" << Color::RESET
-                  << " you take " << Color::DAMAGE << playerPoisonDmg << Color::RESET
-                  << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
-                  << playerHealth << Color::RESET << ")\n";
-        UIHelper::pause(250);
-    }
-    int playerBurnDmg = playerStatus.processBurn();
-    if (playerBurnDmg > 0) {
-        playerHealth = std::max(0, playerHealth - playerBurnDmg);
-        std::cout << Color::BURN_CLR << "Burn:" << Color::RESET
-                  << " you take " << Color::DAMAGE << playerBurnDmg << Color::RESET
-                  << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
-                  << playerHealth << Color::RESET << ")\n";
-        UIHelper::pause(250);
-    }
-    // WEAK/STRENGTH tick at end of player turn (after all attacks are resolved)
-    playerStatus.processWeak();
-    playerStatus.processStrength();
-
-    // Discard remaining hand cards and draw a fresh hand for next turn
-    playerDeck.resetDeck();
-    int drawCount = 5 + upgrades.getDrawBonus();
-    for (int i = 0; i < drawCount; ++i) {
-        try { playerDeck.drawCard(); } catch (...) { break; }
-    }
-
     UIHelper::pause(800);
     // handleInput() will clear and redraw the full state for the new turn
 }
@@ -777,7 +803,7 @@ Enemy Game::generateBossEnemy() {
             btype = BossType::VILE_WITCH;
             break;
         case 2:
-            name  = "Warlord";
+            name  = "Thunder Beast";
             etype = EnemyType::MELEE;
             btype = BossType::WARLORD;
             break;
@@ -928,19 +954,25 @@ void Game::bossAction() {
             break;
 
         case BossType::WARLORD:
-            if (roll < 15) {
+            if (roll < 12) {
+                playerStatus.apply(StatusType::STUN, 1);
+                Audio::playSFX("volt");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast unleashes a THUNDERSTRIKE!" + Color::RESET
+                    + " You are " + Color::STUN_CLR + "STUNNED" + Color::RESET + "!\n");
+                UIHelper::pause(350);
+            } else if (roll < 27) {
                 playerStatus.apply(StatusType::WEAK, 3);
                 Audio::playSFX("special");
-                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Warlord roars a BATTLECRY!" + Color::RESET
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast roars a BATTLECRY!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             }
-            UIHelper::typeWrite(std::string(Color::MAGENTA) + "Warlord attacks!" + Color::RESET + "\n");
+            UIHelper::typeWrite(std::string(Color::MAGENTA) + "Thunder Beast attacks!" + Color::RESET + "\n");
             UIHelper::pause(200);
             doAttack(atk, false);
             if (enemy.getBonusAttack() < 6) {
                 enemy.addBonusAttack(1);
-                std::cout << Color::MAGENTA << "Warlord grows stronger!" << Color::RESET
+                std::cout << Color::MAGENTA << "Thunder Beast grows stronger!" << Color::RESET
                           << " (total bonus +" << Color::RED << enemy.getBonusAttack() << Color::RESET << " attack)\n";
                 UIHelper::pause(200);
             }
