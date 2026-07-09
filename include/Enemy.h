@@ -39,12 +39,16 @@ public:
     void resetArmor();
 
     // Status effect interface
-    void applyStatus(StatusType type, int amount);
+    void applyStatus(StatusType type, int amount, double weakMultiplier = 1.5);
     int  processPoison();
     int  processBurn();
     bool processStun();
-    int  getWeakPenalty() const;
+    double getWeakMultiplier() const;
     void processWeak();
+
+    // Attempts to stun this enemy for 1 turn. Bosses resist 50% of the time
+    // (returns false and applies nothing when resisted).
+    bool tryApplyStun();
     void displayStatusEffects(const std::string& prefix) const;
     std::string statusSummary() const;
 

@@ -36,6 +36,7 @@ private:
     bool parryActive;
     int  counterBonusValue; // Dodge's current value - added as flat bonus riposte damage
     int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
+    bool statusWardActive = false; // Status Guard: blocks the next ailment the enemy inflicts on the player
 
     // Set by playCardFromHand() every time a card is played, so callers (the tutorial)
     // can tell what was just played even if that same handleInput() call also auto-ended
@@ -51,6 +52,7 @@ private:
     void resetEnergy();
     void playCardFromHand(int index);
     void applyCardEffect(const Card& card);
+    void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward, if active
     void enemyTurn();
     void endPlayerTurn();
     void resetArmor();

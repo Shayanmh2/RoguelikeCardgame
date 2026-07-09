@@ -1,9 +1,10 @@
 #include "Card.h"
 #include <vector>
+#include <sstream>
 
 Card::Card(std::string n, std::string desc, CardType t, int c, int v, CardEffect e, bool isRare,
-           DamageType physT, DamageType elemT, bool isSuperRare, DamageType physT2, bool isLegendary)
-    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(0), rare(isRare),
+           DamageType physT, DamageType elemT, bool isSuperRare, DamageType physT2, bool isLegendary, int savedUpgradeCount)
+    : name(n), description(desc), type(t), effect(e), cost(c), value(v), upgradeCount(savedUpgradeCount), rare(isRare),
       superRare(isSuperRare), legendary(isLegendary), physType(physT), physType2(physT2), elemType(elemT) {}
 
 std::string Card::getName() const {
@@ -94,6 +95,13 @@ std::string Card::getBaseName() const {
 }
 
 int Card::getMaxUpgrades() const {
+    // Weaken/Stun cards aren't upgradable at all - Weak's duration is already
+    // generous, and Stun is fixed at 1 turn regardless of value, so there'd be
+    // nothing upgrading them actually improves. Same logic for a pure-buff
+    // SPECIAL Strength card (its multiplier is fixed by rarity, not value) -
+    // but NOT for an ATTACK card like Bloodlust, where value still raises damage.
+    if (effect == CardEffect::WEAK || effect == CardEffect::STUN || effect == CardEffect::TAUNT) return 0;
+    if (effect == CardEffect::STRENGTH && type == CardType::SPECIAL) return 0;
     // Starter caps at 1; common 3; rare 4; super rare/legendary 5
     if (isStarter()) return 1;
     if (legendary || superRare) return 5;
@@ -113,8 +121,12 @@ void Card::upgrade() {
             description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total)";
         else if (effect == CardEffect::PIERCE)
             description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense.";
-        else if (effect == CardEffect::STRENGTH)
-            description = "Deal " + std::to_string(value) + " damage. Gain +3 attack for 2 turns.";
+        else if (effect == CardEffect::STRENGTH) {
+            double buff = superRare ? 3.0 : rare ? 2.0 : 1.2;
+            std::ostringstream buffStr;
+            buffStr << buff;
+            description = "Deal " + std::to_string(value) + " damage. Gain x" + buffStr.str() + " damage for 2 turns.";
+        }
         else
             description = "Deal " + std::to_string(value) + " damage";
     } else if (type == CardType::DEFEND) {
@@ -124,14 +136,30 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor. 50% chance to Weaken the enemy.";
         else if (effect == CardEffect::CHIP)
             description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
+        else if (effect == CardEffect::WARD)
+            description = "Gain " + std::to_string(value) + " armor. Blocks the next ailment (Poison/Burn/Weak/Stun) the enemy inflicts on you.";
         else
             description = "Gain " + std::to_string(value) + " armor";
     } else if (type == CardType::SPECIAL) {
         if (effect == CardEffect::COUNTER)
-            description = "Counter: if the enemy attacks, hit back for double their damage +" + std::to_string(value)
-                        + ". Fizzles if they don't. Always fires before Parry.";
+            description = "Counter: reverses the enemy's next attack or ailment back at them, doubled, +" + std::to_string(value)
+                        + ". Fizzles if they do neither.";
         else if (effect == CardEffect::PARRY)
             description = "Parries the attack, then riposte for 1.5x damage.";
-        // other SPECIAL descriptions are left as-is (stack counts in wording, not raw value)
+        else if (effect == CardEffect::POISON)
+            description = "Apply " + std::to_string(value) + " Poison (" + std::to_string(value) + " dmg/turn for 3 turns).";
+        else if (effect == CardEffect::BURN)
+            description = "Apply " + std::to_string(value) + " Burn (" + std::to_string(value) + " dmg/turn for 3 turns).";
+        else if (effect == CardEffect::WEAK)
+            description = "Apply Weak for " + std::to_string(value) + " turns (deals 1.5x less damage).";
+        else if (effect == CardEffect::HEAL)
+            description = "Heal " + std::to_string(value) + " HP.";
+        else if (effect == CardEffect::STRENGTH) {
+            double buff = superRare ? 3.0 : rare ? 2.0 : 1.2;
+            std::ostringstream buffStr;
+            buffStr << buff;
+            description = "Gain x" + buffStr.str() + " damage for 2 turns.";
+        }
+        // STUN is left as-is - duration no longer scales with value, only cost drops
     }
 }

@@ -24,7 +24,9 @@ enum class CardEffect {
     DOUBLE_HIT, // ATTACK: hits twice, each hit using the card's value
     IMPAIR,     // DEFEND: 50% chance to Weaken the enemy on play
     CHIP,       // DEFEND: also deals a small flat amount of direct damage
-    HEAL        // SPECIAL: restores the card's value in HP
+    HEAL,       // SPECIAL: restores the card's value in HP
+    WARD,       // DEFEND: also blocks the next incoming ailment (Poison/Burn/Weak/Stun)
+    TAUNT       // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
 };
 
 class Card {
@@ -48,7 +50,7 @@ public:
          CardEffect e = CardEffect::NONE, bool isRare = false,
          DamageType physT = DamageType::NONE, DamageType elemT = DamageType::NONE,
          bool isSuperRare = false, DamageType physT2 = DamageType::NONE,
-         bool isLegendary = false);
+         bool isLegendary = false, int savedUpgradeCount = 0); // savedUpgradeCount: only set when restoring a card from a save file
 
     std::string getName() const;
     std::string getDescription() const;

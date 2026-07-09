@@ -255,7 +255,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
             if (isFooter[i] && optIdx >= 0 && optIdx < n) {
                 // Left-aligned action row - no column padding
                 if (optIdx == current)
-                    rendered = " \033[1;36m> " + options[optIdx] + "\033[0m";
+                    rendered = " " + std::string(Color::SELECT_CLR) + "> " + options[optIdx] + "\033[0m";
                 else if (dis)
                     rendered = "   \033[2m" + options[optIdx] + "\033[0m";
                 else
@@ -268,7 +268,7 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
 
                 if (optIdx >= 0 && optIdx < n) {
                     if (optIdx == current)
-                        rendered += " \033[1;36m> " + options[optIdx] + "\033[0m";
+                        rendered += " " + std::string(Color::SELECT_CLR) + "> " + options[optIdx] + "\033[0m";
                     else if (dis)
                         rendered += "   \033[2m" + options[optIdx] + "\033[0m";
                     else
@@ -350,7 +350,7 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
             std::cout << "\033[2K\r";
             std::string rendered;
             if (i == current) {
-                rendered = "\033[1;36m> " + options[i] + "\033[0m";
+                rendered = std::string(Color::SELECT_CLR) + "> " + options[i] + "\033[0m";
             } else if (isDisabled(i)) {
                 rendered = "  \033[2m" + options[i] + "\033[0m";
             } else {

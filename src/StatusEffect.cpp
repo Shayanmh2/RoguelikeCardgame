@@ -1,33 +1,65 @@
 #include "StatusEffect.h"
 #include "Colors.h"
 #include <iostream>
+#include <algorithm>
 
-StatusEffects::StatusEffects() : poison(0), burn(0), stun(0), weak(0), strength(0) {}
+// Fixed duration for poison/burn ticks - upgrades and rarity now scale the
+// per-turn damage (the amount passed to apply()) instead of how long it lasts.
+static const int DOT_BASE_DURATION = 3;
+static const int DOT_MAX_DURATION  = 10;
 
-void StatusEffects::apply(StatusType type, int amount) {
+// Weaken cards are likewise fixed at 3 turns regardless of rarity - only the
+// divisor (1.5x/1.75x/2x less damage) scales with rarity instead.
+static const int WEAK_DURATION = 3;
+
+StatusEffects::StatusEffects()
+    : poisonDmg(0), poisonTurns(0), burnDmg(0), burnTurns(0), stun(0),
+      weakTurns(0), weakMult(1.5), strengthTurns(0), strengthMult(1.2) {}
+
+void StatusEffects::apply(StatusType type, int amount, double weakMultiplier, double strengthMultiplier) {
     switch (type) {
-        case StatusType::POISON:   poison   += amount; break;
-        case StatusType::BURN:     burn     += amount; break;
-        case StatusType::STUN:     stun     += amount; break; // duration accumulates (each stun tick decrements by 1)
-        case StatusType::WEAK:     weak     += amount; break;
-        case StatusType::STRENGTH: strength += amount; break;
+        case StatusType::POISON:
+            poisonDmg += amount;
+            poisonTurns = std::min(DOT_MAX_DURATION, poisonTurns + DOT_BASE_DURATION);
+            break;
+        case StatusType::BURN:
+            burnDmg += amount;
+            burnTurns = std::min(DOT_MAX_DURATION, burnTurns + DOT_BASE_DURATION);
+            break;
+        case StatusType::STUN:
+            stun = 1; // always exactly 1 turn, never stacks
+            break;
+        case StatusType::WEAK:
+            // Reapplying keeps whichever is stronger rather than stacking - a
+            // fresh Weaken shouldn't water down an active Sunder, and vice versa.
+            weakMult  = (weakTurns > 0) ? std::max(weakMult, weakMultiplier) : weakMultiplier;
+            weakTurns = WEAK_DURATION;
+            break;
+        case StatusType::STRENGTH:
+            strengthMult = (strengthTurns > 0) ? std::max(strengthMult, strengthMultiplier) : strengthMultiplier;
+            strengthTurns += amount;
+            break;
     }
 }
 
 bool StatusEffects::hasAny() const {
-    return poison > 0 || burn > 0 || stun > 0 || weak > 0 || strength > 0;
+    return poisonTurns > 0 || burnTurns > 0 || stun > 0 || weakTurns > 0 || strengthTurns > 0;
 }
 
 int StatusEffects::processPoison() {
-    int dmg = poison;
-    if (poison > 0) poison--;
+    if (poisonTurns <= 0) return 0;
+    int dmg = poisonDmg;
+    poisonTurns--;
+    if (poisonTurns <= 0) poisonDmg = 0;
     return dmg;
 }
 
 int StatusEffects::processBurn() {
-    if (burn <= 0) return 0;
-    burn--;
-    return 5;
+    if (burnTurns <= 0) return 0;
+    int dmg = burnDmg;
+    burnTurns--;
+    if (burnTurns <= 0) burnDmg = 0;
+    return dmg;
 }
 
 bool StatusEffects::processStun() {
@@ -35,44 +67,46 @@ bool StatusEffects::processStun() {
     return false;
 }
 
-int StatusEffects::getWeakPenalty() const {
-    return (weak > 0) ? 2 : 0;
+double StatusEffects::getWeakMultiplier() const {
+    return (weakTurns > 0) ? (1.0 / weakMult) : 1.0;
 }
 
 void StatusEffects::processWeak() {
-    if (weak > 0) weak--;
+    if (weakTurns > 0) weakTurns--;
 }
 
-int StatusEffects::getStrengthBonus() const {
-    return (strength > 0) ? 3 : 0;
+double StatusEffects::getStrengthMultiplier() const {
+    return (strengthTurns > 0) ? strengthMult : 1.0;
 }
 
 void StatusEffects::processStrength() {
-    if (strength > 0) strength--;
+    if (strengthTurns > 0) strengthTurns--;
 }
 
 void StatusEffects::display(const std::string& prefix) const {
     if (!hasAny()) return;
     std::cout << prefix;
-    if (poison   > 0) std::cout << Color::POISON_CLR   << "[Poison "   << poison   << "]" << Color::RESET << " ";
-    if (burn     > 0) std::cout << Color::BURN_CLR     << "[Burn "     << burn     << "]" << Color::RESET << " ";
-    if (stun     > 0) std::cout << Color::STUN_CLR     << "[Stunned]"                     << Color::RESET << " ";
-    if (weak     > 0) std::cout << Color::WEAK_CLR     << "[Weak "     << weak     << "]" << Color::RESET << " ";
-    if (strength > 0) std::cout << Color::STRENGTH_CLR << "[Strength " << strength << "]" << Color::RESET << " ";
+    if (poisonTurns > 0) std::cout << Color::POISON_CLR   << "[Poison " << poisonDmg << "/turn x" << poisonTurns << "]" << Color::RESET << " ";
+    if (burnTurns   > 0) std::cout << Color::BURN_CLR     << "[Burn "   << burnDmg   << "/turn x" << burnTurns   << "]" << Color::RESET << " ";
+    if (stun        > 0) std::cout << Color::STUN_CLR     << "[Stunned]"                                          << Color::RESET << " ";
+    if (weakTurns   > 0) std::cout << Color::WEAK_CLR     << "[Weak " << weakMult << "x x" << weakTurns << "]"     << Color::RESET << " ";
+    if (strengthTurns > 0) std::cout << Color::STRENGTH_CLR << "[Strength " << strengthMult << "x x" << strengthTurns << "]" << Color::RESET << " ";
     std::cout << "\n";
 }
 
 std::string StatusEffects::summary() const {
     if (!hasAny()) return "";
     std::string s;
-    if (poison   > 0) s += std::string(" ") + Color::POISON_CLR   + "[Poison "   + std::to_string(poison)   + "]" + Color::RESET;
-    if (burn     > 0) s += std::string(" ") + Color::BURN_CLR     + "[Burn "     + std::to_string(burn)     + "]" + Color::RESET;
-    if (stun     > 0) s += std::string(" ") + Color::STUN_CLR     + "[Stunned]"                                  + Color::RESET;
-    if (weak     > 0) s += std::string(" ") + Color::WEAK_CLR     + "[Weak "     + std::to_string(weak)     + "]" + Color::RESET;
-    if (strength > 0) s += std::string(" ") + Color::STRENGTH_CLR + "[Strength " + std::to_string(strength) + "]" + Color::RESET;
+    if (poisonTurns > 0) s += std::string(" ") + Color::POISON_CLR   + "[Poison " + std::to_string(poisonDmg) + "/turn x" + std::to_string(poisonTurns) + "]" + Color::RESET;
+    if (burnTurns   > 0) s += std::string(" ") + Color::BURN_CLR     + "[Burn "   + std::to_string(burnDmg)   + "/turn x" + std::to_string(burnTurns)   + "]" + Color::RESET;
+    if (stun        > 0) s += std::string(" ") + Color::STUN_CLR     + "[Stunned]"                                                                          + Color::RESET;
+    if (weakTurns   > 0) s += std::string(" ") + Color::WEAK_CLR     + "[Weak x" + std::to_string(weakTurns) + "]"                                          + Color::RESET;
+    if (strengthTurns > 0) s += std::string(" ") + Color::STRENGTH_CLR + "[Strength x" + std::to_string(strengthTurns) + "]"                                + Color::RESET;
     return s;
 }
 
 void StatusEffects::reset() {
-    poison = burn = stun = weak = strength = 0;
+    poisonDmg = poisonTurns = burnDmg = burnTurns = stun = weakTurns = strengthTurns = 0;
+    weakMult = 1.5;
+    strengthMult = 1.2;
 }

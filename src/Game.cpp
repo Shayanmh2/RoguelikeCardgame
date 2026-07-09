@@ -204,21 +204,26 @@ void Game::applyCardEffect(const Card& card) {
     switch (card.getEffect()) {
         case CardEffect::POISON:
             enemy.applyStatus(StatusType::POISON, val);
-            std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy!" << Color::RESET << "\n";
+            std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
             break;
         case CardEffect::BURN:
             enemy.applyStatus(StatusType::BURN, val);
-            std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! (5 dmg/turn for " << val << " turns)" << Color::RESET << "\n";
+            std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
             break;
         case CardEffect::STUN:
-            enemy.applyStatus(StatusType::STUN, val);
-            std::cout << "  " << Color::STUN_CLR << "Enemy is STUNNED - they'll lose their next " << val
-                       << (val == 1 ? " turn!" : " turns!") << Color::RESET << "\n";
+            if (enemy.tryApplyStun())
+                std::cout << "  " << Color::STUN_CLR << "Enemy is STUNNED - they'll lose their next turn!" << Color::RESET << "\n";
+            else
+                std::cout << "  " << Color::DIM << "The boss resists the stun!" << Color::RESET << "\n";
             break;
-        case CardEffect::WEAK:
-            enemy.applyStatus(StatusType::WEAK, val);
-            std::cout << "  " << Color::WEAK_CLR << "Applied Weak " << val << " to enemy! (-2 attack for " << val << " turns)" << Color::RESET << "\n";
+        case CardEffect::WEAK: {
+            // Multiplier scales with rarity instead of value (duration is fixed at
+            // 3 turns regardless): Uncommon 1.5x, Rare 1.75x, Super Rare 2x.
+            double weakMult = card.isSuperRare() ? 2.0 : card.isRare() ? 1.75 : 1.5;
+            enemy.applyStatus(StatusType::WEAK, 3, weakMult);
+            std::cout << "  " << Color::WEAK_CLR << "Applied Weak to enemy for 3 turns! (deals " << weakMult << "x less damage)" << Color::RESET << "\n";
             break;
+        }
         case CardEffect::COUNTER:
             counterAttackActive = true;
             counterBonusValue = val;
@@ -238,9 +243,42 @@ void Game::applyCardEffect(const Card& card) {
                       << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
             break;
         }
+        case CardEffect::STRENGTH: {
+            // Same rarity scaling as Bloodlust's inline version (Uncommon 1.2x, Rare 2x,
+            // Super Rare 3x) - this path is for pure-buff SPECIAL cards like Strengthen.
+            double buff = card.isSuperRare() ? 3.0 : card.isRare() ? 2.0 : 1.2;
+            playerStatus.apply(StatusType::STRENGTH, 2, 1.5, buff);
+            std::cout << "  " << Color::STRENGTH_CLR << "Strength surges - x" << buff << " damage for 2 turns!" << Color::RESET << "\n";
+            break;
+        }
         default:
             break;
     }
+}
+
+// Ailments the enemy inflicts on the player go through here instead of straight to
+// playerStatus.apply() so Dodge/Status Guard can intercept. STRENGTH is the
+// player's own self-buff, never routed through here, so it's not interceptable.
+void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier) {
+    // Dodge is the ultimate stance: it reverses ANY player-targeted effect, not
+    // just direct attacks (that part is handled in doAttack()). The reversed
+    // effect hits the enemy at double strength, plus Dodge's own bonus on top -
+    // e.g. a 4-dmg Poison becomes an 8-dmg-plus-bonus Poison on the enemy instead.
+    if (counterAttackActive) {
+        counterAttackActive = false;
+        int reflectedAmount = amount * 2 + counterBonusValue;
+        enemy.applyStatus(type, reflectedAmount, weakMultiplier);
+        Audio::playSFX("special");
+        std::cout << "  " << Color::GREEN << "Dodge! You reverse the effect back onto the enemy - doubled, +"
+                  << counterBonusValue << "!" << Color::RESET << "\n";
+        return;
+    }
+    if (statusWardActive) {
+        statusWardActive = false;
+        std::cout << "  " << Color::CYAN << "Status Guard blocks the ailment!" << Color::RESET << "\n";
+        return;
+    }
+    playerStatus.apply(type, amount, weakMultiplier);
 }
 
 void Game::playCardFromHand(int index) {
@@ -266,8 +304,8 @@ void Game::playCardFromHand(int index) {
             bool pierce         = (playedCard.getEffect() == CardEffect::PIERCE);
             bool doubleHit      = (playedCard.getEffect() == CardEffect::DOUBLE_HIT);
             int  hits           = doubleHit ? 2 : 1;
-            int  weakPenalty    = playerStatus.getWeakPenalty();
-            int  strengthBonus  = playerStatus.getStrengthBonus();
+            double weakMult     = playerStatus.getWeakMultiplier();
+            double strengthMult = playerStatus.getStrengthMultiplier();
 
             DamageType weakness = enemy.getWeakness();
             bool hitsWeakness = weakness != DamageType::NONE &&
@@ -279,7 +317,8 @@ void Game::playCardFromHand(int index) {
                                    || playedCard.getElemType() == resistance);
 
             for (int hitNum = 1; hitNum <= hits && enemy.isAlive(); hitNum++) {
-                int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus + strengthBonus - weakPenalty);
+                int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus);
+                bonusDamage = (int)(bonusDamage * weakMult * strengthMult);
                 if (hitsWeakness) bonusDamage = (int)(bonusDamage * 1.5);
                 if (hitsResistance) bonusDamage = (int)(bonusDamage * 0.5);
                 int defenseValue = pierce ? 0 : enemy.getBaseDefense();
@@ -299,10 +338,10 @@ void Game::playCardFromHand(int index) {
                     std::cout << " " << Color::YELLOW << "[Weakness! x1.5]" << Color::RESET;
                 if (hitsResistance)
                     std::cout << " " << Color::DIM << "[Resisted x0.5]" << Color::RESET;
-                if (weakPenalty > 0)
-                    std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
-                if (strengthBonus > 0)
-                    std::cout << " " << Color::STRENGTH_CLR << "[Strength +" << strengthBonus << "]" << Color::RESET;
+                if (weakMult < 1.0)
+                    std::cout << " " << Color::WEAK_CLR << "[Weakened]" << Color::RESET;
+                if (strengthMult > 1.0)
+                    std::cout << " " << Color::STRENGTH_CLR << "[Strength x" << strengthMult << "]" << Color::RESET;
                 if (pierce)
                     std::cout << " " << Color::MAGENTA << "[Armor-Piercing]" << Color::RESET;
                 if (armorBlocked > 0)
@@ -313,8 +352,11 @@ void Game::playCardFromHand(int index) {
             }
 
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
-                playerStatus.apply(StatusType::STRENGTH, 2);
-                std::cout << "  " << Color::STRENGTH_CLR << "Bloodlust surges - +3 attack for 2 turns!" << Color::RESET << "\n";
+                // Scales with rarity, same idea as Weaken/Shatter/Sunder: Uncommon 1.2x,
+                // Rare 2x, Super Rare 3x (only Strengthen and Bloodlust use this today).
+                double strengthBuff = playedCard.isSuperRare() ? 3.0 : playedCard.isRare() ? 2.0 : 1.2;
+                playerStatus.apply(StatusType::STRENGTH, 2, 1.5, strengthBuff);
+                std::cout << "  " << Color::STRENGTH_CLR << "Strength surges - x" << strengthBuff << " damage for 2 turns!" << Color::RESET << "\n";
             }
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus() + equipArmorBonus;
@@ -348,6 +390,10 @@ void Game::playCardFromHand(int index) {
                           << Color::RESET << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
             }
+            if (playedCard.getEffect() == CardEffect::WARD) {
+                statusWardActive = true;
+                std::cout << "  " << Color::CYAN << "Warded! The next ailment the enemy inflicts on you will be blocked." << Color::RESET << "\n";
+            }
         } else if (playedCard.getType() == CardType::SPECIAL) {
             Audio::playSFX(effectSoundName(playedCard.getEffect()));
             applyCardEffect(playedCard);
@@ -362,9 +408,18 @@ void Game::playCardFromHand(int index) {
 void Game::enemyTurn() {
     if (!enemy.isAlive()) return;
 
-    // Tick enemy status effects at the start of their turn
+    // Wipe armor from 2 turns ago (i.e. left over from the enemy's own last turn) - not
+    // from this one. A Defend action below can grant fresh armor that then survives
+    // through the player's entire next turn, which is the whole point of Defending.
+    enemy.resetArmor();
+
+    // Tick enemy status effects at the start of their turn. Poison/Burn are
+    // elemental (Poison/Fire respectively), so they get the same weakness (+50%)
+    // and resistance (-50%) treatment as a matching-tagged attack card would.
     int poisonDmg = enemy.processPoison();
     if (poisonDmg > 0) {
+        if (enemy.getWeakness()   == DamageType::POISON) poisonDmg = (int)(poisonDmg * 1.5);
+        if (enemy.getResistance() == DamageType::POISON) poisonDmg = (int)(poisonDmg * 0.5);
         enemy.takeDamageRaw(poisonDmg);
         std::cout << Color::POISON_CLR << "Poison:" << Color::RESET
                   << " enemy takes " << Color::PLAYER_ATTACK << poisonDmg << Color::RESET << " damage! ("
@@ -375,6 +430,8 @@ void Game::enemyTurn() {
     }
     int burnDmg = enemy.processBurn();
     if (burnDmg > 0) {
+        if (enemy.getWeakness()   == DamageType::FIRE) burnDmg = (int)(burnDmg * 1.5);
+        if (enemy.getResistance() == DamageType::FIRE) burnDmg = (int)(burnDmg * 0.5);
         enemy.takeDamageRaw(burnDmg);
         std::cout << Color::BURN_CLR << "Burn:" << Color::RESET
                   << " enemy takes " << Color::PLAYER_ATTACK << burnDmg << Color::RESET << " damage! ("
@@ -401,11 +458,11 @@ void Game::enemyTurn() {
     int roll = rollDist(gen);
 
     // Apply WEAK penalty to attack, then tick it
-    int weakPenalty = enemy.getWeakPenalty();
+    double weakMult = enemy.getWeakMultiplier();
     enemy.processWeak();
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
-        atk = std::max(0, atk - weakPenalty);
+        atk = (int)(atk * weakMult);
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -421,7 +478,7 @@ void Game::enemyTurn() {
             return;
         }
         if (parryActive) {
-            int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
+            int parryCap = playerArmor + parryBonusValue * 3; // current armor + Parry's own bonus - stack armor first to parry bigger hits
             parryActive = false;
             if (atk <= parryCap) {
                 // Regular Ranged enemies attack from a distance - you can still block
@@ -439,10 +496,10 @@ void Game::enemyTurn() {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
-                enemy.applyStatus(StatusType::STUN, 1);
+                bool stunned = enemy.tryApplyStun();
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
-                          << " damage! Enemy is stunned!" << Color::RESET
+                          << " damage!" << (stunned ? " Enemy is stunned!" : " Boss resists the stun!") << Color::RESET
                           << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(300);
@@ -461,8 +518,8 @@ void Game::enemyTurn() {
         if (playerHealth < 0) playerHealth = 0;
         Audio::playSFX("hit");
         std::cout << Color::DAMAGE << "Enemy attacks for " << actualDamage << " damage!" << Color::RESET;
-        if (weakPenalty > 0)
-            std::cout << " " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET;
+        if (weakMult < 1.0)
+            std::cout << " " << Color::WEAK_CLR << "[Weakened]" << Color::RESET;
         std::cout << "  HP: " << hpColor(playerHealth, maxPlayerHealth)
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         UIHelper::pause(200);
@@ -496,7 +553,7 @@ void Game::enemyTurn() {
             } else if (roll < 80) {
                 doDefend(std::max(1, def - 1));
             } else {
-                playerStatus.apply(StatusType::WEAK, 2);
+                applyPlayerStatus(StatusType::WEAK, 2);
                 Audio::playSFX("special");
                 std::cout << Color::WEAK_CLR << "Enemy fires a crippling shot! You are Weakened for 2 turns." << Color::RESET << "\n";
             }
@@ -512,11 +569,11 @@ void Game::enemyTurn() {
                 std::cout << "Enemy casts heal and recovers " << healAmt << " HP! ("
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
             } else if (roll < 40) {
-                playerStatus.apply(StatusType::POISON, 3);
+                applyPlayerStatus(StatusType::POISON, 3);
                 Audio::playSFX("poison");
                 std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! You are poisoned for 3 stacks." << Color::RESET << "\n";
             } else if (roll < 60) {
-                playerStatus.apply(StatusType::BURN, 2);
+                applyPlayerStatus(StatusType::BURN, 2);
                 Audio::playSFX("fire");
                 std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
             } else {
@@ -527,7 +584,7 @@ void Game::enemyTurn() {
             if (roll < 60) {
                 doAttack(atk, false);
             } else if (roll < 85) {
-                playerStatus.apply(StatusType::POISON, 3);
+                applyPlayerStatus(StatusType::POISON, 3);
                 Audio::playSFX("poison");
                 std::cout << Color::POISON_CLR << "Enemy sinks its fangs in - venomous bite! You are poisoned for 3 stacks." << Color::RESET << "\n";
             } else {
@@ -538,7 +595,7 @@ void Game::enemyTurn() {
             if (roll < 75) {
                 doAttack(atk, false);
             } else {
-                playerStatus.apply(StatusType::WEAK, 2);
+                applyPlayerStatus(StatusType::WEAK, 2);
                 Audio::playSFX("special");
                 std::cout << Color::WEAK_CLR << "Enemy's chilling touch saps your strength! Weakened for 2 turns." << Color::RESET << "\n";
             }
@@ -556,13 +613,14 @@ void Game::displayTurnInfo() const {
 }
 
 void Game::resetArmor() {
-    // Fortified armor lasts until its timer runs out or it's broken; the rest wipes each turn
+    // Fortified armor lasts until its timer runs out or it's broken; the rest wipes each turn.
+    // Enemy armor is handled separately (see enemyTurn()) - it needs to survive one turn
+    // longer than this, or a Defend action would never actually block anything.
     if (playerArmorPersistTurns > 0) {
         playerArmorPersistTurns--;
     } else {
         playerArmor = 0;
     }
-    enemy.resetArmor();
 }
 
 void Game::endPlayerTurn() {
@@ -699,7 +757,8 @@ void Game::handleInput() {
     int handCount = playerDeck.handSize();
     int dmgBonus  = upgrades.getDamageBonus() + equipDamageBonus;
     int armBonus  = upgrades.getArmorBonus()  + equipArmorBonus;
-    int weakPen   = playerStatus.getWeakPenalty();
+    double weakMult = playerStatus.getWeakMultiplier();
+    double strengthMult = playerStatus.getStrengthMultiplier();
 
     // Build hand lines + option index mapping for the side-by-side display
     std::vector<std::string> leftLines;
@@ -725,7 +784,7 @@ void Game::handleInput() {
         } else {
             const Card& c = playerDeck.getCardFromHand(i);
             int dispVal = c.getValue();
-            if      (c.getType() == CardType::ATTACK) dispVal = std::max(0, dispVal + dmgBonus - weakPen);
+            if      (c.getType() == CardType::ATTACK) dispVal = (int)(std::max(0, dispVal + dmgBonus) * weakMult * strengthMult);
             else if (c.getType() == CardType::DEFEND) dispVal = dispVal + armBonus;
 
             const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
@@ -842,9 +901,9 @@ void Game::bossAction() {
     std::uniform_int_distribution<> rollDist(0, 99);
     int roll = rollDist(gen);
 
-    int weakPenalty = enemy.getWeakPenalty();
+    double weakMult = enemy.getWeakMultiplier();
     enemy.processWeak();
-    int atk = std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack() - weakPenalty);
+    int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
     auto doAttack = [&](int damage, bool raw) {
         // Dodge fires before Parry when both are active (uncapped, higher priority)
@@ -862,17 +921,17 @@ void Game::bossAction() {
             return;
         }
         if (parryActive) {
-            int parryCap = parryBonusValue * 3; // upgrading Parry raises both riposte bonus and this cap
+            int parryCap = playerArmor + parryBonusValue * 3; // current armor + Parry's own bonus - stack armor first to parry bigger hits
             parryActive = false;
             if (damage <= parryCap) {
                 int riposteDmg = (int)(damage * 1.5) + parryBonusValue;
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
-                enemy.applyStatus(StatusType::STUN, 1);
+                bool stunned = enemy.tryApplyStun();
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
-                          << " damage! Boss is stunned!" << Color::RESET
+                          << " damage!" << (stunned ? " Boss is stunned!" : " Boss resists the stun!") << Color::RESET
                           << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(300);
@@ -899,8 +958,8 @@ void Game::bossAction() {
                       << " HP: " << hpColor(playerHealth, maxPlayerHealth)
                       << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         }
-        if (weakPenalty > 0)
-            std::cout << "  " << Color::WEAK_CLR << "[Weakened -" << weakPenalty << "]" << Color::RESET << "\n";
+        if (weakMult < 1.0)
+            std::cout << "  " << Color::WEAK_CLR << "[Weakened]" << Color::RESET << "\n";
         UIHelper::pause(350);
     };
 
@@ -929,8 +988,8 @@ void Game::bossAction() {
                 UIHelper::pause(200);
                 doAttack(atk, false);
             } else if (roll < 70) {
-                playerStatus.apply(StatusType::POISON, 4);
-                playerStatus.apply(StatusType::BURN, 2);
+                applyPlayerStatus(StatusType::POISON, 4);
+                applyPlayerStatus(StatusType::BURN, 2);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts PLAGUE!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 4" + Color::RESET
@@ -945,7 +1004,7 @@ void Game::bossAction() {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(250);
             } else {
-                playerStatus.apply(StatusType::POISON, 6);
+                applyPlayerStatus(StatusType::POISON, 6);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 6" + Color::RESET + "!\n");
@@ -955,13 +1014,13 @@ void Game::bossAction() {
 
         case BossType::WARLORD:
             if (roll < 12) {
-                playerStatus.apply(StatusType::STUN, 1);
+                applyPlayerStatus(StatusType::STUN, 1);
                 Audio::playSFX("volt");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast unleashes a THUNDERSTRIKE!" + Color::RESET
                     + " You are " + Color::STUN_CLR + "STUNNED" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 27) {
-                playerStatus.apply(StatusType::WEAK, 3);
+                applyPlayerStatus(StatusType::WEAK, 3);
                 Audio::playSFX("special");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast roars a BATTLECRY!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
@@ -988,7 +1047,7 @@ void Game::bossAction() {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(250);
             } else if (roll < 50) {
-                playerStatus.apply(StatusType::POISON, 5);
+                applyPlayerStatus(StatusType::POISON, 5);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Hydra sinks its fangs in - VENOMOUS BITE!" + Color::RESET
                     + " You gain " + Color::POISON_CLR + "Poison 5" + Color::RESET + "!\n");
@@ -1007,13 +1066,13 @@ void Game::bossAction() {
 
         case BossType::DRAGON:
             if (roll < 20) {
-                playerStatus.apply(StatusType::BURN, 4);
+                applyPlayerStatus(StatusType::BURN, 4);
                 Audio::playSFX("fire");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon unleashes FIRE BREATH!" + Color::RESET
                     + " You gain " + Color::BURN_CLR + "Burn 4" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 45) {
-                playerStatus.apply(StatusType::WEAK, 3);
+                applyPlayerStatus(StatusType::WEAK, 3);
                 Audio::playSFX("special");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon's WING BUFFET knocks you off balance!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
@@ -1625,7 +1684,7 @@ void Game::showHowToPlay() {
               << "     damage over time, ticks down each turn\n";
     std::cout << "  " << Color::STUN_CLR << "Stun" << Color::RESET << "          skip the target's next turn entirely\n";
     std::cout << "  " << Color::WEAK_CLR << "Weak" << Color::RESET << "          -2 attack for a number of turns\n";
-    std::cout << "  " << Color::STRENGTH_CLR << "Strength" << Color::RESET << "      +3 attack for a number of turns (buff)\n\n";
+    std::cout << "  " << Color::STRENGTH_CLR << "Strength" << Color::RESET << "      damage dealt is multiplied for a number of turns (buff)\n\n";
 
     std::cout << Color::BOLD << "CARD RARITY" << Color::RESET << "\n";
     std::cout << "  Common (starter) < " << Color::COMMON_TINT << "Uncommon" << Color::RESET << " < "

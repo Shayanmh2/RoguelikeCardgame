@@ -1,6 +1,7 @@
 #include "Enemy.h"
 #include <iostream>
 #include <vector>
+#include <random>
 
 Enemy::Enemy(std::string n, int hp, int atk, int def, EnemyType t)
     : name(n), health(hp), maxHealth(hp), baseAttack(atk), baseDefense(def),
@@ -67,14 +68,24 @@ void     Enemy::setBossType(BossType bt) { bossType = bt; }
 int      Enemy::getBonusAttack()  const { return bonusAttack; }
 void     Enemy::addBonusAttack(int a)   { bonusAttack += a; }
 
-void Enemy::applyStatus(StatusType type, int amount) { statusEffects.apply(type, amount); }
+void Enemy::applyStatus(StatusType type, int amount, double weakMultiplier) { statusEffects.apply(type, amount, weakMultiplier); }
 int  Enemy::processPoison()  { return statusEffects.processPoison(); }
 int  Enemy::processBurn()    { return statusEffects.processBurn(); }
 bool Enemy::processStun()    { return statusEffects.processStun(); }
-int  Enemy::getWeakPenalty() const { return statusEffects.getWeakPenalty(); }
+double Enemy::getWeakMultiplier() const { return statusEffects.getWeakMultiplier(); }
 void Enemy::processWeak()    { statusEffects.processWeak(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
 std::string Enemy::statusSummary() const { return statusEffects.summary(); }
+
+bool Enemy::tryApplyStun() {
+    if (isBoss()) {
+        static thread_local std::mt19937 gen(std::random_device{}());
+        std::uniform_int_distribution<> dist(0, 99);
+        if (dist(gen) < 50) return false; // resisted
+    }
+    statusEffects.apply(StatusType::STUN, 1);
+    return true;
+}
 
 bool Enemy::isAlive() const {
     return health > 0;

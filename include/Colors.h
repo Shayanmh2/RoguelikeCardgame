@@ -57,6 +57,10 @@ namespace Color {
     // neon gold, so Dodge (the only legendary card) visually stands out rather
     // than just being another pastel.
     constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
+
+    // Menu selection cursor - was bold cyan, which blends into a dark terminal.
+    // Bold neon lime instead, so the highlighted row actually pops.
+    constexpr const char* SELECT_CLR = "\033[1m\033[38;5;118m";
 }
 
 // Returns an ANSI color for an HP value relative to its maximum
