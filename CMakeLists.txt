@@ -21,6 +21,7 @@ add_executable(cardgame
     src/UpgradeSystem.cpp
     src/ConfigLoader.cpp
     src/UIHelper.cpp
+    src/EnemyArt.cpp
 )
 
 # Link Windows Multimedia API for BGM playback (winmm.lib).

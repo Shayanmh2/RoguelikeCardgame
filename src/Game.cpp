@@ -2,6 +2,7 @@
 #include "Audio.h"
 #include "Colors.h"
 #include "UIHelper.h"
+#include "EnemyArt.h"
 #include <algorithm>
 #include <iostream>
 #include <random>
@@ -92,6 +93,8 @@ void Game::displayStatus() const {
 void Game::displayEnemyInfo() const {
     int atk = enemy.getBaseAttack();
     int def = enemy.getBaseDefense(); // used below for move-estimate formulas, not the live display
+
+    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
 
     std::cout << "\n" << Color::BOLD << Color::RED << enemy.getName() << Color::RESET << "\n";
     std::cout << "  HP:  " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -326,6 +329,7 @@ void Game::playCardFromHand(int index) {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(damageDealt);
                 int hpLost = hpBefore - enemy.getHealth();
+                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
                 int armorBlocked = damageDealt - hpLost;
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
                 std::cout << "  " << Color::PLAYER_ATTACK
@@ -463,6 +467,7 @@ void Game::enemyTurn() {
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
         atk = (int)(atk * weakMult);
+        EnemyArt::printLunge(EnemyArt::get(enemy.getType(), enemy.getBossType()));
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -470,6 +475,7 @@ void Game::enemyTurn() {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(counterDmg);
             int hpLost = hpBefore - enemy.getHealth();
+            if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
             Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
             std::cout << Color::GREEN << "Dodge! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
                       << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -496,6 +502,7 @@ void Game::enemyTurn() {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
+                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
                 bool stunned = enemy.tryApplyStun();
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
@@ -721,6 +728,8 @@ void Game::handleInput() {
 
     UIHelper::clearScreen();
 
+    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+
     // Compact 4-line header so the full turn fits on one screen
     std::string encLabel = currentRun.isBossEncounter()
         ? std::string(Color::BOLD) + Color::MAGENTA + "BOSS" + Color::RESET
@@ -906,6 +915,7 @@ void Game::bossAction() {
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
     auto doAttack = [&](int damage, bool raw) {
+        EnemyArt::printLunge(EnemyArt::get(enemy.getType(), enemy.getBossType()));
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -913,6 +923,7 @@ void Game::bossAction() {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(counterDmg);
             int hpLost = hpBefore - enemy.getHealth();
+            if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
             Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
             std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
                       << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -928,6 +939,7 @@ void Game::bossAction() {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
+                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
                 bool stunned = enemy.tryApplyStun();
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
@@ -1223,6 +1235,8 @@ void Game::startEncounter() {
                                        currentRun.getEncounterTier());
     }
 
+    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+
     displayStatus();
     displayTurnInfo();
     UIHelper::pause(600);
@@ -1453,6 +1467,7 @@ void Game::viewDeckManage() {
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
+    EnemyArt::printDeath(EnemyArt::get(enemy.getType(), enemy.getBossType()));
     Audio::playSFX("win");
     UIHelper::pause(300);
     UIHelper::clearScreen();
