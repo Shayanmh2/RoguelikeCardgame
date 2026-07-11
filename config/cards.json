@@ -16,8 +16,15 @@
       "value": 12
     },
     {
+      "name": "Smackdown",
+      "description": "Deal 9 damage.",
+      "type": "ATTACK",
+      "cost": 2,
+      "value": 9
+    },
+    {
       "name": "Poison Dart",
-      "description": "Apply 3 Poison stacks.",
+      "description": "Apply 3 Poison (3 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 1,
@@ -25,27 +32,19 @@
     },
     {
       "name": "Torch",
-      "description": "Apply 2 Burn (5 dmg x2 turns).",
+      "description": "Apply 5 Burn (5 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 1,
-      "value": 2
-    },
-    {
-      "name": "Stun Strike",
-      "description": "Stun enemy for 1 turn.",
-      "type": "SPECIAL",
-      "effect": "STUN",
-      "cost": 2,
-      "value": 1
+      "value": 5
     },
     {
       "name": "Weaken",
-      "description": "Apply 3 Weak (-2 atk x3 turns).",
+      "description": "Apply Weak for 3 turns (deals 1.5x less damage).",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 1,
-      "value": 3
+      "value": 1
     },
     {
       "name": "Gale Slash",
@@ -60,6 +59,47 @@
       "description": "Deal 6 damage.",
       "type": "ATTACK",
       "elemType": "FIRE",
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Venom Strike",
+      "description": "Deal 6 damage.",
+      "type": "ATTACK",
+      "elemType": "POISON",
+      "cost": 1,
+      "value": 6
+    },
+    {
+      "name": "Flare",
+      "description": "Deal 4 damage.",
+      "type": "ATTACK",
+      "elemType": "FIRE",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Dagger Throw",
+      "description": "Deal 4 damage.",
+      "type": "ATTACK",
+      "elemType": "WIND",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Sting",
+      "description": "Deal 4 damage.",
+      "type": "ATTACK",
+      "elemType": "POISON",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Whirlwind",
+      "description": "Deal 6 damage.",
+      "type": "ATTACK",
+      "physType": "PIERCE",
+      "elemType": "WIND",
       "cost": 1,
       "value": 6
     },
@@ -88,6 +128,13 @@
       "value": 11
     },
     {
+      "name": "Shield",
+      "description": "Gain 8 armor.",
+      "type": "DEFEND",
+      "cost": 1,
+      "value": 8
+    },
+    {
       "name": "Combo Strike",
       "description": "Deal 7 damage twice (14 total).",
       "type": "ATTACK",
@@ -102,6 +149,22 @@
       "effect": "HEAL",
       "cost": 1,
       "value": 15
+    },
+    {
+      "name": "Strengthen",
+      "description": "Gain x1.2 damage for 2 turns.",
+      "type": "SPECIAL",
+      "effect": "STRENGTH",
+      "cost": 1,
+      "value": 1
+    },
+    {
+      "name": "Taunt",
+      "description": "Taunt the enemy - they're much more likely to attack for their next 2 turns.",
+      "type": "SPECIAL",
+      "effect": "TAUNT",
+      "cost": 1,
+      "value": 1
     }
   ],
   "rareCards": [
@@ -111,15 +174,6 @@
       "type": "ATTACK",
       "cost": 3,
       "value": 19
-    },
-    {
-      "name": "Whirlwind",
-      "description": "Deal 12 damage.",
-      "type": "ATTACK",
-      "physType": "PIERCE",
-      "elemType": "WIND",
-      "cost": 2,
-      "value": 12
     },
     {
       "name": "Fortify",
@@ -133,9 +187,27 @@
       "name": "Cleave",
       "description": "Deal 18 damage.",
       "type": "ATTACK",
+      "physType": "PIERCE",
+      "cost": 3,
+      "value": 18
+    },
+    {
+      "name": "Body Slam",
+      "description": "Deal 18 damage.",
+      "type": "ATTACK",
       "physType": "SMASH",
       "cost": 3,
       "value": 18
+    },
+    {
+      "name": "Molten Hammer",
+      "description": "Deal 25 damage.",
+      "type": "ATTACK",
+      "physType": "SMASH",
+      "elemType": "FIRE",
+      "superRare": true,
+      "cost": 3,
+      "value": 25
     },
     {
       "name": "Guardian",
@@ -161,8 +233,16 @@
       "value": 7
     },
     {
+      "name": "Status Guard",
+      "description": "Gain 10 armor. Blocks the next ailment (Poison/Burn/Weak/Stun) the enemy inflicts on you.",
+      "type": "DEFEND",
+      "effect": "WARD",
+      "cost": 2,
+      "value": 10
+    },
+    {
       "name": "Toxic Cloud",
-      "description": "Apply 8 Poison stacks.",
+      "description": "Apply 8 Poison (8 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
@@ -170,27 +250,37 @@
     },
     {
       "name": "Inferno",
-      "description": "Apply 6 Burn (5 dmg x6 turns).",
+      "description": "Apply 8 Burn (8 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
-      "value": 6
+      "value": 8
     },
     {
-      "name": "Paralysis",
-      "description": "Stun enemy for 2 turns.",
+      "name": "Shatter",
+      "description": "Apply Weak for 3 turns (deals 1.75x less damage).",
       "type": "SPECIAL",
-      "effect": "STUN",
+      "effect": "WEAK",
       "cost": 2,
       "value": 2
     },
     {
-      "name": "Shatter",
-      "description": "Apply 7 Weak (-2 atk x7 turns).",
+      "name": "Stun Strike",
+      "description": "Stun enemy for 1 turn.",
       "type": "SPECIAL",
-      "effect": "WEAK",
+      "effect": "STUN",
+      "superRare": true,
+      "cost": 3,
+      "value": 1
+    },
+    {
+      "name": "Venomous Lance",
+      "description": "Deal 12 damage.",
+      "type": "ATTACK",
+      "physType": "PIERCE",
+      "elemType": "POISON",
       "cost": 2,
-      "value": 7
+      "value": 12
     },
     {
       "name": "Heal",
@@ -202,7 +292,7 @@
     },
     {
       "name": "Dodge",
-      "description": "Counter: if the enemy attacks, hit back for double their damage +6. Fizzles if they don't. Always fires before Parry.",
+      "description": "Counter: reverses the enemy's next attack or ailment back at them, doubled, +6. Fizzles if they do neither.",
       "type": "SPECIAL",
       "effect": "COUNTER",
       "legendary": true,
@@ -239,7 +329,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage. Gain +3 attack for 2 turns.",
+      "description": "Deal 13 damage. Gain x3 damage for 2 turns.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -258,7 +348,7 @@
     },
     {
       "name": "Virulent Plague",
-      "description": "Apply 14 Poison stacks.",
+      "description": "Apply 14 Poison (14 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "POISON",
       "superRare": true,
@@ -267,30 +357,21 @@
     },
     {
       "name": "Hellfire",
-      "description": "Apply 10 Burn (5 dmg x10 turns).",
+      "description": "Apply 12 Burn (12 dmg/turn for 3 turns).",
       "type": "SPECIAL",
       "effect": "BURN",
       "superRare": true,
       "cost": 3,
-      "value": 10
-    },
-    {
-      "name": "Lockdown",
-      "description": "Stun enemy for 4 turns.",
-      "type": "SPECIAL",
-      "effect": "STUN",
-      "superRare": true,
-      "cost": 3,
-      "value": 4
+      "value": 12
     },
     {
       "name": "Sunder",
-      "description": "Apply 12 Weak (-2 atk x12 turns).",
+      "description": "Apply Weak for 3 turns (deals 2x less damage).",
       "type": "SPECIAL",
       "effect": "WEAK",
       "superRare": true,
       "cost": 3,
-      "value": 12
+      "value": 3
     },
     {
       "name": "Great Heal",

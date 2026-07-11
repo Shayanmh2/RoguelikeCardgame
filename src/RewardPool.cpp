@@ -39,6 +39,8 @@ void RewardPool::initializeCardPool() {
         if (e == "IMPAIR")     return CardEffect::IMPAIR;
         if (e == "CHIP")       return CardEffect::CHIP;
         if (e == "HEAL")       return CardEffect::HEAL;
+        if (e == "WARD")       return CardEffect::WARD;
+        if (e == "TAUNT")      return CardEffect::TAUNT;
         return CardEffect::NONE;
     };
     auto toPhysType = [](const std::string& s) -> DamageType {
