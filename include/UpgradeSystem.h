@@ -32,7 +32,9 @@ public:
     // Check if upgrade is unlocked
     bool isUnlocked(int index) const;
     bool isActive(int index) const;
-    
+
+    void setUpgradeState(int index, bool unlocked, bool active); // restore from a save file
+
     void displayUpgradeInfo() const;
 };
 

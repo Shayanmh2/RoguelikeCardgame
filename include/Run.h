@@ -16,6 +16,7 @@ public:
     void nextEncounter();
     void winEncounter();
     void loseRun();
+    void loadState(int encounter, int won); // restore from a save file - jumps straight to the given progress
     
     int getCurrentEncounter() const;
     int getEncountersWon() const;

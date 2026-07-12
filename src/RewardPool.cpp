@@ -74,7 +74,7 @@ void RewardPool::initializeCardPool() {
 }
 
 
-std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames) {
+std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames, int maxRarityUnlocked) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -91,8 +91,8 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     for (const auto& c : commonCards) if (c.getCost() <= maxCost && owned.find(c.getName()) == owned.end()) uncommonPool.push_back(c);
     for (const auto& c : rareCards) {
         if (c.isLegendary() || c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
-        if (c.isSuperRare()) superRarePool.push_back(c);
-        else rarePool.push_back(c);
+        if (c.isSuperRare()) { if (maxRarityUnlocked >= 2) superRarePool.push_back(c); }
+        else { if (maxRarityUnlocked >= 1) rarePool.push_back(c); }
     }
 
     std::uniform_int_distribution<> rollDis(1, 100);

@@ -21,6 +21,12 @@ void Run::loseRun() {
     runActive = false;
 }
 
+void Run::loadState(int encounter, int won) {
+    currentEncounter = encounter;
+    encountersWon = won;
+    runActive = true;
+}
+
 int Run::getCurrentEncounter() const {
     return currentEncounter;
 }

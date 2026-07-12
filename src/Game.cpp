@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <iostream>
 #include <random>
+#include <fstream>
+#include <sstream>
+#include <filesystem>
 
 Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
 
@@ -27,6 +30,77 @@ static const char* rarityTint(const Card& c) {
     if (c.isSuperRare()) return Color::SUPER_RARE_TINT;
     if (c.isRare())      return Color::RARE_TINT;
     return Color::COMMON_TINT;
+}
+
+// String round-trips for the save file - mirrors the identifier names cards.json
+// already uses, kept separate from ConfigLoader's parsing since these need both directions.
+static const char* effectToStr(CardEffect e) {
+    switch (e) {
+        case CardEffect::POISON:     return "POISON";
+        case CardEffect::BURN:       return "BURN";
+        case CardEffect::STUN:       return "STUN";
+        case CardEffect::WEAK:       return "WEAK";
+        case CardEffect::COUNTER:    return "COUNTER";
+        case CardEffect::PARRY:      return "PARRY";
+        case CardEffect::PIERCE:     return "PIERCE";
+        case CardEffect::FORTIFY:    return "FORTIFY";
+        case CardEffect::STRENGTH:   return "STRENGTH";
+        case CardEffect::DOUBLE_HIT: return "DOUBLE_HIT";
+        case CardEffect::IMPAIR:     return "IMPAIR";
+        case CardEffect::CHIP:       return "CHIP";
+        case CardEffect::HEAL:       return "HEAL";
+        case CardEffect::WARD:       return "WARD";
+        case CardEffect::TAUNT:      return "TAUNT";
+        default:                     return "NONE";
+    }
+}
+static CardEffect strToEffect(const std::string& s) {
+    if (s == "POISON")     return CardEffect::POISON;
+    if (s == "BURN")       return CardEffect::BURN;
+    if (s == "STUN")       return CardEffect::STUN;
+    if (s == "WEAK")       return CardEffect::WEAK;
+    if (s == "COUNTER")    return CardEffect::COUNTER;
+    if (s == "PARRY")      return CardEffect::PARRY;
+    if (s == "PIERCE")     return CardEffect::PIERCE;
+    if (s == "FORTIFY")    return CardEffect::FORTIFY;
+    if (s == "STRENGTH")   return CardEffect::STRENGTH;
+    if (s == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
+    if (s == "IMPAIR")     return CardEffect::IMPAIR;
+    if (s == "CHIP")       return CardEffect::CHIP;
+    if (s == "HEAL")       return CardEffect::HEAL;
+    if (s == "WARD")       return CardEffect::WARD;
+    if (s == "TAUNT")      return CardEffect::TAUNT;
+    return CardEffect::NONE;
+}
+static const char* dmgToStr(DamageType t) {
+    switch (t) {
+        case DamageType::SMASH:  return "SMASH";
+        case DamageType::PIERCE: return "PIERCE";
+        case DamageType::FIRE:   return "FIRE";
+        case DamageType::POISON: return "POISON";
+        case DamageType::WIND:   return "WIND";
+        default:                 return "NONE";
+    }
+}
+static DamageType strToDmg(const std::string& s) {
+    if (s == "SMASH")  return DamageType::SMASH;
+    if (s == "PIERCE") return DamageType::PIERCE;
+    if (s == "FIRE")   return DamageType::FIRE;
+    if (s == "POISON") return DamageType::POISON;
+    if (s == "WIND")   return DamageType::WIND;
+    return DamageType::NONE;
+}
+static const char* cardTypeToStr(CardType t) {
+    switch (t) {
+        case CardType::ATTACK: return "ATTACK";
+        case CardType::DEFEND: return "DEFEND";
+        default:                return "SPECIAL";
+    }
+}
+static CardType strToCardType(const std::string& s) {
+    if (s == "ATTACK") return CardType::ATTACK;
+    if (s == "DEFEND") return CardType::DEFEND;
+    return CardType::SPECIAL;
 }
 
 struct EquipTier { std::string name; int bonus; };
@@ -719,6 +793,47 @@ bool Game::handleGameOverInput() {
     std::cout << "\n";
     int choice = UIHelper::menuSelect({"Play again", "Quit"});
     return (choice == 0);
+}
+
+bool Game::selectCardToCarryOver(Card& outCard) {
+    std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+    if (allCards.empty()) return false;
+
+    UIHelper::clearScreen();
+    std::cout << "\n" << Color::BOLD << Color::CYAN << "Starting over" << Color::RESET
+               << " - pick one card to carry into your new run:\n\n";
+
+    std::vector<std::string> leftLines;
+    std::vector<int>         optionIndices;
+    std::vector<std::string> options;
+
+    for (size_t i = 0; i < allCards.size(); i++) {
+        const Card& c = allCards[i];
+        const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                              : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                              : Color::CARD_SPECIAL;
+        const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                             : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+
+        leftLines.push_back(std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
+            + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
+            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET
+            + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET))
+            + "  cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
+        optionIndices.push_back((int)i);
+
+        options.push_back("Select Card " + std::to_string(i + 1));
+    }
+    options.push_back("Leave them all behind");
+
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 50);
+    if (choice < 0 || choice >= (int)allCards.size()) return false;
+
+    outCard = allCards[choice];
+    std::cout << "\n" << Color::GREEN << "You'll start your new run with " << outCard.getName() << "." << Color::RESET << "\n";
+    UIHelper::waitForKey();
+    return true;
 }
 
 void Game::handleInput() {
@@ -1479,6 +1594,7 @@ void Game::handleEncounterWin() {
         // First-ever Dragon kill (occurrence 4, cycle 0) closes out the boss rotation -
         // everything past this point is the same 5 bosses again, scaled up indefinitely.
         int occurrence = (currentRun.getCurrentEncounter() / 8) - 1;
+        int bossOccurrence = occurrence + 1; // 1-indexed count of bosses defeated so far, including this one
         if (enemy.getBossType() == BossType::DRAGON && occurrence / 5 == 0) {
             UIHelper::waitForKey();
             UIHelper::clearScreen();
@@ -1490,9 +1606,20 @@ void Game::handleEncounterWin() {
             UIHelper::waitForKey();
         }
 
+        // Announce the regular-reward rarity gate lifting - Legendary is never
+        // mentioned here, it stays a silent boss-reward-only rarity. Waits for a
+        // keypress instead of a timed pause - the next screen used to blow right
+        // past this before it could be read.
+        if (bossOccurrence == 1) {
+            std::cout << "\n" << Color::BOLD << Color::YELLOW << "(rare rarity cards have been unlocked)" << Color::RESET << "\n";
+            UIHelper::waitForKey();
+        } else if (bossOccurrence == 2) {
+            std::cout << "\n" << Color::BOLD << Color::YELLOW << "(super rare cards have been unlocked)" << Color::RESET << "\n";
+            UIHelper::waitForKey();
+        }
+
         offerBossReward();
         // Every 2nd boss defeated (occurrence 2, 4, 6...) also grants a shot at +1 max energy.
-        int bossOccurrence = currentRun.getCurrentEncounter() / 8;
         if (bossOccurrence % 2 == 0) offerExtraPlay();
     } else {
         offerCardReward();
@@ -1503,6 +1630,10 @@ void Game::handleEncounterWin() {
 
     restSite();
 
+    offerContinueOrEndRun();
+}
+
+void Game::offerContinueOrEndRun() {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::GREEN << "Round complete!" << Color::RESET << "\n\n";
     std::cout << "  Encounters cleared: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
@@ -1519,6 +1650,15 @@ void Game::handleEncounterWin() {
     if (choice == 0) {
         nextEncounter();
     } else {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::BOLD << Color::CYAN << "Save your progress before ending?" << Color::RESET << "\n";
+        std::cout << "  Resume later with " << Color::YELLOW << "Load Save" << Color::RESET
+                  << " on the main menu. Overwrites any existing save. If you die, the save is deleted.\n\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) == 0) {
+            saveGame();
+            std::cout << "\n" << Color::GREEN << "Progress saved!" << Color::RESET << "\n";
+            UIHelper::waitForKey();
+        }
         inEncounter = false;
         currentRun.loseRun();
     }
@@ -1527,7 +1667,11 @@ void Game::handleEncounterWin() {
 void Game::offerCardReward() {
     UIHelper::clearScreen();
     bool rarityBoost = upgrades.isActive(6);
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames());
+    // Regular-encounter rewards are gated by bosses defeated so far: Uncommon only
+    // until the 1st boss falls, +Rare after that, +Super Rare after the 2nd boss.
+    // Legendary (Dodge) is unaffected - it stays boss-reward-exclusive either way.
+    int maxRarityUnlocked = std::min(2, currentRun.getCurrentEncounter() / 8);
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames(), maxRarityUnlocked);
 
     if (rewards.empty()) {
         std::cout << "\n" << Color::DIM << "No new cards left to offer - you already own everything available at this cost."
@@ -1654,19 +1798,149 @@ void Game::displayRunStats() const {
     currentRun.displayRunStats();
 }
 
-bool Game::showMainMenu() {
+int Game::showMainMenu() {
     while (true) {
+        bool hasSave = saveExists();
         std::cout << "\n";
-        int choice = UIHelper::menuSelect({"Start Game", "How to Play", "Quit"});
-        if (choice == 0) return true;
-        if (choice == 1) {
+        std::vector<std::string> opts = {"Start Game"};
+        if (hasSave) opts.push_back("Load Save");
+        opts.push_back("How to Play");
+        opts.push_back("Quit");
+
+        int choice = UIHelper::menuSelect(opts);
+        if (choice == 0) return 0; // Start Game
+        if (hasSave && choice == 1) return 1; // Load Save
+
+        int howToPlayIdx = hasSave ? 2 : 1;
+        if (choice == howToPlayIdx) {
             showHowToPlay();
             UIHelper::clearScreen();
             UIHelper::printTitle();
             continue;
         }
-        return false; // Quit or ESC
+        return 2; // Quit or ESC
     }
+}
+
+std::string Game::savePath() const {
+    return Audio::exeDir() + "save.dat";
+}
+
+bool Game::saveExists() const {
+    return std::filesystem::exists(savePath());
+}
+
+void Game::saveGame() const {
+    std::ofstream out(savePath(), std::ios::trunc);
+    if (!out.is_open()) {
+        std::cout << Color::YELLOW << "Warning: couldn't write the save file." << Color::RESET << "\n";
+        return;
+    }
+    out << "SAVE_V1\n";
+    out << "ENCOUNTER " << currentRun.getCurrentEncounter() << "\n";
+    out << "WON " << currentRun.getEncountersWon() << "\n";
+    out << "MAXHP " << maxPlayerHealth << "\n";
+    out << "HP " << playerHealth << "\n";
+    out << "MAXENERGY " << maxEnergy << "\n";
+    out << "EQUIPDMG " << equipDamageBonus << "\n";
+    out << "EQUIPARM " << equipArmorBonus << "\n";
+    out << "WEAPONTIER " << weaponTier << "\n";
+    out << "ARMORTIER " << armorTier << "\n";
+    for (int i = 0; i < 5; i++)
+        out << "UPGRADE " << i << " " << (upgrades.isUnlocked(i) ? 1 : 0) << " " << (upgrades.isActive(i) ? 1 : 0) << "\n";
+
+    for (const Card& c : playerDeck.getAllCardsOrdered()) {
+        out << "CARD|" << c.getName() << "|" << c.getDescription() << "|" << cardTypeToStr(c.getType())
+            << "|" << c.getCost() << "|" << c.getValue() << "|" << effectToStr(c.getEffect())
+            << "|" << (c.isRare() ? 1 : 0) << "|" << (c.isSuperRare() ? 1 : 0) << "|" << (c.isLegendary() ? 1 : 0)
+            << "|" << dmgToStr(c.getPhysType()) << "|" << dmgToStr(c.getPhysType2()) << "|" << dmgToStr(c.getElemType())
+            << "|" << c.getUpgradeCount() << "\n";
+    }
+}
+
+void Game::deleteSave() const {
+    std::error_code ec;
+    std::filesystem::remove(savePath(), ec);
+}
+
+bool Game::loadGame() {
+    std::ifstream in(savePath());
+    if (!in.is_open()) return false;
+
+    std::string line;
+    if (!std::getline(in, line) || line != "SAVE_V1") return false;
+
+    int savedEncounter = 1, savedWon = 0, savedMaxHp = 100, savedHp = 100, savedMaxEnergy = 3;
+    int savedEquipDmg = 0, savedEquipArm = 0, savedWeaponTier = 0, savedArmorTier = 0;
+    std::vector<bool> unlockedFlags(5, false), activeFlags(5, false);
+    std::vector<Card> loadedCards;
+
+    while (std::getline(in, line)) {
+        if (line.empty()) continue;
+
+        if (line.rfind("CARD|", 0) == 0) {
+            std::vector<std::string> f;
+            size_t pos = 5;
+            while (pos <= line.size()) {
+                size_t next = line.find('|', pos);
+                if (next == std::string::npos) { f.push_back(line.substr(pos)); break; }
+                f.push_back(line.substr(pos, next - pos));
+                pos = next + 1;
+            }
+            if (f.size() != 13) continue; // corrupted line - skip rather than abort the whole load
+            try {
+                loadedCards.push_back(Card(
+                    f[0], f[1], strToCardType(f[2]), std::stoi(f[3]), std::stoi(f[4]),
+                    strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), strToDmg(f[11]),
+                    f[7] == "1", strToDmg(f[10]), f[8] == "1", std::stoi(f[12])));
+            } catch (...) { continue; }
+            continue;
+        }
+
+        std::istringstream iss(line);
+        std::string tag;
+        iss >> tag;
+        if (tag == "ENCOUNTER")     iss >> savedEncounter;
+        else if (tag == "WON")      iss >> savedWon;
+        else if (tag == "MAXHP")    iss >> savedMaxHp;
+        else if (tag == "HP")       iss >> savedHp;
+        else if (tag == "MAXENERGY") iss >> savedMaxEnergy;
+        else if (tag == "EQUIPDMG") iss >> savedEquipDmg;
+        else if (tag == "EQUIPARM") iss >> savedEquipArm;
+        else if (tag == "WEAPONTIER") iss >> savedWeaponTier;
+        else if (tag == "ARMORTIER") iss >> savedArmorTier;
+        else if (tag == "UPGRADE") {
+            int idx, unl, act;
+            iss >> idx >> unl >> act;
+            if (idx >= 0 && idx < 5) { unlockedFlags[idx] = unl != 0; activeFlags[idx] = act != 0; }
+        }
+    }
+
+    if (loadedCards.empty()) return false; // no usable deck - treat as a failed load
+
+    playerDeck = Deck();
+    for (const Card& c : loadedCards) playerDeck.addCard(c);
+    playerDeck.shuffle();
+
+    currentRun = Run();
+    currentRun.loadState(savedEncounter, savedWon);
+
+    maxPlayerHealth  = savedMaxHp;
+    playerHealth     = std::min(savedHp, savedMaxHp);
+    maxEnergy        = savedMaxEnergy;
+    playerEnergy     = maxEnergy;
+    equipDamageBonus = savedEquipDmg;
+    equipArmorBonus  = savedEquipArm;
+    weaponTier       = savedWeaponTier;
+    armorTier        = savedArmorTier;
+    for (int i = 0; i < 5; i++) upgrades.setUpgradeState(i, unlockedFlags[i], activeFlags[i]);
+
+    turnNumber = 1;
+    playerTurnActive = true;
+    inEncounter = false; // not in combat yet - offerContinueOrEndRun() starts the next fight if Continue is chosen
+    running = true;
+
+    return true;
 }
 
 void Game::showHowToPlay() {
@@ -1895,65 +2169,91 @@ void Game::run() {
 
     UIHelper::printTitle();
 
-    if (!showMainMenu()) {
+    int menuChoice = showMainMenu();
+    if (menuChoice == 2) {
         return;
     }
 
-    upgrades.checkAndUnlockUpgrades(0, 0);
-    upgrades.displayUpgradeInfo();
-    
-    currentRun.startRun();
-    startEncounter();
-    
+    if (menuChoice == 1 && loadGame()) {
+        upgrades.displayUpgradeInfo();
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::GREEN << "Save loaded!" << Color::RESET
+                  << " Encounter " << currentRun.getCurrentEncounter()
+                  << ", " << currentRun.getEncountersWon() << " enemies defeated so far.\n";
+        UIHelper::waitForKey();
+        offerContinueOrEndRun();
+        // If the player picked End Run right away without fighting anything, there's
+        // no live combat for the loop below to detect via checkGameOver() - wrap up here instead.
+        if (!inEncounter) finishRun();
+    } else {
+        if (menuChoice == 1) {
+            std::cout << "\n" << Color::YELLOW << "Warning: the save file could not be loaded - starting a new game instead." << Color::RESET << "\n";
+            UIHelper::waitForKey();
+        }
+        upgrades.checkAndUnlockUpgrades(0, 0);
+        upgrades.displayUpgradeInfo();
+
+        currentRun.startRun();
+        startEncounter();
+    }
+
     while (running) {
         handleInput();
-        
+
         if (checkGameOver()) {
             if (enemy.isAlive()) {
                 displayGameOver();
                 currentRun.displayRunStats();
-                int encounters = currentRun.getEncountersWon();
-                runStats.completeRun(encounters);
-                runStats.displayRunSummary(encounters);
-                
                 currentRun.loseRun();
                 inEncounter = false;
+                deleteSave(); // dying invalidates any existing save - no reloading out of a loss
             } else {
                 handleEncounterWin();
                 if (inEncounter) {
                     continue;
                 }
-                int encounters = currentRun.getEncountersWon();
-                runStats.completeRun(encounters);
-                runStats.displayRunSummary(encounters);
             }
-            
-            if (handleGameOverInput()) {
-                selectUpgrades();
-                maxPlayerHealth = 100;
-                playerHealth = maxPlayerHealth;
-                playerArmor = 0;
-                playerEnergy = 3;
-                maxEnergy = 3;
-                equipDamageBonus = 0;
-                equipArmorBonus  = 0;
-                turnNumber = 1;
-                playerTurnActive = true;
-                playerDeck = Deck();
-                init();
-                
-                runStats.resetRunStats();
-                currentRun = Run();
-                currentRun.startRun();
-                
-                upgrades.displayUpgradeInfo();
-                startEncounter();
-            } else {
-                running = false;
-                runStats.displayCumulativeStats();
-            }
+            finishRun();
         }
     }
 
     std::cout << "Thanks for playing!\n";
+}
+
+void Game::finishRun() {
+    int encounters = currentRun.getEncountersWon();
+    runStats.completeRun(encounters);
+    runStats.displayRunSummary(encounters);
+
+    if (handleGameOverInput()) {
+        selectUpgrades();
+
+        Card carryOverCard("", "", CardType::ATTACK, 0, 0);
+        bool hasCarryOver = selectCardToCarryOver(carryOverCard);
+
+        maxPlayerHealth = 100;
+        playerHealth = maxPlayerHealth;
+        playerArmor = 0;
+        playerEnergy = 3;
+        maxEnergy = 3;
+        equipDamageBonus = 0;
+        equipArmorBonus  = 0;
+        weaponTier = 0;
+        armorTier  = 0;
+        turnNumber = 1;
+        playerTurnActive = true;
+        playerDeck = Deck();
+        init();
+        if (hasCarryOver) playerDeck.addCard(carryOverCard);
+
+        runStats.resetRunStats();
+        currentRun = Run();
+        currentRun.startRun();
+
+        upgrades.displayUpgradeInfo();
+        startEncounter();
+    } else {
+        running = false;
+        runStats.displayCumulativeStats();
+    }
 }

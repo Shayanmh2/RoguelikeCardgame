@@ -60,9 +60,12 @@ private:
     bool checkGameOver();
     void displayGameOver();
     bool handleGameOverInput();
+    void finishRun(); // shared tail: record stats, ask Play again, reset or quit accordingly
+    bool selectCardToCarryOver(Card& outCard); // on replay, before the deck resets - lets the player keep 1 card
     void startEncounter();
     void nextEncounter();
     void handleEncounterWin();
+    void offerContinueOrEndRun(); // the Continue/End Run choice - shared by handleEncounterWin() and a fresh Load Save
     void restSite();
     Enemy generateBossEnemy();
     void  bossAction();
@@ -75,9 +78,18 @@ private:
     void applyUpgrades();
     void selectUpgrades();
     void viewDeckManage(); // browse/discard cards; never costs the rest site visit - always returns to its menu
-    bool showMainMenu();   // returns true if "Start Game" was chosen, false if "Quit"
+    int  showMainMenu();   // 0 = Start Game, 1 = Load Save, 2 = Quit/ESC
     void showHowToPlay();
     void showTutorial();   // interactive practice fight vs. a Training Dummy; restores state on exit
+
+    // Single-slot save system: only ever written at the Continue/End Run choice
+    // (i.e. between encounters, never mid-combat), so it can't be abused as a
+    // combat checkpoint. Any existing save is wiped the moment the player dies.
+    std::string savePath() const;
+    bool saveExists() const;
+    void saveGame() const;
+    bool loadGame(); // false if no save file, or it couldn't be parsed
+    void deleteSave() const;
 
 public:
     Game();

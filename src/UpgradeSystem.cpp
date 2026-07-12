@@ -94,6 +94,12 @@ bool UpgradeSystem::isActive(int index) const {
     return activeUpgrades[index];
 }
 
+void UpgradeSystem::setUpgradeState(int index, bool unlocked, bool active) {
+    if (index < 0 || index >= (int)allUpgrades.size()) return;
+    unlockedUpgrades[index] = unlocked;
+    activeUpgrades[index] = active;
+}
+
 void UpgradeSystem::displayUpgradeInfo() const {
     int activeCount = 0;
     for (size_t i = 0; i < allUpgrades.size(); ++i) {
