@@ -328,6 +328,10 @@ void Game::applyCardEffect(const Card& card) {
             std::cout << "  " << Color::STRENGTH_CLR << "Strength surges - x" << buff << " damage for 2 turns!" << Color::RESET << "\n";
             break;
         }
+        case CardEffect::TAUNT:
+            enemyTauntTurns = 2;
+            std::cout << "  " << Color::RED << "You taunt the enemy! They're much more likely to attack for their next 2 turns." << Color::RESET << "\n";
+            break;
         default:
             break;
     }
@@ -534,6 +538,21 @@ void Game::enemyTurn() {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> rollDist(0, 99);
     int roll = rollDist(gen);
+
+    // Taunt: force this turn's roll into whichever bucket guarantees an Attack
+    // action for this enemy type, rather than leaving it to chance.
+    if (enemyTauntTurns > 0) {
+        enemyTauntTurns--;
+        switch (enemy.getType()) {
+            case EnemyType::MELEE:  roll = 0;  break;
+            case EnemyType::RANGED: roll = 0;  break;
+            case EnemyType::TANK:   roll = 99; break;
+            case EnemyType::CASTER: roll = 99; break;
+            case EnemyType::BEAST:  roll = 0;  break;
+            case EnemyType::UNDEAD: roll = 0;  break;
+            default: break;
+        }
+    }
 
     // Apply WEAK penalty to attack, then tick it
     double weakMult = enemy.getWeakMultiplier();
@@ -1024,6 +1043,20 @@ void Game::bossAction() {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> rollDist(0, 99);
     int roll = rollDist(gen);
+
+    // Taunt: force this turn's roll into whichever bucket guarantees an Attack
+    // action for this boss type.
+    if (enemyTauntTurns > 0) {
+        enemyTauntTurns--;
+        switch (enemy.getBossType()) {
+            case BossType::STONE_COLOSSUS: roll = 99; break;
+            case BossType::VILE_WITCH:     roll = 0;  break;
+            case BossType::WARLORD:        roll = 50; break;
+            case BossType::HYDRA:          roll = 80; break;
+            case BossType::DRAGON:         roll = 80; break;
+            default: break;
+        }
+    }
 
     double weakMult = enemy.getWeakMultiplier();
     enemy.processWeak();

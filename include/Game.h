@@ -37,6 +37,7 @@ private:
     int  counterBonusValue; // Dodge's current value - added as flat bonus riposte damage
     int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
     bool statusWardActive = false; // Status Guard: blocks the next ailment the enemy inflicts on the player
+    int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
 
     // Set by playCardFromHand() every time a card is played, so callers (the tutorial)
     // can tell what was just played even if that same handleInput() call also auto-ended
