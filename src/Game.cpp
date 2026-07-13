@@ -780,7 +780,7 @@ void Game::endPlayerTurn() {
     } while (playerStunned);
 
     playerTurnActive = true;
-    UIHelper::pause(800);
+    UIHelper::waitForKey("  (press any key for your turn)");
     // handleInput() will clear and redraw the full state for the new turn
 }
 
@@ -814,6 +814,8 @@ bool Game::handleGameOverInput() {
     return (choice == 0);
 }
 
+// Called right before the deck resets to starters on a new run - lets the
+// player rescue exactly one card (upgrades and all) from the run that just ended.
 bool Game::selectCardToCarryOver(Card& outCard) {
     std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
     if (allCards.empty()) return false;
@@ -937,17 +939,21 @@ void Game::handleInput() {
                                  : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
 
             std::string typePad = c.getTypeString();
-            while ((int)typePad.size() < 6) typePad += ' ';
+            while ((int)typePad.size() < 7) typePad += ' ';
+            // Tag sits right next to the name (fixed-width slot) rather than as a
+            // trailing suffix - a trailing tag's presence/absence made each row a
+            // different visible length, throwing off the right column's alignment.
             std::string namePad = c.getName();
-            while ((int)namePad.size() < 18) namePad += ' ';
+            if (!c.getTypeTag().empty()) namePad += " " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET;
+            int nameVisLen = UIHelper::visibleLen(namePad);
+            while (nameVisLen < 27) { namePad += ' '; nameVisLen++; }
 
             std::string mainLine =
                 std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
                 + " [" + typeColor + typePad + Color::RESET + "] "
                 + Color::BOLD + rarityTint(c) + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-                + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET
-                + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
+                + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET;
 
             std::string descLine = "     " + std::string(Color::DIM) + c.getDescription() + Color::RESET;
 
@@ -1254,10 +1260,7 @@ void Game::bossAction() {
 }
 
 void Game::offerBossReward() {
-    UIHelper::clearScreen();
     std::vector<Card> rewards = rewardPool.generateRareRewards(3, maxEnergy, playerDeck.getAllCardNames());
-
-    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " - choose one:\n\n";
 
     std::vector<std::string> leftLines;
     std::vector<int>         optionIndices;
@@ -1273,12 +1276,12 @@ void Game::offerBossReward() {
 
         leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
             + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
-            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET);
+            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET
+            + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
-            + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
         optionIndices.push_back(-1);
 
         leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
@@ -1291,22 +1294,37 @@ void Game::offerBossReward() {
     }
     options.push_back("Skip");
 
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 45);
+    while (true) {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Boss reward" << Color::RESET << " - choose one:\n\n";
+        int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 45);
 
-    if (choice < 0 || choice >= (int)rewards.size()) {
-        std::cout << "Skipping reward.\n";
+        if (choice < 0 || choice >= (int)rewards.size()) {
+            UIHelper::clearScreen();
+            std::cout << "\n" << Color::DIM << "Skip this reward - take none of the 3 cards?" << Color::RESET << "\n";
+            if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the choices
+            std::cout << "Skipping reward.\n";
+            UIHelper::waitForKey();
+            return;
+        }
+
+        playerDeck.addCard(rewards[choice]);
+        runStats.addCardToRun();
+        std::cout << "\n" << Color::YELLOW << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
+        UIHelper::waitForKey();
+        return;
+    }
+}
+
+void Game::offerExtraPlay() {
+    const int MAX_ENERGY_CAP = 5;
+    UIHelper::clearScreen();
+    if (maxEnergy >= MAX_ENERGY_CAP) {
+        std::cout << "\n" << Color::DIM << "You're already at the max of " << MAX_ENERGY_CAP << " plays per turn - nothing more to gain here." << Color::RESET << "\n";
         UIHelper::waitForKey();
         return;
     }
 
-    playerDeck.addCard(rewards[choice]);
-    runStats.addCardToRun();
-    std::cout << "\n" << Color::YELLOW << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
-    UIHelper::waitForKey();
-}
-
-void Game::offerExtraPlay() {
-    UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::YELLOW << "A hard-won boss kill leaves you invigorated." << Color::RESET << "\n\n";
 
     std::vector<std::string> leftLines = {
@@ -1318,7 +1336,7 @@ void Game::offerExtraPlay() {
     int choice = UIHelper::menuSelectRight(leftLines, optionIndices, {"Take Extra Play", "Skip"}, 55);
 
     if (choice == 0) {
-        maxEnergy++;
+        maxEnergy = std::min(MAX_ENERGY_CAP, maxEnergy + 1);
         playerEnergy = maxEnergy;
         std::cout << "\n" << Color::ENERGY_CLR << "You feel invigorated! Max plays per turn increased to " << maxEnergy << "." << Color::RESET << "\n";
         Audio::playSFX("upgrade");
@@ -1418,6 +1436,10 @@ void Game::restSite() {
     int siteChoice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 52);
 
     if (siteChoice == 0) {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::HEAL << "Rest to heal to full (" << playerHealth << "/" << maxPlayerHealth << " HP)?" << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the rest site menu
+
         playerHealth = maxPlayerHealth;
         Audio::playSFX("heal");
         std::cout << Color::HEAL << "\nYou rest and fully recover to " << maxPlayerHealth << " HP." << Color::RESET << "\n";
@@ -1451,62 +1473,97 @@ void Game::restSite() {
             }
         }
 
-        std::vector<std::string> cardLines;
-        std::vector<int>         cardOptIdx;
-        std::vector<std::string> cardOptions;
-        std::vector<bool>        cardDisabled;
+        // Paginated - a long collection previously produced tall enough menus to
+        // reliably trigger the redraw-duplication glitch (see the How To Play /
+        // Tutorial fixes for the same root cause).
+        const int PAGE_SIZE = 8;
+        int totalGroups = (int)groupCard.size();
+        int totalPages  = std::max(1, (totalGroups + PAGE_SIZE - 1) / PAGE_SIZE);
+        int page = 0;
+        bool committed = false;
 
-        for (size_t g = 0; g < groupCard.size(); g++) {
-            const Card& c = *groupCard[g];
-            int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
-            bool maxed = upgradesLeft <= 0;
+        while (true) {
+            int startIdx = page * PAGE_SIZE;
+            int endIdx   = std::min(startIdx + PAGE_SIZE, totalGroups);
 
-            const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
-                                  : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
-                                  : Color::CARD_SPECIAL;
-            const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
-                                 : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
-            std::string typePad = c.getTypeString();
-            while ((int)typePad.size() < 6) typePad += ' ';
-            std::string namePad = c.getName();
-            if (groupCount[g] > 1) namePad += " (x" + std::to_string(groupCount[g]) + ")";
-            while ((int)namePad.size() < 22) namePad += ' ';
+            std::vector<std::string> cardLines;
+            std::vector<int>         cardOptIdx;
+            std::vector<std::string> cardOptions;
+            std::vector<bool>        cardDisabled;
 
-            cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET
-                + " [" + typeColor + typePad + Color::RESET + "] "
-                + Color::BOLD + rarityTint(c) + namePad + Color::RESET
-                + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-                + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
-                + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET))
-                + "  " + (maxed ? (std::string(Color::DIM) + "[MAXED]" + Color::RESET)
-                                : (std::string(Color::CYAN) + "[" + std::to_string(upgradesLeft) + " upgrade" + (upgradesLeft != 1 ? "s" : "") + " left]" + Color::RESET)));
-            cardOptIdx.push_back((int)g);
+            for (int g = startIdx; g < endIdx; g++) {
+                const Card& c = *groupCard[g];
+                int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
+                bool maxed = upgradesLeft <= 0;
 
-            cardLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
-            cardOptIdx.push_back(-1);
+                const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
+                                      : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
+                                      : Color::CARD_SPECIAL;
+                const char* valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
+                                     : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
+                std::string typePad = c.getTypeString();
+                while ((int)typePad.size() < 7) typePad += ' ';
+                std::string namePad = c.getName();
+                if (groupCount[g] > 1) namePad += " (x" + std::to_string(groupCount[g]) + ")";
+                if (!c.getTypeTag().empty()) namePad += " " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET;
+                int nameVisLen = UIHelper::visibleLen(namePad);
+                while (nameVisLen < 31) { namePad += ' '; nameVisLen++; }
 
-            cardLines.push_back("");
-            cardOptIdx.push_back(-1);
+                cardLines.push_back(std::string("  ") + Color::DIM + std::to_string(g + 1) + "." + Color::RESET
+                    + " [" + typeColor + typePad + Color::RESET + "] "
+                    + Color::BOLD + rarityTint(c) + namePad + Color::RESET
+                    + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
+                    + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
+                    + "  " + (maxed ? (std::string(Color::DIM) + "[MAXED]" + Color::RESET)
+                                    : (std::string(Color::CYAN) + "[" + std::to_string(upgradesLeft) + " upgrade" + (upgradesLeft != 1 ? "s" : "") + " left]" + Color::RESET)));
+                cardOptIdx.push_back((int)(g - startIdx));
 
-            cardOptions.push_back("Select Card " + std::to_string(g + 1));
-            cardDisabled.push_back(maxed);
-        }
-        cardOptions.push_back("Return");
-        cardDisabled.push_back(false);
+                cardLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
+                cardOptIdx.push_back(-1);
 
-        UIHelper::clearScreen();
-        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET
-                   << " - pick a card to upgrade (all copies upgrade together):\n\n";
-        int groupChoice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 54, 0, cardDisabled);
+                cardLines.push_back("");
+                cardOptIdx.push_back(-1);
 
-        if (groupChoice < 0 || groupChoice >= (int)groupCard.size()) {
-            continue; // backed out - back to the rest site menu, no commitment made
-        } else {
-            std::string beforeName = groupCard[groupChoice]->getName();
+                cardOptions.push_back("Select Card " + std::to_string(g + 1));
+                cardDisabled.push_back(maxed);
+            }
+
+            int nextPageOptIdx = -1;
+            if (totalPages > 1) {
+                cardOptions.push_back("Next Page (" + std::to_string(page + 1) + "/" + std::to_string(totalPages) + ")");
+                cardDisabled.push_back(false);
+                nextPageOptIdx = (int)cardOptions.size() - 1;
+            }
+            cardOptions.push_back("Return");
+            cardDisabled.push_back(false);
+            int returnOptIdx = (int)cardOptions.size() - 1;
+
+            UIHelper::clearScreen();
+            std::cout << "\n" << Color::BOLD << Color::YELLOW << "Forge" << Color::RESET
+                       << " - pick a card to upgrade"
+                       << (totalPages > 1 ? (" [page " + std::to_string(page + 1) + "/" + std::to_string(totalPages) + "]") : "")
+                       << ":\n\n";
+            int choice = UIHelper::menuSelectRight(cardLines, cardOptIdx, cardOptions, 54, 0, cardDisabled);
+
+            if (choice == nextPageOptIdx) {
+                page = (page + 1) % totalPages;
+                continue; // redraw with the next page
+            }
+            if (choice < 0 || choice == returnOptIdx) {
+                break; // backed out - no commitment made
+            }
+
+            int groupIdx = startIdx + choice;
+            std::string beforeName = groupCard[groupIdx]->getName();
+            std::string afterName  = beforeName + "+";
+
+            UIHelper::clearScreen();
+            std::cout << "\n" << Color::YELLOW << "Upgrade " << beforeName << " to " << afterName << "?" << Color::RESET << "\n";
+            if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to this page
+
             int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
             if (upgradedCount > 0) {
                 Audio::playSFX("upgrade");
-                std::string afterName = beforeName + "+";
                 std::vector<Card> updated = playerDeck.getAllCardsOrdered();
                 auto it = std::find_if(updated.begin(), updated.end(),
                                         [&](const Card& c) { return c.getName() == afterName; });
@@ -1519,12 +1576,20 @@ void Game::restSite() {
                 std::cout << "\n";
                 UIHelper::waitForKey();
             }
-            break; // committed - progress as normal
+            committed = true;
+            break;
         }
+
+        if (committed) break; // progress as normal
+        else continue;        // back to the rest site menu, no commitment made
     } else if (siteChoice == 2) {
         viewDeckManage();
         continue; // browsing/discarding never costs your rest site visit - back to the rest site menu
     } else {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::DIM << "Skip the rest site and press on?" << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the rest site menu
+
         std::cout << Color::DIM << "\nYou press on without resting." << Color::RESET << "\n";
         UIHelper::waitForKey();
         break;
@@ -1566,12 +1631,12 @@ void Game::viewDeckManage() {
                                  : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
             std::string name = c.getName();
             if (count > 1) name += " x" + std::to_string(count);
+            if (!c.getTypeTag().empty()) name += " " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET;
             return std::string(Color::DIM) + std::to_string(idx + 1) + "." + Color::RESET
                 + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
                 + Color::BOLD + rarityTint(c) + name + Color::RESET
                 + " " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
-                + " c:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-                + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET));
+                + " c:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET;
         };
 
         // Grid: three cards per row.
@@ -1605,6 +1670,10 @@ void Game::viewDeckManage() {
         }
 
         std::string name = groupCard[choice]->getName();
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::RED << "Discard " << name << "?" << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the deck view
+
         if (playerDeck.removeCardByName(name)) {
             std::cout << "\n" << Color::RED << "Discarded one " << name << " from your deck." << Color::RESET << "\n";
             UIHelper::waitForKey();
@@ -1699,7 +1768,7 @@ void Game::offerContinueOrEndRun() {
 
 void Game::offerCardReward() {
     UIHelper::clearScreen();
-    bool rarityBoost = upgrades.isActive(6);
+    bool rarityBoost = upgrades.isActive(4);
     // Regular-encounter rewards are gated by bosses defeated so far: Uncommon only
     // until the 1st boss falls, +Rare after that, +Super Rare after the 2nd boss.
     // Legendary (Dodge) is unaffected - it stays boss-reward-exclusive either way.
@@ -1712,8 +1781,6 @@ void Game::offerCardReward() {
         UIHelper::waitForKey();
         return;
     }
-
-    std::cout << "\n" << Color::BOLD << Color::YELLOW << "Card reward" << Color::RESET << " - pick one to add to your deck:\n\n";
 
     std::vector<std::string> leftLines;
     std::vector<int>         optionIndices;
@@ -1729,12 +1796,12 @@ void Game::offerCardReward() {
 
         leftLines.push_back(std::string("  ") + Color::BOLD + std::to_string(i + 1) + "." + Color::RESET
             + " [" + typeColor + c.getTypeString() + Color::RESET + "] "
-            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET);
+            + Color::BOLD + rarityTint(c) + c.getName() + Color::RESET
+            + (c.getTypeTag().empty() ? "" : (" " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
         optionIndices.push_back((int)i);
 
         leftLines.push_back(std::string("     Cost:") + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
-            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET
-            + (c.getTypeTag().empty() ? "" : ("  " + std::string(Color::YELLOW) + c.getTypeTag() + Color::RESET)));
+            + "  " + valLabel + ":" + Color::GREEN + std::to_string(c.getValue()) + Color::RESET);
         optionIndices.push_back(-1);
 
         leftLines.push_back(std::string("     ") + Color::DIM + c.getDescription() + Color::RESET);
@@ -1747,34 +1814,33 @@ void Game::offerCardReward() {
     }
     options.push_back("Skip");
 
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 40);
-    if (choice < 0 || choice >= (int)rewards.size()) {
-        std::cout << "Skipping reward.\n";
+    while (true) {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::BOLD << Color::YELLOW << "Card reward" << Color::RESET << " - pick one to add to your deck:\n\n";
+        int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 40);
+        if (choice < 0 || choice >= (int)rewards.size()) {
+            UIHelper::clearScreen();
+            std::cout << "\n" << Color::DIM << "Skip this reward - take none of the 3 cards?" << Color::RESET << "\n";
+            if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the choices
+            std::cout << "Skipping reward.\n";
+            UIHelper::waitForKey();
+            return;
+        }
+
+        playerDeck.addCard(rewards[choice]);
+        runStats.addCardToRun();
+        std::cout << "\n" << Color::GREEN << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
         UIHelper::waitForKey();
         return;
     }
-
-    playerDeck.addCard(rewards[choice]);
-    runStats.addCardToRun();
-    std::cout << "\n" << Color::GREEN << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
-    UIHelper::waitForKey();
 }
 
 void Game::applyUpgrades() {
-    if (upgrades.isActive(1)) {
-        playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-        playerDeck.addCard(Card("Strike", "Deal 5 damage", CardType::ATTACK, 1, 5));
-    }
     maxPlayerHealth += upgrades.getHealthBonus();
     playerHealth = maxPlayerHealth;
-    maxEnergy += upgrades.getEnergyBonus();
-    playerEnergy = maxEnergy;
 }
 
 void Game::offerEquipmentDrop() {
-    UIHelper::clearScreen();
-    std::cout << "\n" << Color::YELLOW << "Equipment" << Color::RESET << " - you spot some gear on the ground:\n\n";
-
     EquipTier weapon = weaponTierAt(weaponTier);
     EquipTier armor  = armorTierAt(armorTier);
     int hpBoost = 15;
@@ -1795,30 +1861,43 @@ void Game::offerEquipmentDrop() {
     std::vector<int> optionIndices = {0, -1, -1, 1, -1, -1, 2, -1, -1, 3, -1};
     std::vector<std::string> options = {"Take " + weapon.name, "Take " + armor.name, "Take Health Pouch", "Leave it"};
 
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 44);
+    while (true) {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::YELLOW << "Equipment" << Color::RESET << " - you spot some gear on the ground:\n\n";
+        int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 44);
 
-    if (choice == 0) {
-        equipDamageBonus += weapon.bonus;
-        weaponTier++;
-        std::cout << Color::RED << "\nYou equip the " << weapon.name << ". +" << weapon.bonus << " damage!" << Color::RESET << "\n";
-        Audio::playSFX("upgrade");
+        if (choice == 3 || choice < 0) {
+            std::cout << Color::DIM << "\nYou leave it behind." << Color::RESET << "\n";
+            UIHelper::waitForKey();
+            return;
+        }
+
+        std::string prompt = (choice == 0) ? ("Take the " + weapon.name + "?")
+                            : (choice == 1) ? ("Take the " + armor.name + "?")
+                                            : "Take the Health Pouch?";
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::YELLOW << prompt << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the choices
+
+        if (choice == 0) {
+            equipDamageBonus += weapon.bonus;
+            weaponTier++;
+            std::cout << Color::RED << "\nYou equip the " << weapon.name << ". +" << weapon.bonus << " damage!" << Color::RESET << "\n";
+            Audio::playSFX("upgrade");
+        } else if (choice == 1) {
+            equipArmorBonus += armor.bonus;
+            armorTier++;
+            std::cout << Color::CYAN << "\nYou equip the " << armor.name << ". +" << armor.bonus << " armor per defend!" << Color::RESET << "\n";
+            Audio::playSFX("upgrade");
+        } else {
+            maxPlayerHealth += hpBoost;
+            playerHealth += hpBoost;
+            Audio::playSFX("heal");
+            std::cout << Color::HEAL << "\nYou consume the Health Pouch! Max HP permanently increased by " << hpBoost
+                       << "! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
+        }
         UIHelper::waitForKey();
-    } else if (choice == 1) {
-        equipArmorBonus += armor.bonus;
-        armorTier++;
-        std::cout << Color::CYAN << "\nYou equip the " << armor.name << ". +" << armor.bonus << " armor per defend!" << Color::RESET << "\n";
-        Audio::playSFX("upgrade");
-        UIHelper::waitForKey();
-    } else if (choice == 2) {
-        maxPlayerHealth += hpBoost;
-        playerHealth += hpBoost;
-        Audio::playSFX("heal");
-        std::cout << Color::HEAL << "\nYou consume the Health Pouch! Max HP permanently increased by " << hpBoost
-                   << "! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
-        UIHelper::waitForKey();
-    } else {
-        std::cout << Color::DIM << "\nYou leave it behind." << Color::RESET << "\n";
-        UIHelper::waitForKey();
+        return;
     }
 }
 
@@ -2016,9 +2095,9 @@ void Game::showHowToPlay() {
     std::cout << "  Forge. Legendary cards only ever drop from boss rewards.\n\n";
 
     std::cout << Color::BOLD << "REST SITES" << Color::RESET << "\n";
-    std::cout << "  After winning a fight: Rest (heal to full), Forge (upgrade a card -\n";
-    std::cout << "  all copies upgrade together), View Deck (browse and discard cards you\n";
-    std::cout << "  don't want), or Skip. Rest, Forge, and Skip all move you on to the\n";
+    std::cout << "  After winning a fight: Rest (heal to full), Forge (upgrade a card),\n";
+    std::cout << "  View Deck (browse and discard cards you don't want), or Skip. Rest,\n";
+    std::cout << "  Forge, and Skip all move you on to the\n";
     std::cout << "  next fight; View Deck lets you keep browsing until you hit Return.\n\n";
 
     std::cout << Color::BOLD << "REWARDS" << Color::RESET << "\n";

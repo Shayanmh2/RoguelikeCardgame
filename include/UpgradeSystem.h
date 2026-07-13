@@ -25,7 +25,6 @@ public:
     int getHealthBonus() const;
     int getDamageBonus() const;
     int getArmorBonus() const;
-    int getEnergyBonus() const;
     int getDrawBonus() const;
     bool isRarityBoostActive() const;
     
@@ -34,7 +33,7 @@ public:
     bool isActive(int index) const;
 
     void setUpgradeState(int index, bool unlocked, bool active); // restore from a save file
-
+    
     void displayUpgradeInfo() const;
 };
 

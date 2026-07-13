@@ -5,10 +5,8 @@
 
 enum class UpgradeType {
     HEALTH_BOOST,      // +20 max health
-    STARTING_STRIKE,   // Start with 2 extra Strikes
     DAMAGE_UP,         // +2 damage per attack card
     ARMOR_UP,          // +2 armor per defend card
-    EXTRA_ENERGY,      // Start with 1 extra energy
     CARD_DRAW,         // Draw 1 extra card at start
     RARITY_BOOST       // Higher chance of rare cards
 };

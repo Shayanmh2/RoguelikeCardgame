@@ -8,10 +8,8 @@ UpgradeSystem::UpgradeSystem() {
 
 void UpgradeSystem::initializeUpgrades() {
     allUpgrades.push_back(Upgrade("Health Boost",   "Gain +20 max health",                       UpgradeType::HEALTH_BOOST,    2));
-    allUpgrades.push_back(Upgrade("Extra Strike",   "Start with 2 bonus Strike cards",           UpgradeType::STARTING_STRIKE, 5));
     allUpgrades.push_back(Upgrade("Sharp Blades",   "All attacks deal +2 damage",                UpgradeType::DAMAGE_UP,       3));
     allUpgrades.push_back(Upgrade("Iron Resolve",   "All defends grant +2 armor",                UpgradeType::ARMOR_UP,        3));
-    allUpgrades.push_back(Upgrade("Adrenaline",     "Start with +1 energy per turn",             UpgradeType::EXTRA_ENERGY,    4));
     allUpgrades.push_back(Upgrade("Keen Sense",     "Draw 1 extra card at start",                UpgradeType::CARD_DRAW,       6));
     allUpgrades.push_back(Upgrade("Fortunate Soul", "Higher chance of rare reward cards",        UpgradeType::RARITY_BOOST,    8));
     unlockedUpgrades.resize(allUpgrades.size(), false);
@@ -20,12 +18,10 @@ void UpgradeSystem::initializeUpgrades() {
 
 void UpgradeSystem::checkAndUnlockUpgrades(int totalEncounters, int totalCards) {
     if (totalEncounters >= 2) unlockedUpgrades[0] = true;
-    if (totalEncounters >= 5) unlockedUpgrades[1] = true;
+    if (totalEncounters >= 3) unlockedUpgrades[1] = true;
     if (totalEncounters >= 3) unlockedUpgrades[2] = true;
-    if (totalEncounters >= 3) unlockedUpgrades[3] = true;
-    if (totalEncounters >= 4) unlockedUpgrades[4] = true;
-    if (totalCards >= 6)      unlockedUpgrades[5] = true;
-    if (totalEncounters >= 8) unlockedUpgrades[6] = true;
+    if (totalCards >= 6)      unlockedUpgrades[3] = true;
+    if (totalEncounters >= 8) unlockedUpgrades[4] = true;
 }
 
 void UpgradeSystem::selectActiveUpgrades() {
@@ -65,23 +61,19 @@ int UpgradeSystem::getHealthBonus() const {
 }
 
 int UpgradeSystem::getDamageBonus() const {
-    return activeUpgrades[2] ? 2 : 0;
+    return activeUpgrades[1] ? 2 : 0;
 }
 
 int UpgradeSystem::getArmorBonus() const {
-    return activeUpgrades[3] ? 2 : 0;
-}
-
-int UpgradeSystem::getEnergyBonus() const {
-    return activeUpgrades[4] ? 1 : 0;
+    return activeUpgrades[2] ? 2 : 0;
 }
 
 int UpgradeSystem::getDrawBonus() const {
-    return activeUpgrades[5] ? 1 : 0;
+    return activeUpgrades[3] ? 1 : 0;
 }
 
 bool UpgradeSystem::isRarityBoostActive() const {
-    return activeUpgrades[6];
+    return activeUpgrades[4];
 }
 
 bool UpgradeSystem::isUnlocked(int index) const {
