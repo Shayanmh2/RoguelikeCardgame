@@ -54,6 +54,7 @@ private:
     void playCardFromHand(int index);
     void applyCardEffect(const Card& card);
     void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward, if active
+    void refreshBattleAuras(); // syncs the battle scene's persistent status glows to current playerStatus/enemy state
     void enemyTurn();
     void endPlayerTurn();
     void resetArmor();
@@ -66,6 +67,7 @@ private:
     void startEncounter();
     void nextEncounter();
     void handleEncounterWin();
+    void handleGameVictory(); // first Shadow Knight kill: legendary drop, victory screen, run ends
     void offerContinueOrEndRun(); // the Continue/End Run choice - shared by handleEncounterWin() and a fresh Load Save
     void restSite();
     Enemy generateBossEnemy();

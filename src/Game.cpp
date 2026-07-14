@@ -32,6 +32,15 @@ static const char* rarityTint(const Card& c) {
     return Color::COMMON_TINT;
 }
 
+// Higher = rarer; used to sort card lists highest-rarity-first (Forge, View Deck).
+static int rarityRank(const Card& c) {
+    if (c.isLegendary()) return 4;
+    if (c.isSuperRare()) return 3;
+    if (c.isRare())      return 2;
+    if (c.isStarter())   return 0;
+    return 1; // uncommon reward-tier
+}
+
 // String round-trips for the save file - mirrors the identifier names cards.json
 // already uses, kept separate from ConfigLoader's parsing since these need both directions.
 static const char* effectToStr(CardEffect e) {
@@ -168,7 +177,7 @@ void Game::displayEnemyInfo() const {
     int atk = enemy.getBaseAttack();
     int def = enemy.getBaseDefense(); // used below for move-estimate formulas, not the live display
 
-    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+    EnemyArt::print(EnemyArt::getWalkFrame(enemy.getType(), enemy.getBossType()));
 
     std::cout << "\n" << Color::BOLD << Color::RED << enemy.getName() << Color::RESET << "\n";
     std::cout << "  HP:  " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -216,6 +225,11 @@ void Game::displayEnemyInfo() const {
                 std::cout << "  " << Color::RED       << "Claw Rake"   << Color::RESET << " (uncommon)- heavy strike, ignores armor\n";
                 std::cout << "  " << Color::CARD_SPECIAL << "Wing Buffet" << Color::RESET << " (uncommon)- knocks you off balance, weakens you\n";
                 std::cout << "  " << Color::RED         << "Claw"        << Color::RESET << " (uncommon)- direct attack\n";
+                break;
+            case BossType::SHADOW_KNIGHT:
+                std::cout << "  " << Color::CARD_SPECIAL << "Dark Mirror" << Color::RESET << " (always)  - plays a shadow copy of a random card from YOUR deck\n";
+                std::cout << "  " << Color::DIM << "  Your attacks become its strikes, your armor its guard, your potions its mending." << Color::RESET << "\n";
+                std::cout << "  " << Color::DIM << "  The bigger your deck's numbers, the harder it hits back." << Color::RESET << "\n";
                 break;
             default: break;
         }
@@ -280,24 +294,32 @@ void Game::applyCardEffect(const Card& card) {
     int val = card.getValue();
     switch (card.getEffect()) {
         case CardEffect::POISON:
+            EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON);
             enemy.applyStatus(StatusType::POISON, val);
+            EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON, true);
             std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
             break;
         case CardEffect::BURN:
+            EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::BURN);
             enemy.applyStatus(StatusType::BURN, val);
+            EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::BURN, true);
             std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
             break;
         case CardEffect::STUN:
-            if (enemy.tryApplyStun())
+            EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN);
+            if (enemy.tryApplyStun()) {
+                EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
                 std::cout << "  " << Color::STUN_CLR << "Enemy is STUNNED - they'll lose their next turn!" << Color::RESET << "\n";
-            else
+            } else {
                 std::cout << "  " << Color::DIM << "The boss resists the stun!" << Color::RESET << "\n";
+            }
             break;
         case CardEffect::WEAK: {
-            // Multiplier scales with rarity instead of value (duration is fixed at
-            // 3 turns regardless): Uncommon 1.5x, Rare 1.75x, Super Rare 2x.
+            // Multiplier scales with rarity: Uncommon 1.5x, Rare 1.75x, Super Rare 2x.
+            EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::WEAK);
             double weakMult = card.isSuperRare() ? 2.0 : card.isRare() ? 1.75 : 1.5;
             enemy.applyStatus(StatusType::WEAK, 3, weakMult);
+            EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::WEAK, true);
             std::cout << "  " << Color::WEAK_CLR << "Applied Weak to enemy for 3 turns! (deals " << weakMult << "x less damage)" << Color::RESET << "\n";
             break;
         }
@@ -314,6 +336,7 @@ void Game::applyCardEffect(const Card& card) {
                       << (val > 0 ? (" (+" + std::to_string(val) + " riposte)") : std::string()) << " and stun them." << Color::RESET << "\n";
             break;
         case CardEffect::HEAL: {
+            EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::HEAL);
             int before = playerHealth;
             playerHealth = std::min(maxPlayerHealth, playerHealth + val);
             std::cout << "  " << Color::HEAL << "Recovered " << (playerHealth - before) << " HP!" << Color::RESET
@@ -323,6 +346,7 @@ void Game::applyCardEffect(const Card& card) {
         case CardEffect::STRENGTH: {
             // Same rarity scaling as Bloodlust's inline version (Uncommon 1.2x, Rare 2x,
             // Super Rare 3x) - this path is for pure-buff SPECIAL cards like Strengthen.
+            EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
             double buff = card.isSuperRare() ? 3.0 : card.isRare() ? 2.0 : 1.2;
             playerStatus.apply(StatusType::STRENGTH, 2, 1.5, buff);
             std::cout << "  " << Color::STRENGTH_CLR << "Strength surges - x" << buff << " damage for 2 turns!" << Color::RESET << "\n";
@@ -337,14 +361,26 @@ void Game::applyCardEffect(const Card& card) {
     }
 }
 
+namespace {
+    // StatusType -> flash color; returns false for types with no flash (buffs)
+    bool glowFor(StatusType type, EnemyArt::CastGlow& out) {
+        switch (type) {
+            case StatusType::POISON: out = EnemyArt::CastGlow::POISON; return true;
+            case StatusType::BURN:   out = EnemyArt::CastGlow::BURN;   return true;
+            case StatusType::STUN:   out = EnemyArt::CastGlow::STUN;   return true;
+            case StatusType::WEAK:   out = EnemyArt::CastGlow::WEAK;   return true;
+            default: return false;
+        }
+    }
+}
+
 // Ailments the enemy inflicts on the player go through here instead of straight to
 // playerStatus.apply() so Dodge/Status Guard can intercept. STRENGTH is the
 // player's own self-buff, never routed through here, so it's not interceptable.
 void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier) {
-    // Dodge is the ultimate stance: it reverses ANY player-targeted effect, not
-    // just direct attacks (that part is handled in doAttack()). The reversed
-    // effect hits the enemy at double strength, plus Dodge's own bonus on top -
-    // e.g. a 4-dmg Poison becomes an 8-dmg-plus-bonus Poison on the enemy instead.
+    EnemyArt::CastGlow glow;
+    // Dodge reverses ANY player-targeted effect back onto the enemy at double
+    // strength plus its bonus (direct attacks are handled in doAttack()).
     if (counterAttackActive) {
         counterAttackActive = false;
         int reflectedAmount = amount * 2 + counterBonusValue;
@@ -352,6 +388,8 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
         Audio::playSFX("special");
         std::cout << "  " << Color::GREEN << "Dodge! You reverse the effect back onto the enemy - doubled, +"
                   << counterBonusValue << "!" << Color::RESET << "\n";
+        if (glowFor(type, glow))
+            EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), glow, true);
         return;
     }
     if (statusWardActive) {
@@ -360,6 +398,13 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
         return;
     }
     playerStatus.apply(type, amount, weakMultiplier);
+    if (glowFor(type, glow))
+        EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), glow, false);
+}
+
+void Game::refreshBattleAuras() {
+    EnemyArt::setBattleAuras(playerStatus.getStrengthMultiplier() > 1.0,
+                             enemy.getWeakMultiplier() < 1.0);
 }
 
 void Game::playCardFromHand(int index) {
@@ -407,7 +452,7 @@ void Game::playCardFromHand(int index) {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(damageDealt);
                 int hpLost = hpBefore - enemy.getHealth();
-                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+                if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
                 int armorBlocked = damageDealt - hpLost;
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
                 std::cout << "  " << Color::PLAYER_ATTACK
@@ -436,6 +481,7 @@ void Game::playCardFromHand(int index) {
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
                 // Scales with rarity, same idea as Weaken/Shatter/Sunder: Uncommon 1.2x,
                 // Rare 2x, Super Rare 3x (only Strengthen and Bloodlust use this today).
+                EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
                 double strengthBuff = playedCard.isSuperRare() ? 3.0 : playedCard.isRare() ? 2.0 : 1.2;
                 playerStatus.apply(StatusType::STRENGTH, 2, 1.5, strengthBuff);
                 std::cout << "  " << Color::STRENGTH_CLR << "Strength surges - x" << strengthBuff << " damage for 2 turns!" << Color::RESET << "\n";
@@ -443,6 +489,7 @@ void Game::playCardFromHand(int index) {
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus() + equipArmorBonus;
             playerArmor += bonusArmor;
+            EnemyArt::printBattleBlock(enemy.getType(), enemy.getBossType());
             Audio::playSFX("defend");
             std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
                       << Color::RESET << " (Total: " << Color::ARMOR_CLR << playerArmor << Color::RESET << ")\n";
@@ -457,6 +504,7 @@ void Game::playCardFromHand(int index) {
                 std::uniform_int_distribution<> coinFlip(0, 1);
                 if (coinFlip(gen) == 0) {
                     enemy.applyStatus(StatusType::WEAK, 2);
+                    EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::WEAK, true);
                     std::cout << "  " << Color::WEAK_CLR << "The impact staggers the enemy - Weakened for 2 turns!" << Color::RESET << "\n";
                 } else {
                     std::cout << "  " << Color::DIM << "(No impair this time.)" << Color::RESET << "\n";
@@ -482,6 +530,7 @@ void Game::playCardFromHand(int index) {
         }
         if (playerEnergy > 0)
             std::cout << Color::DIM << "  (" << playerEnergy << " play" << (playerEnergy != 1 ? "s" : "") << " left)" << Color::RESET << "\n";
+        refreshBattleAuras();
     } catch (const std::out_of_range&) {
         std::cout << "Invalid card index!\n";
     }
@@ -489,6 +538,8 @@ void Game::playCardFromHand(int index) {
 
 void Game::enemyTurn() {
     if (!enemy.isAlive()) return;
+
+    refreshBattleAuras();
 
     // Wipe armor from 2 turns ago (i.e. left over from the enemy's own last turn) - not
     // from this one. A Defend action below can grant fresh armor that then survives
@@ -560,7 +611,7 @@ void Game::enemyTurn() {
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
         atk = (int)(atk * weakMult);
-        EnemyArt::printLunge(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType());
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -568,7 +619,7 @@ void Game::enemyTurn() {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(counterDmg);
             int hpLost = hpBefore - enemy.getHealth();
-            if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+            if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
             Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
             std::cout << Color::GREEN << "Dodge! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
                       << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -595,8 +646,10 @@ void Game::enemyTurn() {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
-                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+                if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
                 bool stunned = enemy.tryApplyStun();
+                if (stunned && enemy.isAlive())
+                    EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
                           << " damage!" << (stunned ? " Enemy is stunned!" : " Boss resists the stun!") << Color::RESET
@@ -616,6 +669,7 @@ void Game::enemyTurn() {
         if (playerArmor < 0) playerArmor = 0;
         playerHealth -= actualDamage;
         if (playerHealth < 0) playerHealth = 0;
+        if (actualDamage > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
         Audio::playSFX("hit");
         std::cout << Color::DAMAGE << "Enemy attacks for " << actualDamage << " damage!" << Color::RESET;
         if (weakMult < 1.0)
@@ -797,6 +851,7 @@ bool Game::checkGameOver() {
 void Game::displayGameOver() {
     UIHelper::clearScreen();
     if (playerHealth <= 0) {
+        EnemyArt::printBattleKnightDeath(enemy.getType(), enemy.getBossType());
         Audio::playSFX("lose");
         UIHelper::pause(300);
         UIHelper::printGameOverScreen(false, currentRun.getEncountersWon(), runStats.getTotalCardsCollected());
@@ -864,7 +919,8 @@ void Game::handleInput() {
 
     UIHelper::clearScreen();
 
-    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+    refreshBattleAuras();
+    EnemyArt::printBattle(enemy.getType(), enemy.getBossType());
 
     // Compact 4-line header so the full turn fits on one screen
     std::string encLabel = currentRun.isBossEncounter()
@@ -938,8 +994,9 @@ void Game::handleInput() {
             std::string valLabel = (c.getTypeString() == "ATTACK") ? "DMG"
                                  : (c.getTypeString() == "DEFEND") ? "ARM" : "STK";
 
-            std::string typePad = c.getTypeString();
-            while ((int)typePad.size() < 7) typePad += ' ';
+            // Pad after the bracket so [ATTACK] lines up with [SPECIAL].
+            std::string typeStr = c.getTypeString();
+            std::string typeGap((size_t)(7 - (int)typeStr.size() + 1), ' ');
             // Tag sits right next to the name (fixed-width slot) rather than as a
             // trailing suffix - a trailing tag's presence/absence made each row a
             // different visible length, throwing off the right column's alignment.
@@ -950,7 +1007,7 @@ void Game::handleInput() {
 
             std::string mainLine =
                 std::string("  ") + Color::DIM + std::to_string(i + 1) + "." + Color::RESET
-                + " [" + typeColor + typePad + Color::RESET + "] "
+                + " [" + typeColor + typeStr + Color::RESET + "]" + typeGap
                 + Color::BOLD + rarityTint(c) + namePad + Color::RESET
                 + " cost:" + Color::ENERGY_CLR + std::to_string(c.getCost()) + Color::RESET
                 + "  " + valLabel + ":" + Color::GREEN + std::to_string(dispVal) + Color::RESET;
@@ -968,7 +1025,11 @@ void Game::handleInput() {
     options.push_back("Status");      disabled.push_back(false);
 
     std::cout << "\n";
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 50, 0, disabled);
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 50, 0, disabled,
+        [&]() {
+            refreshBattleAuras();
+            EnemyArt::animateBattleIdleAt(enemy.getType(), enemy.getBossType(), 0);
+        });
     if (choice < 0) return;
 
     if (choice < handCount) {
@@ -995,7 +1056,6 @@ void Game::handleInput() {
 }
 
 Enemy Game::generateBossEnemy() {
-    int enc = currentRun.getCurrentEncounter();
     int bossHealth  = currentRun.getEnemyHealth() * 2;
     int bossAttack  = currentRun.getEnemyAttack() + 4;
     int bossDefense = currentRun.getEnemyDefense();
@@ -1022,8 +1082,13 @@ Enemy Game::generateBossEnemy() {
             break;
         case 4:
             name  = "Undead Dragon";
-            etype = EnemyType::RANGED; // flight/wind fits better than reusing Warlord's Melee slot
+            etype = EnemyType::RANGED;
             btype = BossType::DRAGON;
+            break;
+        case 5:
+            name  = "Shadow Knight";
+            etype = EnemyType::MELEE;
+            btype = BossType::SHADOW_KNIGHT;
             break;
         default: // 0, and fallback
             name  = "Stone Colossus";
@@ -1032,9 +1097,9 @@ Enemy Game::generateBossEnemy() {
             break;
     }
 
-    // Add tier prefix on repeat cycles through the full boss rotation
-    int occurrence = (enc / 8) - 1; // 0-indexed: which boss appearance this is
-    int cycle = occurrence / 5;
+    if (btype == BossType::SHADOW_KNIGHT) bossHealth = bossHealth * 5 / 4;
+
+    int cycle = currentRun.getCycle();
     if (cycle == 1) name = "Ancient " + name;
     else if (cycle >= 2) name = "Eternal " + name;
 
@@ -1060,6 +1125,7 @@ void Game::bossAction() {
             case BossType::WARLORD:        roll = 50; break;
             case BossType::HYDRA:          roll = 80; break;
             case BossType::DRAGON:         roll = 80; break;
+            case BossType::SHADOW_KNIGHT:  roll = -1; break; // plain strike
             default: break;
         }
     }
@@ -1069,7 +1135,7 @@ void Game::bossAction() {
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
     auto doAttack = [&](int damage, bool raw) {
-        EnemyArt::printLunge(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType());
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -1077,7 +1143,7 @@ void Game::bossAction() {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(counterDmg);
             int hpLost = hpBefore - enemy.getHealth();
-            if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+            if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
             Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
             std::cout << Color::GREEN << "Dodge! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
                       << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -1093,8 +1159,10 @@ void Game::bossAction() {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
                 int hpLost = hpBefore - enemy.getHealth();
-                if (hpLost > 0) EnemyArt::printHitFlash(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+                if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
                 bool stunned = enemy.tryApplyStun();
+                if (stunned && enemy.isAlive())
+                    EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "special");
                 std::cout << Color::CYAN << "Parry! You deflect the blow - no damage taken. Riposte for " << hpLost
                           << " damage!" << (stunned ? " Boss is stunned!" : " Boss resists the stun!") << Color::RESET
@@ -1109,6 +1177,7 @@ void Game::bossAction() {
         }
         if (raw) {
             playerHealth = std::max(0, playerHealth - damage);
+            if (damage > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
             Audio::playSFX("hit");
             std::cout << Color::BOLD << Color::DAMAGE << "  BOSS slams for " << damage
                       << " (ignores armor)!" << Color::RESET
@@ -1118,6 +1187,7 @@ void Game::bossAction() {
             int actual = std::max(0, damage - playerArmor);
             playerArmor = std::max(0, playerArmor - damage);
             playerHealth = std::max(0, playerHealth - actual);
+            if (actual > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
             Audio::playSFX("hit");
             std::cout << Color::BOLD << Color::DAMAGE << "  BOSS strikes for " << actual
                       << " damage!" << Color::RESET
@@ -1254,6 +1324,103 @@ void Game::bossAction() {
             }
             break;
 
+        case BossType::SHADOW_KNIGHT: {
+            // Plays a shadow copy of a random card from the player's deck.
+            std::vector<Card> deckCards = playerDeck.getAllCardsOrdered();
+            if (roll < 0 || deckCards.empty()) { // taunted
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Shadow Knight strikes!" + Color::RESET + "\n");
+                UIHelper::pause(200);
+                doAttack(atk, false);
+                break;
+            }
+            std::uniform_int_distribution<> cardDist(0, (int)deckCards.size() - 1);
+            const Card& mirrored = deckCards[cardDist(gen)];
+            int v = std::max(1, mirrored.getValue());
+            UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Shadow Knight mirrors your "
+                + mirrored.getName() + "!" + Color::RESET + "\n");
+            UIHelper::pause(300);
+
+            if (mirrored.getType() == CardType::ATTACK) {
+                bool pierce = (mirrored.getEffect() == CardEffect::PIERCE);
+                if (mirrored.getEffect() == CardEffect::DOUBLE_HIT) {
+                    doAttack(atk / 2 + v / 2, false);
+                    if (playerHealth > 0) doAttack(atk / 2 + v / 2, false);
+                } else {
+                    doAttack(atk + v / 2, pierce);
+                }
+                switch (mirrored.getEffect()) {
+                    case CardEffect::POISON: applyPlayerStatus(StatusType::POISON, 3);
+                        std::cout << "  " << Color::POISON_CLR << "The shadow's blade drips venom - Poison 3!" << Color::RESET << "\n"; break;
+                    case CardEffect::BURN:   applyPlayerStatus(StatusType::BURN, 2);
+                        std::cout << "  " << Color::BURN_CLR << "The shadow's blade sears - Burn 2!" << Color::RESET << "\n"; break;
+                    case CardEffect::WEAK:   applyPlayerStatus(StatusType::WEAK, 2);
+                        std::cout << "  " << Color::WEAK_CLR << "The blow saps your strength - Weak 2!" << Color::RESET << "\n"; break;
+                    case CardEffect::STUN:   applyPlayerStatus(StatusType::STUN, 1);
+                        std::cout << "  " << Color::STUN_CLR << "The blow leaves you reeling - STUNNED!" << Color::RESET << "\n"; break;
+                    case CardEffect::STRENGTH:
+                        enemy.addBonusAttack(2);
+                        std::cout << "  " << Color::RED << "The shadow grows stronger! (+2 attack)" << Color::RESET << "\n"; break;
+                    default: break;
+                }
+            } else if (mirrored.getType() == CardType::DEFEND) {
+                int armorGain = std::max(6, v);
+                enemy.gainArmor(armorGain);
+                std::cout << Color::MAGENTA << "The shadow raises your own guard against you!" << Color::RESET
+                          << " +" << Color::ARMOR_CLR << armorGain << Color::RESET
+                          << " armor (" << enemy.getArmor() << " total)\n";
+                if (mirrored.getEffect() == CardEffect::CHIP) {
+                    UIHelper::pause(200);
+                    doAttack(v / 2 + 2, true);
+                } else if (mirrored.getEffect() == CardEffect::IMPAIR) {
+                    applyPlayerStatus(StatusType::WEAK, 2);
+                    std::cout << "  " << Color::WEAK_CLR << "Its stance unsettles you - Weak 2!" << Color::RESET << "\n";
+                }
+                UIHelper::pause(250);
+            } else { // SPECIAL
+                switch (mirrored.getEffect()) {
+                    case CardEffect::HEAL: {
+                        int healAmt = v * 2;
+                        enemy.heal(healAmt);
+                        std::cout << Color::MAGENTA << "The shadow knits itself back together, healing " << Color::HEAL
+                                  << healAmt << " HP!" << Color::RESET << " ("
+                                  << hpColor(enemy.getHealth(), enemy.getMaxHealth())
+                                  << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+                        UIHelper::pause(250);
+                        break;
+                    }
+                    case CardEffect::POISON:
+                        applyPlayerStatus(StatusType::POISON, v);
+                        Audio::playSFX("poison");
+                        std::cout << "  " << Color::POISON_CLR << "Shadow venom seeps in - Poison " << v << "!" << Color::RESET << "\n";
+                        UIHelper::pause(300);
+                        break;
+                    case CardEffect::BURN:
+                        applyPlayerStatus(StatusType::BURN, v);
+                        Audio::playSFX("fire");
+                        std::cout << "  " << Color::BURN_CLR << "Black flames catch - Burn " << v << "!" << Color::RESET << "\n";
+                        UIHelper::pause(300);
+                        break;
+                    case CardEffect::WEAK:
+                        applyPlayerStatus(StatusType::WEAK, v);
+                        std::cout << "  " << Color::WEAK_CLR << "A creeping dread - Weak " << v << "!" << Color::RESET << "\n";
+                        UIHelper::pause(300);
+                        break;
+                    case CardEffect::STUN:
+                        applyPlayerStatus(StatusType::STUN, 1);
+                        Audio::playSFX("volt");
+                        std::cout << "  " << Color::STUN_CLR << "Shadows bind you - STUNNED!" << Color::RESET << "\n";
+                        UIHelper::pause(300);
+                        break;
+                    default: // reactive cards (Dodge/Parry/Taunt) have no mirror
+                        std::cout << Color::MAGENTA << "The mirrored stance dissolves - the shadow lunges!" << Color::RESET << "\n";
+                        UIHelper::pause(200);
+                        doAttack(atk, false);
+                        break;
+                }
+            }
+            break;
+        }
+
         default:
             doAttack(atk, false);
     }
@@ -1348,6 +1515,7 @@ void Game::offerExtraPlay() {
 
 void Game::startEncounter() {
     UIHelper::clearScreen();
+    EnemyArt::setBattleBackdrop(currentRun.getCurrentEncounter());
     playerDeck.resetDeck();
     int drawCount = 5 + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
@@ -1361,19 +1529,46 @@ void Game::startEncounter() {
         int attack  = currentRun.getEnemyAttack();
         int defense = currentRun.getEnemyDefense();
 
-        int enc = currentRun.getCurrentEncounter();
-        int typeIndex = (enc - 1) % 6;
-        EnemyType etype;
-        switch (typeIndex) {
-            case 0: etype = EnemyType::MELEE;  break;
-            case 1: etype = EnemyType::RANGED; break;
-            case 2: etype = EnemyType::TANK;   break;
-            case 3: etype = EnemyType::CASTER; break;
-            case 4: etype = EnemyType::BEAST;  break;
-            case 5: etype = EnemyType::UNDEAD; break;
-            default: etype = EnemyType::MELEE; break;
-        }
-        std::string name = Enemy::generateName(etype, enc);
+        // The 44 unique regular enemies, ordered so no two consecutive fights
+        // share a type.
+        struct RosterEntry { EnemyType type; const char* name; };
+        static const RosterEntry ROSTER[44] = {
+            // 1-9, before the Stone Colossus
+            {EnemyType::MELEE, "Goblin"},   {EnemyType::TANK, "Knight"},
+            {EnemyType::CASTER, "Wizard"},  {EnemyType::UNDEAD, "Skeleton"},
+            {EnemyType::BEAST, "Wolf"},     {EnemyType::RANGED, "Slinger"},
+            {EnemyType::MELEE, "Bandit"},   {EnemyType::TANK, "Guardian"},
+            {EnemyType::CASTER, "Sage"},
+            // 11-19, before the Vile Witch
+            {EnemyType::UNDEAD, "Ghoul"},   {EnemyType::BEAST, "Spider"},
+            {EnemyType::RANGED, "Falconer"},{EnemyType::MELEE, "Raider"},
+            {EnemyType::TANK, "Sentinel"},  {EnemyType::CASTER, "Enchanter"},
+            {EnemyType::UNDEAD, "Wraith"},  {EnemyType::BEAST, "Serpent"},
+            {EnemyType::RANGED, "Arbalest"},
+            // 21-29, before the Thunder Beast
+            {EnemyType::MELEE, "Warrior"},  {EnemyType::TANK, "Warden"},
+            {EnemyType::CASTER, "Sorcerer"},{EnemyType::UNDEAD, "Specter"},
+            {EnemyType::BEAST, "Basilisk"}, {EnemyType::RANGED, "Deadeye"},
+            {EnemyType::MELEE, "Barbarian"},{EnemyType::TANK, "Paladin"},
+            {EnemyType::CASTER, "Mystic"},
+            // 31-39, before the Hydra
+            {EnemyType::UNDEAD, "Banshee"}, {EnemyType::BEAST, "Cockatrice"},
+            {EnemyType::RANGED, "Stormbow"},{EnemyType::MELEE, "Berserker"},
+            {EnemyType::TANK, "Bastion"},   {EnemyType::CASTER, "Warlock"},
+            {EnemyType::UNDEAD, "Revenant"},{EnemyType::BEAST, "Manticore"},
+            {EnemyType::RANGED, "Wyvern"},
+            // 41-48, before the Dragon + Shadow Knight finale
+            {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Fortress"},
+            {EnemyType::CASTER, "Archon"},  {EnemyType::UNDEAD, "Lich"},
+            {EnemyType::BEAST, "Chimera"},  {EnemyType::MELEE, "Enforcer"},
+            {EnemyType::TANK, "Colossus"},  {EnemyType::CASTER, "Spellmaster"},
+        };
+        int r = currentRun.getRegularIndex() % 44;
+        EnemyType etype = ROSTER[r].type;
+        std::string name = ROSTER[r].name;
+        int cycle = currentRun.getCycle();
+        if (cycle == 1) name = "Greater " + name;
+        else if (cycle >= 2) name = "Eternal " + name;
         std::string typeLabel = (etype == EnemyType::MELEE) ? "Melee"
                               : (etype == EnemyType::RANGED) ? "Ranged"
                               : (etype == EnemyType::TANK)   ? "Tank"
@@ -1383,12 +1578,20 @@ void Game::startEncounter() {
         enemy = Enemy(name, health, attack, defense, etype);
     }
 
+    EnemyArt::setEnemyVariant(enemy.getName());
+
     inEncounter = true;
     turnNumber = 1;
     playerTurnActive = true;
     playerArmor = 0;
     playerEnergy = maxEnergy;
     playerStatus.reset();
+    // An armed-but-unconsumed Status Guard shouldn't carry into a new fight -
+    // it previously only cleared when triggered, so playing it and never
+    // getting hit with an ailment (e.g. the enemy died first) would silently
+    // ambush a later encounter. Dodge/Parry don't need this: endPlayerTurn()
+    // already clears them every turn boundary, win or not.
+    statusWardActive = false;
 
     currentRun.displayRunStats();
 
@@ -1401,7 +1604,8 @@ void Game::startEncounter() {
                                        currentRun.getEncounterTier());
     }
 
-    EnemyArt::print(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+    refreshBattleAuras();
+    EnemyArt::printBattle(enemy.getType(), enemy.getBossType());
 
     displayStatus();
     displayTurnInfo();
@@ -1453,6 +1657,8 @@ void Game::restSite() {
         }
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+        std::stable_sort(allCards.begin(), allCards.end(),
+            [](const Card& a, const Card& b) { return rarityRank(a) > rarityRank(b); });
 
         // Group identical cards together - picking a group upgrades every copy at once.
         std::vector<const Card*> groupCard;
@@ -1528,8 +1734,13 @@ void Game::restSite() {
                 cardDisabled.push_back(maxed);
             }
 
+            int prevPageOptIdx = -1;
             int nextPageOptIdx = -1;
             if (totalPages > 1) {
+                cardOptions.push_back("Previous Page");
+                cardDisabled.push_back(false);
+                prevPageOptIdx = (int)cardOptions.size() - 1;
+
                 cardOptions.push_back("Next Page (" + std::to_string(page + 1) + "/" + std::to_string(totalPages) + ")");
                 cardDisabled.push_back(false);
                 nextPageOptIdx = (int)cardOptions.size() - 1;
@@ -1548,6 +1759,10 @@ void Game::restSite() {
             if (choice == nextPageOptIdx) {
                 page = (page + 1) % totalPages;
                 continue; // redraw with the next page
+            }
+            if (choice == prevPageOptIdx) {
+                page = (page - 1 + totalPages) % totalPages;
+                continue; // redraw with the previous page
             }
             if (choice < 0 || choice == returnOptIdx) {
                 break; // backed out - no commitment made
@@ -1607,6 +1822,8 @@ void Game::viewDeckManage() {
         }
 
         std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+        std::stable_sort(allCards.begin(), allCards.end(),
+            [](const Card& a, const Card& b) { return rarityRank(a) > rarityRank(b); });
 
         // Group identical cards (dupes are just how the deck deals out cards).
         std::vector<const Card*> groupCard;
@@ -1684,7 +1901,7 @@ void Game::viewDeckManage() {
 
 void Game::handleEncounterWin() {
     currentRun.winEncounter();
-    EnemyArt::printDeath(EnemyArt::get(enemy.getType(), enemy.getBossType()));
+    EnemyArt::printBattleDeath(enemy.getType(), enemy.getBossType());
     Audio::playSFX("win");
     UIHelper::pause(300);
     UIHelper::clearScreen();
@@ -1693,19 +1910,12 @@ void Game::handleEncounterWin() {
     std::cout << "Enemies Defeated: " << Color::GREEN << currentRun.getEncountersWon() << Color::RESET << "\n";
 
     if (enemy.isBoss()) {
-        // First-ever Dragon kill (occurrence 4, cycle 0) closes out the boss rotation -
-        // everything past this point is the same 5 bosses again, scaled up indefinitely.
-        int occurrence = (currentRun.getCurrentEncounter() / 8) - 1;
-        int bossOccurrence = occurrence + 1; // 1-indexed count of bosses defeated so far, including this one
-        if (enemy.getBossType() == BossType::DRAGON && occurrence / 5 == 0) {
-            UIHelper::waitForKey();
-            UIHelper::clearScreen();
-            std::cout << "\n" << Color::BOLD << Color::MAGENTA << "THE MAIN GAME IS COMPLETE" << Color::RESET << "\n\n";
-            std::cout << "  You've beaten all 5 bosses. From here on it's endless mode - the\n";
-            std::cout << "  same bosses keep coming back, stronger each time (\"Ancient\", then\n";
-            std::cout << "  \"Eternal\"), along with tougher regular encounters. See how far you\n";
-            std::cout << "  can push it.\n\n";
-            UIHelper::waitForKey();
+        int bossOccurrence = currentRun.getBossNumber(); // 1-indexed, including this one
+
+        // First Shadow Knight kill ends the game
+        if (enemy.getBossType() == BossType::SHADOW_KNIGHT && currentRun.getCycle() == 0) {
+            handleGameVictory();
+            return;
         }
 
         // Announce the regular-reward rarity gate lifting - Legendary is never
@@ -1733,6 +1943,48 @@ void Game::handleEncounterWin() {
     restSite();
 
     offerContinueOrEndRun();
+}
+
+void Game::handleGameVictory() {
+    UIHelper::waitForKey();
+    UIHelper::clearScreen();
+    UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::MAGENTA
+        + "The Shadow Knight staggers... and your dark reflection scatters like smoke." + Color::RESET + "\n");
+    UIHelper::pause(600);
+
+    std::cout << "\n" << Color::BOLD << Color::YELLOW;
+    std::cout << "  =====================================================\n";
+    std::cout << "               V I C T O R Y   E T E R N A L\n";
+    std::cout << "  =====================================================\n" << Color::RESET;
+    std::cout << "\n  All 50 encounters conquered. Every boss lies broken -\n";
+    std::cout << "  even the shadow that wore your own face and fought with\n";
+    std::cout << "  your own cards. The realm is free. Your legend is complete.\n\n";
+    UIHelper::waitForKey();
+
+    std::vector<Card> legendaries = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
+    if (!legendaries.empty()) {
+        const Card& leg = legendaries.front();
+        playerDeck.addCard(leg);
+        runStats.addCardToRun();
+        Audio::playSFX("upgrade");
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::BOLD << Color::YELLOW << "From the dissolving shadow you claim its heart:" << Color::RESET << "\n\n";
+        std::cout << "  " << Color::BOLD << rarityTint(leg) << leg.getName() << Color::RESET
+                  << "  " << Color::DIM << "(LEGENDARY)" << Color::RESET << "\n";
+        std::cout << "  " << Color::DIM << leg.getDescription() << Color::RESET << "\n\n";
+        std::cout << "  " << Color::DIM << "Added to your deck. If you play again, you can carry one card\n"
+                  << "  into the new run - even this one." << Color::RESET << "\n";
+        UIHelper::waitForKey();
+    } else {
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::DIM << "You already wield the legendary art - claim a final trophy instead." << Color::RESET << "\n";
+        UIHelper::waitForKey();
+        offerBossReward();
+    }
+
+    deleteSave();
+    inEncounter = false;
+    currentRun.loseRun(); // main loop routes to finishRun()
 }
 
 void Game::offerContinueOrEndRun() {
@@ -1772,7 +2024,7 @@ void Game::offerCardReward() {
     // Regular-encounter rewards are gated by bosses defeated so far: Uncommon only
     // until the 1st boss falls, +Rare after that, +Super Rare after the 2nd boss.
     // Legendary (Dodge) is unaffected - it stays boss-reward-exclusive either way.
-    int maxRarityUnlocked = std::min(2, currentRun.getCurrentEncounter() / 8);
+    int maxRarityUnlocked = std::min(2, currentRun.getCurrentEncounter() / 10);
     std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames(), maxRarityUnlocked);
 
     if (rewards.empty()) {
@@ -2061,7 +2313,7 @@ void Game::showHowToPlay() {
 
     std::cout << Color::BOLD << "GOAL" << Color::RESET << "\n";
     std::cout << "  Survive as many encounters as you can. Build your deck, upgrade your\n";
-    std::cout << "  best cards, and defeat the bosses that appear every 8th fight.\n\n";
+    std::cout << "  best cards, and defeat the bosses that appear every 10th fight.\n\n";
 
     std::cout << Color::BOLD << "YOUR TURN" << Color::RESET << "\n";
     std::cout << "  Each turn you draw a hand and get a number of \"plays\" (energy).\n";
@@ -2169,6 +2421,7 @@ void Game::showTutorial() {
     bool savedInEncounter  = inEncounter;
 
     enemy = Enemy("Training Dummy", 35, 4, 2, EnemyType::MELEE);
+    EnemyArt::setEnemyVariant(enemy.getName());
     playerHealth = maxPlayerHealth;
     playerArmor = 0;
     playerArmorPersistTurns = 0;

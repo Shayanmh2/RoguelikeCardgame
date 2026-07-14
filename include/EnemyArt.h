@@ -1,38 +1,82 @@
 #pragma once
 
 #include "Enemy.h"
-#include <string>
 #include <vector>
-#include <unordered_map>
+#include <string>
 
-// True-color "pixel art" portraits per enemy archetype and boss, plus a few
-// triggered animation beats (hit flash, attack lunge, death crumple).
-//
-// Rendered with 24-bit color half-blocks (U+2580 UPPER HALF BLOCK): each
-// terminal cell's foreground paints the "top" pixel and its background paints
-// the "bottom" pixel, packing two pixel-rows into one printed row - the same
-// technique terminal image viewers (chafa, viu, etc.) use, not hand-drawn
-// ASCII glyphs.
+// Battle sprites, rendered as 24-bit color half-blocks (U+2580): each cell's
+// foreground is the top pixel, background the bottom, so two image rows share
+// one terminal row.
 namespace EnemyArt {
     struct RGB { unsigned char r, g, b; };
 
+    // True-color pixel frame, loaded from a PNG sprite sheet.
     struct Art {
-        std::vector<std::string> grid; // rows of palette-key characters, '.' = transparent
-        std::unordered_map<char, RGB> palette; // overrides/additions on top of the shared palette
+        std::vector<std::vector<RGB>> trueColorGrid;
+        std::vector<std::vector<bool>> trueColorOpaque; // false = transparent
     };
 
     // Boss != NONE takes priority over the base EnemyType.
     const Art& get(EnemyType type, BossType boss = BossType::NONE);
 
-    // Static portrait, full brightness.
-    void print(const Art& art, int indent = 2);
+    // Idle frame - alternates per call.
+    const Art& getWalkFrame(EnemyType type, BossType boss = BossType::NONE);
 
-    // Brief lunge toward the player (shifted left, no indent).
-    void printLunge(const Art& art);
+    // Hit/death variants; fall back to the normal portrait.
+    const Art& getHitArt(EnemyType type, BossType boss = BossType::NONE);
+    const Art& getDeathArt(EnemyType type, BossType boss = BossType::NONE);
 
-    // Brief bright flash (used when the enemy takes damage) - blown-out highlights.
-    void printHitFlash(const Art& art);
+    // Single portrait (View Enemy screen).
+    void print(const Art& art, int indent = 6);
 
-    // Crumple/fade sequence (used when the enemy is defeated) - darkened palette.
-    void printDeath(const Art& art);
+    // --- battle scene: knight on the left, enemy on the right ---
+
+    // Full scene, both idle frames.
+    void printBattle(EnemyType type, BossType boss = BossType::NONE);
+
+    // Redraws the scene in place at console row startRow (menu idle tick).
+    void animateBattleIdleAt(EnemyType type, BossType boss, int startRow);
+
+    // Enemy attack: 3-frame windup/swing/impact.
+    void printBattleAttack(EnemyType type, BossType boss = BossType::NONE);
+
+    // Player damage lands: knight swings, enemy flashes with its hit face.
+    void printBattleHit(EnemyType type, BossType boss = BossType::NONE);
+
+    // DEFEND card: knight raises and braces his shield.
+    void printBattleBlock(EnemyType type, BossType boss = BossType::NONE);
+
+    // Ailment cast: knight's palm glows in the ailment's color.
+    enum class CastGlow { POISON, BURN, STUN, WEAK };
+    void printBattleCast(EnemyType type, BossType boss, CastGlow glow);
+
+    // Ailment lands: the afflicted side flashes the status color for a beat.
+    // Stacked ailments call this once per status, giving the 1s-per-color chain.
+    void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool onEnemy);
+
+    // Self-buff flash: strengthen = red, heal = light green.
+    enum class SelfGlow { STRENGTH, HEAL };
+    void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow);
+
+    // Persistent auras while a status lasts: knight glows red under Strength,
+    // the enemy glows blue while Weakened. Set before drawing the scene.
+    void setBattleAuras(bool knightStrength, bool enemyWeak);
+
+    // Picks the backdrop for this encounter (a new environment every 10
+    // encounters, cycling after the last).
+    void setBattleBackdrop(int encounterNumber);
+
+    // Picks a per-name sprite (beasts, undead, the wyvern) by matching the
+    // enemy's name. Call at encounter start; names without their own sheet
+    // fall back to their type's sprite.
+    void setEnemyVariant(const std::string& enemyName);
+
+    // Enemy defeated: enemy darkens into its death pose.
+    void printBattleDeath(EnemyType type, BossType boss = BossType::NONE);
+
+    // Enemy's blow lands: knight recoils and flashes.
+    void printBattleKnightHit(EnemyType type, BossType boss = BossType::NONE);
+
+    // Player defeated: knight slumps, darkened.
+    void printBattleKnightDeath(EnemyType type, BossType boss = BossType::NONE);
 }
