@@ -21,7 +21,7 @@ void UpgradeSystem::checkAndUnlockUpgrades(int totalEncounters, int totalCards) 
     if (totalEncounters >= 3) unlockedUpgrades[1] = true;
     if (totalEncounters >= 3) unlockedUpgrades[2] = true;
     if (totalCards >= 6)      unlockedUpgrades[3] = true;
-    if (totalEncounters >= 8) unlockedUpgrades[4] = true;
+    if (totalEncounters >= 10) unlockedUpgrades[4] = true;
 }
 
 void UpgradeSystem::selectActiveUpgrades() {

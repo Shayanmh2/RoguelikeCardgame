@@ -6,7 +6,7 @@
 #include <string>
 
 enum class EnemyType  { MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD };
-enum class BossType   { NONE, STONE_COLOSSUS, VILE_WITCH, WARLORD, HYDRA, DRAGON };
+enum class BossType   { NONE, STONE_COLOSSUS, VILE_WITCH, WARLORD, HYDRA, DRAGON, SHADOW_KNIGHT };
 
 class Enemy {
 private:

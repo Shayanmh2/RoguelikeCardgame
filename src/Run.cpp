@@ -1,6 +1,21 @@
 #include "Run.h"
 #include <iostream>
 
+// One run cycle: 44 unique regulars, bosses at 10/20/30/40/49/50.
+namespace {
+    constexpr int CYCLE_LENGTH = 50;
+    constexpr int BOSS_POSITIONS[] = {10, 20, 30, 40, 49, 50};
+    constexpr int BOSS_COUNT = 6;
+
+    int cyclePos(int encounter) { return ((encounter - 1) % CYCLE_LENGTH) + 1; }
+
+    int bossSlot(int pos) {
+        for (int i = 0; i < BOSS_COUNT; ++i)
+            if (BOSS_POSITIONS[i] == pos) return i;
+        return -1;
+    }
+}
+
 Run::Run() : currentEncounter(0), encountersWon(0), runActive(false) {}
 
 void Run::startRun() {
@@ -57,15 +72,35 @@ int Run::getEnemyDefense() const {
 }
 
 bool Run::isBossEncounter() const {
-    return currentEncounter % 8 == 0; // first boss at encounter 8
+    return bossSlot(cyclePos(currentEncounter)) >= 0;
 }
 
 int Run::getBossIndex() const {
-    return ((currentEncounter / 8) - 1) % 5; // 5 bosses in rotation
+    int s = bossSlot(cyclePos(currentEncounter));
+    return s < 0 ? 0 : s; // 0..5: colossus, witch, thunder beast, hydra, dragon, shadow knight
+}
+
+int Run::getCycle() const {
+    return (currentEncounter - 1) / CYCLE_LENGTH; // 0 = main game, 1+ = endless
+}
+
+int Run::getBossNumber() const {
+    return getCycle() * BOSS_COUNT + getBossIndex() + 1; // 1-based, across cycles
+}
+
+int Run::getRegularIndex() const {
+    int pos = cyclePos(currentEncounter);
+    int bossesBefore = 0;
+    for (int i = 0; i < BOSS_COUNT; ++i)
+        if (BOSS_POSITIONS[i] < pos) ++bossesBefore;
+    return pos - 1 - bossesBefore; // 0..43 within the cycle
 }
 
 std::string Run::getDifficultyTier() const {
-    int tier = (currentEncounter - 1) / 5;
+    // One name per 10-encounter boss-gated segment (1-10/11-20/.../41-50), so
+    // the label now tracks the boss schedule instead of outpacing it - INSANE
+    // no longer shows up until the endless cycles past the Shadow Knight.
+    int tier = (currentEncounter - 1) / 10;
     switch (tier) {
         case 0: return "EASY";
         case 1: return "NORMAL";

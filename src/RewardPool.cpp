@@ -162,3 +162,12 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
     }
     return choices;
 }
+
+std::vector<Card> RewardPool::getUnownedLegendaries(const std::vector<std::string>& ownedNames) const {
+    std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
+    std::vector<Card> result;
+    for (const auto& c : rareCards)
+        if (c.isLegendary() && owned.find(c.getName()) == owned.end())
+            result.push_back(c);
+    return result;
+}

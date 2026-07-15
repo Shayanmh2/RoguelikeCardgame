@@ -27,8 +27,11 @@ public:
     int getEnemyAttack() const;
     int getEnemyDefense() const;
     
-    bool isBossEncounter() const;   // true when currentEncounter % 8 == 0
-    int  getBossIndex() const;       // cycles through the 5 boss types
+    bool isBossEncounter() const;   // bosses at 10/20/30/40, then the Dragon at 49 and Shadow Knight at 50
+    int  getBossIndex() const;      // 0..5 within the cycle: colossus, witch, thunder beast, hydra, dragon, shadow knight
+    int  getCycle() const;          // 0 = main game, 1+ = endless repeats of the cycle
+    int  getBossNumber() const;     // 1-based count of bosses up to and including this one, across cycles
+    int  getRegularIndex() const;   // 0..43: which of the 44 unique regular enemies this is (non-boss only)
 
     std::string getDifficultyTier() const;
     std::string getEncounterDifficulty() const;
