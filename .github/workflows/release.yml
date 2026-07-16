@@ -27,6 +27,7 @@ jobs:
           Copy-Item cardgame.exe release\
           Copy-Item -Recurse config  release\config
           Copy-Item -Recurse sounds  release\sounds
+          Copy-Item -Recurse assets  release\assets
           Compress-Archive -Path release\* -DestinationPath RoguelikeCardgame.zip
         shell: pwsh
 
