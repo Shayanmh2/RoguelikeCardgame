@@ -283,12 +283,48 @@ static RGB auraWeak(RGB c) {
              (unsigned char)std::min(255, c.b + 65) };
 }
 
-static bool auraKnightStrength = false;
-static bool auraEnemyWeak = false;
+static RGB auraPoison(RGB c) {
+    return { (unsigned char)(c.r * 0.85), (unsigned char)std::min(255, c.g + 55),
+             (unsigned char)(c.b * 0.85) };
+}
 
-void setBattleAuras(bool knightStrength, bool enemyWeak) {
-    auraKnightStrength = knightStrength;
-    auraEnemyWeak = enemyWeak;
+static RGB auraBurn(RGB c) {
+    return { (unsigned char)std::min(255, c.r + 60),
+             (unsigned char)(c.g * 0.88), (unsigned char)(c.b * 0.80) };
+}
+
+static RGB auraStun(RGB c) {
+    return { (unsigned char)std::min(255, c.r + 55),
+             (unsigned char)std::min(255, c.g + 48), (unsigned char)(c.b * 0.80) };
+}
+
+static AuraFlags auraKnight;
+static AuraFlags auraEnemy;
+
+// Advances only on idle redraws (animateBattleIdleAt), each ~450ms apart -
+// close enough to wall-clock without pulling in <chrono> for a cosmetic cycle.
+static int auraElapsedMs = 0;
+static const int AURA_TICK_MS  = 450;
+static const int AURA_CYCLE_MS = 2000;
+
+void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
+    auraKnight = knight;
+    auraEnemy = enemy;
+}
+
+// Collects every tint the side currently carries and rotates through them
+// every AURA_CYCLE_MS. A side with one active status just holds that color.
+static RGB (*pickAuraTint(const AuraFlags& f))(RGB) {
+    RGB (*tints[5])(RGB);
+    int n = 0;
+    if (f.strength) tints[n++] = auraStrength;
+    if (f.weak)     tints[n++] = auraWeak;
+    if (f.poison)   tints[n++] = auraPoison;
+    if (f.burn)     tints[n++] = auraBurn;
+    if (f.stun)     tints[n++] = auraStun;
+    if (n == 0) return nullptr;
+    int idx = (auraElapsedMs / AURA_CYCLE_MS) % n;
+    return tints[idx];
 }
 
 static size_t artRows(const Art& a) {
@@ -381,8 +417,8 @@ static void renderBattle(const Art& left, const Art& right,
     size_t roff = rows - artRows(right);
     size_t boff = rows - artRows(bg);
 
-    RGB (*leftFx)(RGB)  = lt ? lt : (auraKnightStrength ? auraStrength : nullptr);
-    RGB (*rightFx)(RGB) = rt ? rt : (auraEnemyWeak ? auraWeak : nullptr);
+    RGB (*leftFx)(RGB)  = lt ? lt : pickAuraTint(auraKnight);
+    RGB (*rightFx)(RGB) = rt ? rt : pickAuraTint(auraEnemy);
 
     auto pixAt = [&](size_t r, size_t c) -> RGB {
         if (c >= (size_t)BATTLE_LEFT_INDENT && r >= loff) {
@@ -453,7 +489,8 @@ void printBattle(EnemyType type, BossType boss) {
 }
 
 void animateBattleIdleAt(EnemyType type, BossType boss, int startRow) {
-    bgPhase = !bgPhase;
+    bgPhase = !bgPhase; // ambient flicker (torches, fireflies, shimmer)
+    auraElapsedMs += AURA_TICK_MS;
     // SetConsoleCursorPosition acts immediately - flush so buffered output
     // lands before each jump.
     std::cout.flush();

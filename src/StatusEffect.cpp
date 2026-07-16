@@ -46,6 +46,12 @@ bool StatusEffects::hasAny() const {
     return poisonTurns > 0 || burnTurns > 0 || stun > 0 || weakTurns > 0 || strengthTurns > 0;
 }
 
+bool StatusEffects::hasPoison() const   { return poisonTurns > 0; }
+bool StatusEffects::hasBurn() const     { return burnTurns > 0; }
+bool StatusEffects::hasStun() const     { return stun > 0; }
+bool StatusEffects::hasWeak() const     { return weakTurns > 0; }
+bool StatusEffects::hasStrength() const { return strengthTurns > 0; }
+
 int StatusEffects::processPoison() {
     if (poisonTurns <= 0) return 0;
     int dmg = poisonDmg;

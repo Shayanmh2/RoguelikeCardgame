@@ -403,8 +403,17 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
 }
 
 void Game::refreshBattleAuras() {
-    EnemyArt::setBattleAuras(playerStatus.getStrengthMultiplier() > 1.0,
-                             enemy.getWeakMultiplier() < 1.0);
+    EnemyArt::AuraFlags knight, foe;
+    knight.strength = playerStatus.hasStrength();
+    knight.weak     = playerStatus.hasWeak();
+    knight.poison   = playerStatus.hasPoison();
+    knight.burn     = playerStatus.hasBurn();
+    knight.stun     = playerStatus.hasStun();
+    foe.weak   = enemy.hasWeak();
+    foe.poison = enemy.hasPoison();
+    foe.burn   = enemy.hasBurn();
+    foe.stun   = enemy.hasStun();
+    EnemyArt::setBattleAuras(knight, foe);
 }
 
 void Game::playCardFromHand(int index) {

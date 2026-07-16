@@ -58,9 +58,20 @@ namespace EnemyArt {
     enum class SelfGlow { STRENGTH, HEAL };
     void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow);
 
-    // Persistent auras while a status lasts: knight glows red under Strength,
-    // the enemy glows blue while Weakened. Set before drawing the scene.
-    void setBattleAuras(bool knightStrength, bool enemyWeak);
+    // Which status auras are currently active on one side of the battle scene.
+    struct AuraFlags {
+        bool strength = false;
+        bool weak     = false;
+        bool poison   = false;
+        bool burn     = false;
+        bool stun     = false;
+    };
+
+    // Persistent auras while a status lasts, e.g. the knight glows red under
+    // Strength, blue while Weakened. When a side carries more than one status
+    // at once, its glow cycles through each active color every 2 seconds.
+    // Set before drawing the scene.
+    void setBattleAuras(AuraFlags knight, AuraFlags enemy);
 
     // Picks the backdrop for this encounter (a new environment every 10
     // encounters, cycling after the last).

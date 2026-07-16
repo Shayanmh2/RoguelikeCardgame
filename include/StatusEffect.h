@@ -31,6 +31,11 @@ public:
     // keeps whichever is stronger rather than stacking.
     void apply(StatusType type, int amount, double weakMultiplier = 1.5, double strengthMultiplier = 1.2);
     bool hasAny() const;
+    bool hasPoison() const;
+    bool hasBurn() const;
+    bool hasStun() const;
+    bool hasWeak() const;
+    bool hasStrength() const;
 
     int    processPoison();          // returns damage dealt, decrements duration
     int    processBurn();            // returns damage dealt, decrements duration

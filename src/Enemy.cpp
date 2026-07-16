@@ -74,6 +74,10 @@ int  Enemy::processBurn()    { return statusEffects.processBurn(); }
 bool Enemy::processStun()    { return statusEffects.processStun(); }
 double Enemy::getWeakMultiplier() const { return statusEffects.getWeakMultiplier(); }
 void Enemy::processWeak()    { statusEffects.processWeak(); }
+bool Enemy::hasPoison() const { return statusEffects.hasPoison(); }
+bool Enemy::hasBurn()   const { return statusEffects.hasBurn(); }
+bool Enemy::hasStun()   const { return statusEffects.hasStun(); }
+bool Enemy::hasWeak()   const { return statusEffects.hasWeak(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
 std::string Enemy::statusSummary() const { return statusEffects.summary(); }
 
@@ -126,7 +130,7 @@ std::string Enemy::generateName(EnemyType type, int encounter) {
     std::string prefix = "";
     if (encounter > 10) prefix = "Tyrant ";
     else if (encounter > 5) prefix = "Greater ";
-    
+
     switch (type) {
         case EnemyType::MELEE: {
             std::vector<std::string> names = {"Goblin", "Orc", "Bandit", "Brute", "Warrior", "Barbarian", "Gladiator", "Enforcer"};

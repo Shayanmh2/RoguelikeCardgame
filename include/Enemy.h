@@ -45,6 +45,10 @@ public:
     bool processStun();
     double getWeakMultiplier() const;
     void processWeak();
+    bool hasPoison() const;
+    bool hasBurn() const;
+    bool hasStun() const;
+    bool hasWeak() const;
 
     // Attempts to stun this enemy for 1 turn. Bosses resist 50% of the time
     // (returns false and applies nothing when resisted).
