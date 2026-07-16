@@ -72,10 +72,6 @@ int UpgradeSystem::getDrawBonus() const {
     return activeUpgrades[3] ? 1 : 0;
 }
 
-bool UpgradeSystem::isRarityBoostActive() const {
-    return activeUpgrades[4];
-}
-
 bool UpgradeSystem::isUnlocked(int index) const {
     if (index < 0 || index >= (int)unlockedUpgrades.size()) return false;
     return unlockedUpgrades[index];
