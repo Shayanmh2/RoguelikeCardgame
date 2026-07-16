@@ -2,12 +2,12 @@
 
 #include <string>
 #include <vector>
+#include <functional>
 
 class UIHelper {
 public:
     // Draw decorative elements
     static void printLine(int width = 60, char c = '-');
-    static void printBox(const std::string& title, int width = 60);
 
     // Health bar visualization
     static std::string createHealthBar(int current, int max, int width = 20);
@@ -43,15 +43,25 @@ public:
     // Side-by-side menu: prints leftLines as the left column (padded to leftColWidth visual chars),
     // and options as the right column. optionIndices[i] maps each left line to an option index
     // (or -1 for lines with no corresponding option). Options not referenced get blank left sides.
+    // onIdleTick, if set, is called every idleTickMs while waiting on a keypress (Windows only) -
+    // used to redraw an idle animation elsewhere on screen without blocking input.
     static int menuSelectRight(const std::vector<std::string>& leftLines,
                                const std::vector<int>&         optionIndices,
                                const std::vector<std::string>& options,
                                int leftColWidth,
                                int startIndex = 0,
-                               const std::vector<bool>& disabled = {});
+                               const std::vector<bool>& disabled = {},
+                               const std::function<void()>& onIdleTick = nullptr,
+                               int idleTickMs = 450);
 
     // Clear the terminal screen.
     static void clearScreen();
+
+    // Current 0-based cursor row in the console screen buffer (Windows only; returns 0 elsewhere).
+    static int getCursorRow();
+
+    // Moves the cursor to column 0 of the given 0-based row (Windows only; no-op elsewhere).
+    static void setCursorRow(int row);
 
     // Measure the visible (printable) length of a string, ignoring ANSI escape sequences.
     static int visibleLen(const std::string& s);

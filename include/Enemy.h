@@ -70,8 +70,6 @@ public:
     std::string getWeaknessLabel() const; // e.g. "Pierce", empty if none
     DamageType  getResistance() const;
     std::string getResistanceLabel() const; // e.g. "Pierce", empty if none
-
-    static std::string generateName(EnemyType type, int encounter);
 };
 
 #endif

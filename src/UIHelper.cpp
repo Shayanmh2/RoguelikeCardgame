@@ -26,17 +26,6 @@ void UIHelper::printLine(int width, char c) {
     std::cout << Color::RESET << "\n";
 }
 
-void UIHelper::printBox(const std::string& title, int width) {
-    printLine(width, '=');
-    if (!title.empty()) {
-        int padding = (width - (int)title.length() - 2) / 2;
-        if (padding < 0) padding = 0;
-        std::cout << std::string(padding, ' ')
-                  << Color::BOLD << Color::CYAN << title << Color::RESET << "\n";
-        printLine(width, '=');
-    }
-}
-
 std::string UIHelper::createHealthBar(int current, int max, int width) {
     if (max <= 0) return "";
 
@@ -203,12 +192,30 @@ void UIHelper::waitForKey(const std::string& prompt) {
     std::cout << "\n";
 }
 
+int UIHelper::getCursorRow() {
+#ifdef _WIN32
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (GetConsoleScreenBufferInfo(h, &info)) return info.dwCursorPosition.Y;
+#endif
+    return 0;
+}
+
+void UIHelper::setCursorRow(int row) {
+#ifdef _WIN32
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    SetConsoleCursorPosition(h, COORD{ 0, (SHORT)row });
+#endif
+}
+
 int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
                                const std::vector<int>&         optionIndices,
                                const std::vector<std::string>& options,
                                int leftColWidth,
                                int startIndex,
-                               const std::vector<bool>& disabled) {
+                               const std::vector<bool>& disabled,
+                               const std::function<void()>& onIdleTick,
+                               int idleTickMs) {
     int n = (int)options.size();
     if (n == 0) return -1;
 
@@ -287,21 +294,44 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
 
     while (true) {
 #ifdef _WIN32
+        if (onIdleTick) {
+            // Sleep in short slices so keypresses register immediately;
+            // hide the cursor while the animation redraws.
+            std::cout << "\033[?25l";
+            std::cout.flush();
+            int sinceTick = 0;
+            while (!_kbhit()) {
+                platSleep(15);
+                sinceTick += 15;
+                if (sinceTick >= idleTickMs) {
+                    onIdleTick();
+                    sinceTick = 0;
+                }
+            }
+            std::cout << "\033[?25h";
+            std::cout.flush();
+        }
         int ch = _getch();
         if (ch == 0 || ch == 224) {
             int dir = _getch();
-            if (dir == 72) {  // up
-                int next = current - 1;
-                while (next >= 0 && isDisabled(next)) next--;
-                if (next >= 0) {
+            if (dir == 72) {  // up - wraps from the top to the bottom
+                int next = current;
+                for (int step = 0; step < n; step++) {
+                    next = (next - 1 + n) % n;
+                    if (!isDisabled(next)) break;
+                }
+                if (!isDisabled(next)) {
                     current = next;
                     std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
                     printAll();
                 }
-            } else if (dir == 80) {  // down
-                int next = current + 1;
-                while (next < n && isDisabled(next)) next++;
-                if (next < n) {
+            } else if (dir == 80) {  // down - wraps from the bottom to the top
+                int next = current;
+                for (int step = 0; step < n; step++) {
+                    next = (next + 1) % n;
+                    if (!isDisabled(next)) break;
+                }
+                if (!isDisabled(next)) {
                     current = next;
                     std::cout << "\0338";
                     printAll();
@@ -370,18 +400,24 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
         int ch = _getch();
         if (ch == 0 || ch == 224) {
             int dir = _getch();
-            if (dir == 72) {  // up
-                int next = current - 1;
-                while (next >= 0 && isDisabled(next)) next--;
-                if (next >= 0) {
+            if (dir == 72) {  // up - wraps from the top to the bottom
+                int next = current;
+                for (int step = 0; step < n; step++) {
+                    next = (next - 1 + n) % n;
+                    if (!isDisabled(next)) break;
+                }
+                if (!isDisabled(next)) {
                     current = next;
                     std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
                     printOptions();
                 }
-            } else if (dir == 80) {  // down
-                int next = current + 1;
-                while (next < n && isDisabled(next)) next++;
-                if (next < n) {
+            } else if (dir == 80) {  // down - wraps from the bottom to the top
+                int next = current;
+                for (int step = 0; step < n; step++) {
+                    next = (next + 1) % n;
+                    if (!isDisabled(next)) break;
+                }
+                if (!isDisabled(next)) {
                     current = next;
                     std::cout << "\0338";
                     printOptions();
