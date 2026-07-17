@@ -49,11 +49,15 @@ static Art frameOr(const std::vector<Art>& sheet, size_t i) {
 struct ArtSet {
     Art idleA, idleB, atk1, atk2, atk3, hit, death;
     bool animated;
+    bool loaded; // false if the sheet's file was missing/unreadable - lets
+                 // setEnemyVariant() skip it and fall through to the type's
+                 // generic sprite instead of rendering a blank enemy.
 };
 
 static ArtSet loadSet(const char* path) {
     std::vector<Art> v = loadSheet(path, 30);
     ArtSet s;
+    s.loaded = !v.empty();
     s.animated = v.size() >= 7;
     s.idleA = frameOr(v, 0);
     s.idleB = frameOr(v, 1);
@@ -117,7 +121,9 @@ void setEnemyVariant(const std::string& enemyName) {
     namedVariant = nullptr;
     for (const auto& e : TABLE) {
         if (enemyName.find(e.key) != std::string::npos) {
-            namedVariant = e.set;
+            // Missing sheet - leave namedVariant unset so artSet() falls
+            // through to the type's generic sprite instead of a blank one.
+            if (e.set->loaded) namedVariant = e.set;
             return;
         }
     }

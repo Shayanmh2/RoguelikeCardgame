@@ -1,6 +1,7 @@
 #include "StatusEffect.h"
 #include "Colors.h"
 #include <iostream>
+#include <sstream>
 #include <algorithm>
 
 // Fixed duration for poison/burn ticks - upgrades and rarity now scale the
@@ -95,8 +96,8 @@ void StatusEffects::display(const std::string& prefix) const {
     if (poisonTurns > 0) std::cout << Color::POISON_CLR   << "[Poison " << poisonDmg << "/turn x" << poisonTurns << "]" << Color::RESET << " ";
     if (burnTurns   > 0) std::cout << Color::BURN_CLR     << "[Burn "   << burnDmg   << "/turn x" << burnTurns   << "]" << Color::RESET << " ";
     if (stun        > 0) std::cout << Color::STUN_CLR     << "[Stunned]"                                          << Color::RESET << " ";
-    if (weakTurns   > 0) std::cout << Color::WEAK_CLR     << "[Weak " << weakMult << "x x" << weakTurns << "]"     << Color::RESET << " ";
-    if (strengthTurns > 0) std::cout << Color::STRENGTH_CLR << "[Strength " << strengthMult << "x x" << strengthTurns << "]" << Color::RESET << " ";
+    if (weakTurns   > 0) std::cout << Color::WEAK_CLR     << "[Weak " << weakMult << "x for " << weakTurns << " turn" << (weakTurns != 1 ? "s" : "") << "]" << Color::RESET << " ";
+    if (strengthTurns > 0) std::cout << Color::STRENGTH_CLR << "[Strength " << strengthMult << "x for " << strengthTurns << " turn" << (strengthTurns != 1 ? "s" : "") << "]" << Color::RESET << " ";
     std::cout << "\n";
 }
 
@@ -106,8 +107,17 @@ std::string StatusEffects::summary() const {
     if (poisonTurns > 0) s += std::string(" ") + Color::POISON_CLR   + "[Poison " + std::to_string(poisonDmg) + "/turn x" + std::to_string(poisonTurns) + "]" + Color::RESET;
     if (burnTurns   > 0) s += std::string(" ") + Color::BURN_CLR     + "[Burn "   + std::to_string(burnDmg)   + "/turn x" + std::to_string(burnTurns)   + "]" + Color::RESET;
     if (stun        > 0) s += std::string(" ") + Color::STUN_CLR     + "[Stunned]"                                                                          + Color::RESET;
-    if (weakTurns   > 0) s += std::string(" ") + Color::WEAK_CLR     + "[Weak x" + std::to_string(weakTurns) + "]"                                          + Color::RESET;
-    if (strengthTurns > 0) s += std::string(" ") + Color::STRENGTH_CLR + "[Strength x" + std::to_string(strengthTurns) + "]"                                + Color::RESET;
+    // "x" here is a multiplier, not a repeat count like Poison/Burn's - keep it
+    // right next to the number it actually multiplies (weakMult/strengthMult),
+    // with the turn count spelled out separately so the two can't be confused.
+    if (weakTurns   > 0) {
+        std::ostringstream m; m << weakMult;
+        s += std::string(" ") + Color::WEAK_CLR + "[Weak " + m.str() + "x, " + std::to_string(weakTurns) + "t]" + Color::RESET;
+    }
+    if (strengthTurns > 0) {
+        std::ostringstream m; m << strengthMult;
+        s += std::string(" ") + Color::STRENGTH_CLR + "[Strength " + m.str() + "x, " + std::to_string(strengthTurns) + "t]" + Color::RESET;
+    }
     return s;
 }
 
