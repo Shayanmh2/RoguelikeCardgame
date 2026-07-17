@@ -151,7 +151,7 @@ static const Art KNIGHT_ART_DEATH       = frameOr(PLAYER_SHEET, 12);
 // Backdrops rotate with progression: one per 10 encounters, cycling.
 static const std::vector<Art> BG_SHEETS[] = {
     loadSheet("assets/sprites/bg_dungeon.png", 94),         // 1-10
-    loadSheet("assets/sprites/bg_forest_day.png", 94),      // 11-20
+    loadSheet("assets/sprites/bg_dungeon_purple.png", 94),  // 11-20
     loadSheet("assets/sprites/bg_forest_night.png", 94),    // 21-30
     loadSheet("assets/sprites/bg_lake_night.png", 94),      // 31-40
     loadSheet("assets/sprites/bg_mountains_dusk.png", 94),  // 41-50
@@ -290,7 +290,7 @@ static RGB auraPoison(RGB c) {
 
 static RGB auraBurn(RGB c) {
     return { (unsigned char)std::min(255, c.r + 60),
-             (unsigned char)(c.g * 0.88), (unsigned char)(c.b * 0.80) };
+             (unsigned char)std::min(255, c.g + 22), (unsigned char)(c.b * 0.75) };
 }
 
 static RGB auraStun(RGB c) {
@@ -483,6 +483,22 @@ static void moveCursorUp(size_t n) {
     if (n > 0) std::cout << "\033[" << n << "A";
 }
 
+// Jumps the cursor to the pinned scene position (row 0, laid down once per
+// turn by printBattle()) so an in-turn animation redraws over that same
+// block instead of echoing a fresh copy below whatever text has printed
+// since. Returns the row to restore once the animation is done.
+static int pinAt(int row) {
+    std::cout.flush(); // SetConsoleCursorPosition acts immediately
+    int cur = UIHelper::getCursorRow();
+    UIHelper::setCursorRow(row);
+    return cur;
+}
+
+static void unpin(int cur) {
+    std::cout.flush();
+    UIHelper::setCursorRow(cur);
+}
+
 void printBattle(EnemyType type, BossType boss) {
     renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
     std::cout << "\n";
@@ -491,17 +507,13 @@ void printBattle(EnemyType type, BossType boss) {
 void animateBattleIdleAt(EnemyType type, BossType boss, int startRow) {
     bgPhase = !bgPhase; // ambient flicker (torches, fireflies, shimmer)
     auraElapsedMs += AURA_TICK_MS;
-    // SetConsoleCursorPosition acts immediately - flush so buffered output
-    // lands before each jump.
-    std::cout.flush();
-    int cur = UIHelper::getCursorRow();
-    UIHelper::setCursorRow(startRow);
+    int cur = pinAt(startRow);
     renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
-    std::cout.flush();
-    UIHelper::setCursorRow(cur);
+    unpin(cur);
 }
 
 void printBattleAttack(EnemyType type, BossType boss) {
+    int cur = pinAt(0);
     const Art& knight = KNIGHT_ART_A;
     const ArtSet& s = artSet(type, boss);
     if (s.animated) {
@@ -520,10 +532,11 @@ void printBattleAttack(EnemyType type, BossType boss) {
         moveCursorUp(battlePairRows(s.idleA));
         renderBattle(knight, s.idleA, nullptr, nullptr);
     }
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleHit(EnemyType type, BossType boss) {
+    int cur = pinAt(0);
     // Knight swings; the enemy flashes with its hit face on the final frame.
     const Art& idleEnemy = get(type, boss);
     renderBattle(KNIGHT_ART_ATK1, idleEnemy, nullptr, nullptr);
@@ -535,20 +548,22 @@ void printBattleHit(EnemyType type, BossType boss) {
     renderBattle(KNIGHT_ART_STRIKE, getHitArt(type, boss),
                  nullptr, hitFlash);
     UIHelper::pause(150);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleBlock(EnemyType type, BossType boss) {
+    int cur = pinAt(0);
     const Art& idleEnemy = get(type, boss);
     renderBattle(KNIGHT_ART_BLOCK1, idleEnemy, nullptr, nullptr);
     UIHelper::pause(90);
     moveCursorUp(battlePairRows(idleEnemy));
     renderBattle(KNIGHT_ART_BLOCK2, idleEnemy, nullptr, nullptr);
     UIHelper::pause(260);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
+    int cur = pinAt(0);
     const Art* cast = &KNIGHT_ART_CAST_POISON;
     switch (glow) {
         case CastGlow::POISON: cast = &KNIGHT_ART_CAST_POISON; break;
@@ -558,29 +573,32 @@ void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
     }
     renderBattle(*cast, get(type, boss), nullptr, nullptr);
     UIHelper::pause(320);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool onEnemy) {
+    int cur = pinAt(0);
     RGB (*tint)(RGB) = statusTint(glow);
     renderBattle(KNIGHT_ART_A, get(type, boss),
                  onEnemy ? nullptr : tint, onEnemy ? tint : nullptr);
     UIHelper::pause(1000);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleDeath(EnemyType type, BossType boss) {
+    int cur = pinAt(0);
     renderBattle(KNIGHT_ART_A, getDeathArt(type, boss),
                  nullptr, [](RGB c) { return darken(c, 0.35); });
     UIHelper::pause(300);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleKnightHit(EnemyType type, BossType boss) {
+    int cur = pinAt(0);
     renderBattle(KNIGHT_ART_HIT, get(type, boss),
                  hitFlash, nullptr);
     UIHelper::pause(100);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 void printBattleKnightDeath(EnemyType type, BossType boss) {
@@ -591,10 +609,11 @@ void printBattleKnightDeath(EnemyType type, BossType boss) {
 }
 
 void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow) {
+    int cur = pinAt(0);
     RGB (*tint)(RGB) = (glow == SelfGlow::STRENGTH) ? tintStrength : tintHeal;
     renderBattle(KNIGHT_ART_A, get(type, boss), tint, nullptr);
     UIHelper::pause(280);
-    std::cout << "\n";
+    unpin(cur);
 }
 
 }
