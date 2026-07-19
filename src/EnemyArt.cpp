@@ -77,9 +77,6 @@ static const ArtSet BEAST_SET    = loadSet("assets/sprites/beast.png"); // werew
 static const ArtSet UNDEAD_SET   = loadSet("assets/sprites/undead_skeleton.png");
 
 // Per-name sheets. setEnemyVariant() matches the enemy name at encounter
-// start; names without a sheet here fall back to their type's sprite.
-// (Chimera intentionally maps to the werewolf BEAST_SET; Skeleton to the
-// UNDEAD_SET, whose design it is.)
 static const ArtSet MELEE_BANDIT     = loadSet("assets/sprites/melee_bandit.png");
 static const ArtSet MELEE_WARRIOR    = loadSet("assets/sprites/melee_warrior.png");
 static const ArtSet MELEE_RAIDER     = loadSet("assets/sprites/melee_raider.png");
@@ -100,6 +97,15 @@ static const ArtSet UNDEAD_SPECTER   = loadSet("assets/sprites/undead_specter.pn
 static const ArtSet UNDEAD_BANSHEE   = loadSet("assets/sprites/undead_banshee.png");
 static const ArtSet UNDEAD_REVENANT  = loadSet("assets/sprites/undead_revenant.png");
 static const ArtSet UNDEAD_LICH      = loadSet("assets/sprites/undead_lich.png");
+static const ArtSet TUT_SLIME        = loadSet("assets/sprites/tutorial_slime.png");
+static const ArtSet TANK_KNIGHT      = loadSet("assets/sprites/tank_knight.png");
+static const ArtSet TANK_SENTINEL    = loadSet("assets/sprites/tank_sentinel.png");
+static const ArtSet TANK_WARDEN      = loadSet("assets/sprites/tank_warden.png");
+static const ArtSet TANK_PALADIN     = loadSet("assets/sprites/tank_paladin.png");
+static const ArtSet TANK_BASTION     = loadSet("assets/sprites/tank_bastion.png");
+static const ArtSet TANK_FORTRESS    = loadSet("assets/sprites/tank_fortress.png");
+static const ArtSet TANK_ORC         = loadSet("assets/sprites/tank_orc.png");
+static const ArtSet CASTER_ENCHANTER = loadSet("assets/sprites/caster_enchanter.png");
 
 static const ArtSet* namedVariant = nullptr;
 
@@ -117,6 +123,11 @@ void setEnemyVariant(const std::string& enemyName) {
         {"Wraith",     &UNDEAD_WRAITH},   {"Specter",  &UNDEAD_SPECTER},
         {"Banshee",    &UNDEAD_BANSHEE},  {"Revenant", &UNDEAD_REVENANT},
         {"Lich",       &UNDEAD_LICH},
+        {"Knight",     &TANK_KNIGHT},     {"Sentinel", &TANK_SENTINEL},
+        {"Warden",     &TANK_WARDEN},     {"Paladin",  &TANK_PALADIN},
+        {"Bastion",    &TANK_BASTION},    {"Fortress", &TANK_FORTRESS},
+        {"Orc",        &TANK_ORC},        {"Slime",    &TUT_SLIME},
+        {"Enchanter",  &CASTER_ENCHANTER},
     };
     namedVariant = nullptr;
     for (const auto& e : TABLE) {
@@ -137,22 +148,50 @@ static const ArtSet SHADOWKNIGHT_SET = loadSet("assets/sprites/boss_shadowknight
 
 // The player knight sheet has its own layout:
 //   idle A, idle B, attack windup/sweep/thrust, block raise, block brace,
-//   cast poison/burn/stun/weak, hit, death
+//   cast (hand out, no orb), hit, death
 static const std::vector<Art> PLAYER_SHEET = loadSheet("assets/sprites/player.png", 30);
 
-static const Art KNIGHT_ART_A           = frameOr(PLAYER_SHEET, 0);
-static const Art KNIGHT_ART_B           = frameOr(PLAYER_SHEET, 1);
-static const Art KNIGHT_ART_ATK1        = frameOr(PLAYER_SHEET, 2);
-static const Art KNIGHT_ART_ATK2        = frameOr(PLAYER_SHEET, 3);
-static const Art KNIGHT_ART_STRIKE      = frameOr(PLAYER_SHEET, 4);
-static const Art KNIGHT_ART_BLOCK1      = frameOr(PLAYER_SHEET, 5);
-static const Art KNIGHT_ART_BLOCK2      = frameOr(PLAYER_SHEET, 6);
-static const Art KNIGHT_ART_CAST_POISON = frameOr(PLAYER_SHEET, 7);
-static const Art KNIGHT_ART_CAST_BURN   = frameOr(PLAYER_SHEET, 8);
-static const Art KNIGHT_ART_CAST_STUN   = frameOr(PLAYER_SHEET, 9);
-static const Art KNIGHT_ART_CAST_WEAK   = frameOr(PLAYER_SHEET, 10);
-static const Art KNIGHT_ART_HIT         = frameOr(PLAYER_SHEET, 11);
-static const Art KNIGHT_ART_DEATH       = frameOr(PLAYER_SHEET, 12);
+static const Art KNIGHT_ART_A      = frameOr(PLAYER_SHEET, 0);
+static const Art KNIGHT_ART_B      = frameOr(PLAYER_SHEET, 1);
+static const Art KNIGHT_ART_ATK1   = frameOr(PLAYER_SHEET, 2);
+static const Art KNIGHT_ART_ATK2   = frameOr(PLAYER_SHEET, 3);
+static const Art KNIGHT_ART_STRIKE = frameOr(PLAYER_SHEET, 4);
+static const Art KNIGHT_ART_BLOCK1 = frameOr(PLAYER_SHEET, 5);
+static const Art KNIGHT_ART_BLOCK2 = frameOr(PLAYER_SHEET, 6);
+static const Art KNIGHT_ART_CAST   = frameOr(PLAYER_SHEET, 7);
+static const Art KNIGHT_ART_HIT    = frameOr(PLAYER_SHEET, 8);
+static const Art KNIGHT_ART_DEATH  = frameOr(PLAYER_SHEET, 9);
+
+// Cast effect overlays: one colored orb per element (poison/burn/stun/weak),
+// composited over the neutral cast frame's outstretched hand at draw time.
+static const std::vector<Art> PLAYER_CAST_FX = loadSheet("assets/sprites/player_cast_fx.png", 30);
+
+// Sword trail + impact spark overlays, composited over the attack frames.
+// 4 variants x 3 frames (windup/sweep/strike): normal, fire, poison, wind.
+static const std::vector<Art> PLAYER_SLASH_FX = loadSheet("assets/sprites/player_slash_fx.png", 30);
+
+static size_t slashVariant(DamageType elem) {
+    switch (elem) {
+        case DamageType::FIRE:   return 1;
+        case DamageType::POISON: return 2;
+        case DamageType::WIND:   return 3;
+        default:                 return 0;
+    }
+}
+
+// Stamps the overlay's opaque pixels onto a copy of the base frame.
+static Art withOverlay(const Art& base, const Art& fx) {
+    Art out = base;
+    for (size_t r = 0; r < fx.trueColorGrid.size() && r < out.trueColorGrid.size(); r++) {
+        for (size_t c = 0; c < fx.trueColorGrid[r].size() && c < out.trueColorGrid[r].size(); c++) {
+            if (fx.trueColorOpaque[r][c]) {
+                out.trueColorGrid[r][c] = fx.trueColorGrid[r][c];
+                out.trueColorOpaque[r][c] = true;
+            }
+        }
+    }
+    return out;
+}
 
 // Backdrops rotate with progression: one per 10 encounters, cycling.
 static const std::vector<Art> BG_SHEETS[] = {
@@ -163,6 +202,9 @@ static const std::vector<Art> BG_SHEETS[] = {
     loadSheet("assets/sprites/bg_mountains_dusk.png", 94),  // 41-50
 };
 static const int BG_COUNT = (int)(sizeof(BG_SHEETS) / sizeof(BG_SHEETS[0]));
+
+// Tutorial-only scene, outside the run's rotation.
+static const std::vector<Art> TUTORIAL_BG = loadSheet("assets/sprites/bg_forest_day.png", 94);
 
 static const std::vector<Art>* bgSheet = &BG_SHEETS[0];
 static bool bgPhase = false;
@@ -177,6 +219,10 @@ static const Art& sceneBgArt() {
 void setBattleBackdrop(int encounterNumber) {
     int idx = ((encounterNumber > 0 ? encounterNumber - 1 : 0) / 10) % BG_COUNT;
     bgSheet = &BG_SHEETS[idx];
+}
+
+void setTutorialBackdrop() {
+    bgSheet = &TUTORIAL_BG;
 }
 
 static const ArtSet& artSet(EnemyType type, BossType boss) {
@@ -518,9 +564,10 @@ void animateBattleIdleAt(EnemyType type, BossType boss, int startRow) {
     unpin(cur);
 }
 
-void printBattleAttack(EnemyType type, BossType boss) {
+void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
     int cur = pinAt(0);
-    const Art& knight = KNIGHT_ART_A;
+    // With armor up the knight holds his shield brace instead of standing idle.
+    const Art& knight = knightGuard ? KNIGHT_ART_BLOCK2 : KNIGHT_ART_A;
     const ArtSet& s = artSet(type, boss);
     if (s.animated) {
         renderBattle(knight, s.atk1, nullptr, nullptr);
@@ -541,17 +588,19 @@ void printBattleAttack(EnemyType type, BossType boss) {
     unpin(cur);
 }
 
-void printBattleHit(EnemyType type, BossType boss) {
+void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
     int cur = pinAt(0);
     // Knight swings; the enemy flashes with its hit face on the final frame.
+    // The trail/spark overlay tracks the attack's element.
+    size_t v = slashVariant(trailElem) * 3;
     const Art& idleEnemy = get(type, boss);
-    renderBattle(KNIGHT_ART_ATK1, idleEnemy, nullptr, nullptr);
+    renderBattle(withOverlay(KNIGHT_ART_ATK1, frameOr(PLAYER_SLASH_FX, v + 0)), idleEnemy, nullptr, nullptr);
     UIHelper::pause(70);
     moveCursorUp(battlePairRows(idleEnemy));
-    renderBattle(KNIGHT_ART_ATK2, idleEnemy, nullptr, nullptr);
+    renderBattle(withOverlay(KNIGHT_ART_ATK2, frameOr(PLAYER_SLASH_FX, v + 1)), idleEnemy, nullptr, nullptr);
     UIHelper::pause(70);
     moveCursorUp(battlePairRows(idleEnemy));
-    renderBattle(KNIGHT_ART_STRIKE, getHitArt(type, boss),
+    renderBattle(withOverlay(KNIGHT_ART_STRIKE, frameOr(PLAYER_SLASH_FX, v + 2)), getHitArt(type, boss),
                  nullptr, hitFlash);
     UIHelper::pause(150);
     unpin(cur);
@@ -570,14 +619,15 @@ void printBattleBlock(EnemyType type, BossType boss) {
 
 void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
     int cur = pinAt(0);
-    const Art* cast = &KNIGHT_ART_CAST_POISON;
+    size_t fxIdx = 0; // fx sheet order: poison, burn, stun, weak
     switch (glow) {
-        case CastGlow::POISON: cast = &KNIGHT_ART_CAST_POISON; break;
-        case CastGlow::BURN:   cast = &KNIGHT_ART_CAST_BURN;   break;
-        case CastGlow::STUN:   cast = &KNIGHT_ART_CAST_STUN;   break;
-        case CastGlow::WEAK:   cast = &KNIGHT_ART_CAST_WEAK;   break;
+        case CastGlow::POISON: fxIdx = 0; break;
+        case CastGlow::BURN:   fxIdx = 1; break;
+        case CastGlow::STUN:   fxIdx = 2; break;
+        case CastGlow::WEAK:   fxIdx = 3; break;
     }
-    renderBattle(*cast, get(type, boss), nullptr, nullptr);
+    Art cast = withOverlay(KNIGHT_ART_CAST, frameOr(PLAYER_CAST_FX, fxIdx));
+    renderBattle(cast, get(type, boss), nullptr, nullptr);
     UIHelper::pause(320);
     unpin(cur);
 }

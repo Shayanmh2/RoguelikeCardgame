@@ -278,7 +278,7 @@ int Game::calculateDamage(int attackValue, int defenseValue) const {
 
 bool Game::spendEnergy(int cost) {
     if (playerEnergy < cost) {
-        std::cout << Color::DAMAGE << "Not enough plays! Need " << cost
+        std::cout << Color::DAMAGE << "Not enough energy! Need " << cost
                   << " but only have " << playerEnergy << " remaining." << Color::RESET << "\n";
         return false;
     }
@@ -461,7 +461,7 @@ void Game::playCardFromHand(int index) {
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamage(damageDealt);
                 int hpLost = hpBefore - enemy.getHealth();
-                if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
+                if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType());
                 int armorBlocked = damageDealt - hpLost;
                 Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
                 std::cout << "  " << Color::PLAYER_ATTACK
@@ -538,7 +538,7 @@ void Game::playCardFromHand(int index) {
             applyCardEffect(playedCard);
         }
         if (playerEnergy > 0)
-            std::cout << Color::DIM << "  (" << playerEnergy << " play" << (playerEnergy != 1 ? "s" : "") << " left)" << Color::RESET << "\n";
+            std::cout << Color::DIM << "  (" << playerEnergy << " energy left)" << Color::RESET << "\n";
         refreshBattleAuras();
     } catch (const std::out_of_range&) {
         std::cout << "Invalid card index!\n";
@@ -620,7 +620,9 @@ void Game::enemyTurn() {
 
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
         atk = (int)(atk * weakMult);
-        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType());
+        // Shield up while the blow comes in if the player has armor standing;
+        // the hit-glow below still only fires when damage gets through it.
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -771,7 +773,7 @@ void Game::enemyTurn() {
 void Game::displayTurnInfo() const {
     std::cout << "\n" << Color::BOLD << "-- Turn " << turnNumber << " --" << Color::RESET << "\n";
     if (playerTurnActive) {
-        std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << " plays remaining\n";
+        std::cout << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << " energy remaining\n";
     }
 }
 
@@ -936,7 +938,7 @@ void Game::handleInput() {
         ? std::string(Color::BOLD) + Color::MAGENTA + "BOSS" + Color::RESET
         : "Encounter " + std::to_string(currentRun.getCurrentEncounter()) + " " + currentRun.getEncounterDifficulty();
     std::cout << Color::BOLD << "Turn " << turnNumber << Color::RESET
-              << "  |  " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " plays" << Color::RESET
+              << "  |  " << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << " energy" << Color::RESET
               << "  |  " << encLabel << "\n";
 
     int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
@@ -1046,7 +1048,7 @@ void Game::handleInput() {
         if (checkGameOver()) return;
         UIHelper::pause(600);  // let the card result stay visible before redraw
         if (playerEnergy <= 0 && playerTurnActive) {
-            std::cout << "\n" << Color::DIM << "[No plays left - ending your turn automatically]" << Color::RESET << "\n";
+            std::cout << "\n" << Color::DIM << "[No energy left - ending your turn automatically]" << Color::RESET << "\n";
             UIHelper::pause(400);
             endPlayerTurn();
         }
@@ -1144,7 +1146,7 @@ void Game::bossAction() {
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
     auto doAttack = [&](int damage, bool raw) {
-        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType());
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
         // Dodge fires before Parry when both are active (uncapped, higher priority)
         if (counterAttackActive) {
             counterAttackActive = false;
@@ -1484,6 +1486,10 @@ void Game::offerBossReward() {
             return;
         }
 
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::YELLOW << "Add " << rewards[choice].getName() << " to your deck?" << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the choices
+
         playerDeck.addCard(rewards[choice]);
         runStats.addCardToRun();
         std::cout << "\n" << Color::YELLOW << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
@@ -1496,7 +1502,7 @@ void Game::offerExtraPlay() {
     const int MAX_ENERGY_CAP = 5;
     UIHelper::clearScreen();
     if (maxEnergy >= MAX_ENERGY_CAP) {
-        std::cout << "\n" << Color::DIM << "You're already at the max of " << MAX_ENERGY_CAP << " plays per turn - nothing more to gain here." << Color::RESET << "\n";
+        std::cout << "\n" << Color::DIM << "You're already at the max of " << MAX_ENERGY_CAP << " energy per turn - nothing more to gain here." << Color::RESET << "\n";
         UIHelper::waitForKey();
         return;
     }
@@ -1504,17 +1510,17 @@ void Game::offerExtraPlay() {
     std::cout << "\n" << Color::BOLD << Color::YELLOW << "A hard-won boss kill leaves you invigorated." << Color::RESET << "\n\n";
 
     std::vector<std::string> leftLines = {
-        std::string("  ") + Color::ENERGY_CLR + "Extra Play" + Color::RESET
+        std::string("  ") + Color::ENERGY_CLR + "Extra Energy" + Color::RESET
             + " - +1 max energy per turn (" + std::to_string(maxEnergy) + " -> " + std::to_string(maxEnergy + 1) + ")",
         std::string("  ") + Color::DIM + "Skip" + Color::RESET
     };
     std::vector<int> optionIndices = {0, 1};
-    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, {"Take Extra Play", "Skip"}, 55);
+    int choice = UIHelper::menuSelectRight(leftLines, optionIndices, {"Take Extra Energy", "Skip"}, 55);
 
     if (choice == 0) {
         maxEnergy = std::min(MAX_ENERGY_CAP, maxEnergy + 1);
         playerEnergy = maxEnergy;
-        std::cout << "\n" << Color::ENERGY_CLR << "You feel invigorated! Max plays per turn increased to " << maxEnergy << "." << Color::RESET << "\n";
+        std::cout << "\n" << Color::ENERGY_CLR << "You feel invigorated! Max energy per turn increased to " << maxEnergy << "." << Color::RESET << "\n";
         Audio::playSFX("upgrade");
     } else {
         std::cout << Color::DIM << "\nYou let it pass.\n" << Color::RESET;
@@ -1525,6 +1531,10 @@ void Game::offerExtraPlay() {
 void Game::startEncounter() {
     UIHelper::clearScreen();
     EnemyArt::setBattleBackdrop(currentRun.getCurrentEncounter());
+    // BGM tracks the same 10-encounter segments as the backdrop, so the music
+    // turns over right after each boss. Falls back to the base track until
+    // per-segment files (bgm2..bgm5) exist in sounds/.
+    Audio::playBGM(((currentRun.getCurrentEncounter() - 1) / 10) % 5);
     playerDeck.resetDeck();
     int drawCount = 5 + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
@@ -1570,7 +1580,7 @@ void Game::startEncounter() {
             {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Fortress"},
             {EnemyType::CASTER, "Archon"},  {EnemyType::UNDEAD, "Lich"},
             {EnemyType::BEAST, "Chimera"},  {EnemyType::MELEE, "Enforcer"},
-            {EnemyType::TANK, "Colossus"},  {EnemyType::CASTER, "Spellmaster"},
+            {EnemyType::TANK, "Orc"},       {EnemyType::CASTER, "Spellmaster"},
         };
         int r = currentRun.getRegularIndex() % 44;
         EnemyType etype = ROSTER[r].type;
@@ -2088,6 +2098,10 @@ void Game::offerCardReward() {
             return;
         }
 
+        UIHelper::clearScreen();
+        std::cout << "\n" << Color::GREEN << "Add " << rewards[choice].getName() << " to your deck?" << Color::RESET << "\n";
+        if (UIHelper::menuSelect({"Yes", "No"}) != 0) continue; // declined - back to the choices
+
         playerDeck.addCard(rewards[choice]);
         runStats.addCardToRun();
         std::cout << "\n" << Color::GREEN << "Added " << rewards[choice].getName() << " to your deck!" << Color::RESET << "\n";
@@ -2325,9 +2339,9 @@ void Game::showHowToPlay() {
     std::cout << "  best cards, and defeat the bosses that appear every 10th fight.\n\n";
 
     std::cout << Color::BOLD << "YOUR TURN" << Color::RESET << "\n";
-    std::cout << "  Each turn you draw a hand and get a number of \"plays\" (energy).\n";
-    std::cout << "  Playing a card costs plays. When you're done, End Turn to let the\n";
-    std::cout << "  enemy act, then a new turn begins.\n\n";
+    std::cout << "  Each turn you draw a hand and get a pool of energy. Every card's\n";
+    std::cout << "  cost comes out of that energy. When you're done, End Turn to let\n";
+    std::cout << "  the enemy act, then a new turn begins.\n\n";
 
     std::cout << Color::BOLD << "CARD TYPES" << Color::RESET << "\n";
     std::cout << "  " << Color::CARD_ATTACK  << "ATTACK " << Color::RESET << " deals damage to the enemy\n";
@@ -2345,7 +2359,7 @@ void Game::showHowToPlay() {
     std::cout << "  " << Color::POISON_CLR << "Poison" << Color::RESET << " / " << Color::BURN_CLR << "Burn" << Color::RESET
               << "     damage over time, ticks down each turn\n";
     std::cout << "  " << Color::STUN_CLR << "Stun" << Color::RESET << "          skip the target's next turn entirely\n";
-    std::cout << "  " << Color::WEAK_CLR << "Weak" << Color::RESET << "          -2 attack for a number of turns\n";
+    std::cout << "  " << Color::WEAK_CLR << "Weak" << Color::RESET << "          target deals 1.5-2x less damage for a few turns\n";
     std::cout << "  " << Color::STRENGTH_CLR << "Strength" << Color::RESET << "      damage dealt is multiplied for a number of turns (buff)\n\n";
 
     std::cout << Color::BOLD << "CARD RARITY" << Color::RESET << "\n";
@@ -2358,8 +2372,8 @@ void Game::showHowToPlay() {
     std::cout << Color::BOLD << "REST SITES" << Color::RESET << "\n";
     std::cout << "  After winning a fight: Rest (heal to full), Forge (upgrade a card),\n";
     std::cout << "  View Deck (browse and discard cards you don't want), or Skip. Rest,\n";
-    std::cout << "  Forge, and Skip all move you on to the\n";
-    std::cout << "  next fight; View Deck lets you keep browsing until you hit Return.\n\n";
+    std::cout << "  Forge, and Skip all move you on to the next fight; View Deck lets\n";
+    std::cout << "  you keep browsing until you hit Return.\n\n";
 
     std::cout << Color::BOLD << "REWARDS" << Color::RESET << "\n";
     std::cout << "  Win a fight -> pick a new card. Every 3rd encounter -> equipment (a\n";
@@ -2385,13 +2399,13 @@ void Game::showHowToPlay() {
 void Game::showTutorial() {
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << Color::CYAN << "TUTORIAL" << Color::RESET << "\n\n";
-    std::cout << "  Fight the Training Dummy and learn the mechanics.\n\n";
+    std::cout << "  Fight the Slime and learn the mechanics.\n\n";
     UIHelper::waitForKey();
 
     UIHelper::clearScreen();
     std::cout << "\n" << Color::BOLD << "YOUR HAND" << Color::RESET << "\n\n";
-    std::cout << "  Each turn you draw a hand of cards and get a number of \"plays\"\n";
-    std::cout << "  (energy), shown at the top. Every card costs some of that energy.\n";
+    std::cout << "  Each turn you draw a hand of cards and get a pool of energy,\n";
+    std::cout << "  shown at the top. Every card costs some of that energy.\n";
     std::cout << "  Arrow keys highlight a card, Enter plays it.\n\n";
     UIHelper::waitForKey();
 
@@ -2429,8 +2443,9 @@ void Game::showTutorial() {
     bool savedTurnActive   = playerTurnActive;
     bool savedInEncounter  = inEncounter;
 
-    enemy = Enemy("Training Dummy", 35, 4, 2, EnemyType::MELEE);
+    enemy = Enemy("Slime", 35, 4, 2, EnemyType::MELEE);
     EnemyArt::setEnemyVariant(enemy.getName());
+    EnemyArt::setTutorialBackdrop(); // day forest - a gentler scene than the run's dungeon opener
     playerHealth = maxPlayerHealth;
     playerArmor = 0;
     playerArmorPersistTurns = 0;
@@ -2448,8 +2463,8 @@ void Game::showTutorial() {
     }
 
     UIHelper::clearScreen();
-    std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy
-              << " plays" << Color::RESET << " up top is your energy for the turn - every card's cost comes\n";
+    std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy
+              << " energy" << Color::RESET << " up top is your budget for the turn - every card's cost comes\n";
     std::cout << "  out of that pool, so you can't play more than you can afford.\n\n";
     UIHelper::waitForKey("  (press any key to start turn 1)");
 
@@ -2457,7 +2472,7 @@ void Game::showTutorial() {
     // not by call count - freely checking View Enemy/Status shouldn't burn a "turn".
     const int startTurn = turnNumber;
     const int maxTutorialTurns = 6;
-    bool dummyDefeated = false;
+    bool slimeDefeated = false;
     bool attackTipShown = false, defendTipShown = false, specialTipShown = false, damageTypeTipShown = false;
     while (playerHealth > 0 && turnNumber - startTurn < maxTutorialTurns) {
         handleInput();
@@ -2468,18 +2483,18 @@ void Game::showTutorial() {
         if (lastActionWasCardPlay) {
             if (!attackTipShown && lastPlayedCardType == CardType::ATTACK) {
                 attackTipShown = true;
-                std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << "the dummy's " << Color::BLUE << "DEF" << Color::RESET
+                std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << "the slime's " << Color::BLUE << "DEF" << Color::RESET
                           << " (defense) soaks up part of your attack's DMG\n";
                 std::cout << "  value - that's why the damage dealt came in lower than the card's number.\n\n";
                 UIHelper::waitForKey();
             } else if (!defendTipShown && lastPlayedCardType == CardType::DEFEND) {
                 defendTipShown = true;
-                std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << "when the enemy hits you, their attack's damage\n";
+                std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << "when the enemy hits you, their attack's damage\n";
                 std::cout << "  is subtracted by your armor first - that's what DEFEND cards are for.\n\n";
                 UIHelper::waitForKey();
             } else if (!specialTipShown && lastPlayedCardType == CardType::SPECIAL) {
                 specialTipShown = true;
-                std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << "SPECIAL cards often only do something under a\n";
+                std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << "SPECIAL cards often only do something under a\n";
                 std::cout << "  condition. Parry, for example, only blocks and ripostes if the enemy actually\n";
                 std::cout << "  attacks this turn - if they don't, it does nothing.\n\n";
                 UIHelper::waitForKey();
@@ -2490,23 +2505,23 @@ void Game::showTutorial() {
                 damageTypeTipShown = true;
                 bool matched = lastPlayedPhysType == enemy.getWeakness() || lastPlayedPhysType2 == enemy.getWeakness();
                 if (matched) {
-                    std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << "that card's damage-type tag matched the dummy's\n";
+                    std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << "that card's damage-type tag matched the slime's\n";
                     std::cout << "  weakness, so it hit for +50% bonus damage.\n\n";
                 } else {
-                    std::cout << "\n" << Color::DIM << "Tip: " << Color::RESET << "that card's damage-type tag didn't match the\n";
-                    std::cout << "  dummy's weakness this time, so no bonus. Check View Enemy to see what an\n";
+                    std::cout << "\n" << Color::DIM << "Fact: " << Color::RESET << "that card's damage-type tag didn't match the\n";
+                    std::cout << "  slime's weakness this time, so no bonus. Check View Enemy to see what an\n";
                     std::cout << "  enemy IS weak to before picking your attacks.\n\n";
                 }
                 UIHelper::waitForKey();
             }
         }
 
-        if (!enemy.isAlive()) { dummyDefeated = true; break; }
+        if (!enemy.isAlive()) { slimeDefeated = true; break; }
     }
 
     UIHelper::clearScreen();
-    if (dummyDefeated) {
-        std::cout << "\n" << Color::BOLD << Color::GREEN << "Training Dummy defeated!" << Color::RESET << "\n\n";
+    if (slimeDefeated) {
+        std::cout << "\n" << Color::BOLD << Color::GREEN << "Slime defeated!" << Color::RESET << "\n\n";
     } else {
         std::cout << "\n" << Color::BOLD << Color::CYAN << "Tutorial complete." << Color::RESET << "\n\n";
     }

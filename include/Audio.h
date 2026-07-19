@@ -3,8 +3,12 @@
 
 class Audio {
 public:
-    // Looks for sounds/bgm.wav (loop) or sounds/bgm.mp3 (thread loop). Silent if absent.
-    static void playBGM();
+    // Starts (or switches to) the background track for a 10-encounter segment:
+    // segment 0 plays sounds/bgm.wav|mp3, segment N tries sounds/bgm<N+1>.wav|mp3
+    // (e.g. segment 1 -> bgm2.wav) and falls back to bgm.wav|mp3 until that track
+    // exists. Re-calling with the segment already playing is a no-op. Silent if
+    // no file is found.
+    static void playBGM(int segment = 0);
     static void stopBGM();
 
     // Play a one-shot WAV from the sounds/ folder. name = filename without extension.

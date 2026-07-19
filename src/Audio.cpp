@@ -8,6 +8,10 @@
 #include <string>
 
 static std::atomic<bool> bgmRunning{false};
+// Generation guard: bumping this retires any previous BGM thread even if it is
+// mid-"play wait", so a track switch can't race the old loop into reopening.
+static std::atomic<int>  bgmGen{0};
+static std::string       bgmCurrentPath;
 
 // Returns the directory containing the running exe (with trailing backslash).
 std::string Audio::exeDir() {
@@ -23,8 +27,9 @@ static bool fileExists(const std::string& path) {
 }
 
 // BGM thread: opens file with "bgm" MCI alias, plays (blocking), closes, repeats.
-static void bgmLoop(const std::string& path) {
-    while (bgmRunning) {
+// Exits as soon as its generation is stale (a switch or stop bumped bgmGen).
+static void bgmLoop(const std::string& path, int myGen) {
+    while (bgmRunning && bgmGen.load() == myGen) {
         std::string openCmd = "open \"" + path + "\" alias bgm";
         if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) break;
         mciSendStringA("play bgm wait", nullptr, 0, nullptr); // blocks until track ends
@@ -32,24 +37,38 @@ static void bgmLoop(const std::string& path) {
     }
 }
 
-void Audio::playBGM() {
+// Prefer WAV, fall back to MP3; empty string if neither exists.
+static std::string resolveTrack(const std::string& base) {
+    if (fileExists(base + ".wav")) return base + ".wav";
+    if (fileExists(base + ".mp3")) return base + ".mp3";
+    return "";
+}
+
+void Audio::playBGM(int segment) {
     std::string soundsDir = exeDir() + "sounds\\";
 
-    // Prefer WAV, fall back to MP3 - both use the MCI thread loop.
-    std::string wav = soundsDir + "bgm.wav";
-    std::string mp3 = soundsDir + "bgm.mp3";
+    // Segment 0 -> bgm, segment N -> bgmN+1 (bgm2, bgm3, ...), falling back to
+    // the base bgm track until the per-segment file is dropped into sounds/.
+    std::string path;
+    if (segment > 0) path = resolveTrack(soundsDir + "bgm" + std::to_string(segment + 1));
+    if (path.empty()) path = resolveTrack(soundsDir + "bgm");
+    if (path.empty()) return; // no BGM file found - run silently
 
-    std::string bgmPath;
-    if      (fileExists(wav)) bgmPath = wav;
-    else if (fileExists(mp3)) bgmPath = mp3;
-    else return; // no BGM file found - run silently
+    if (bgmRunning && path == bgmCurrentPath) return; // this track is already playing
 
+    // Retire the old loop and start the new track.
+    int gen = ++bgmGen;
+    mciSendStringA("stop bgm", nullptr, 0, nullptr);
+    mciSendStringA("close bgm", nullptr, 0, nullptr);
+    bgmCurrentPath = path;
     bgmRunning = true;
-    std::thread(bgmLoop, bgmPath).detach();
+    std::thread(bgmLoop, path, gen).detach();
 }
 
 void Audio::stopBGM() {
     bgmRunning = false;
+    ++bgmGen;
+    bgmCurrentPath.clear();
     mciSendStringA("stop bgm", nullptr, 0, nullptr);
     mciSendStringA("close bgm", nullptr, 0, nullptr);
 }
@@ -71,7 +90,7 @@ void Audio::playSFX(const std::string& name) {
 #else
 // Non-Windows stubs - compile cleanly but do nothing.
 std::string Audio::exeDir() { return ""; }
-void Audio::playBGM()                        {}
+void Audio::playBGM(int)                     {}
 void Audio::stopBGM()                        {}
 void Audio::playSFX(const std::string&)      {}
 #endif

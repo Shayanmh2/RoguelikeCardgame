@@ -37,11 +37,14 @@ namespace EnemyArt {
     // Redraws the scene in place at console row startRow (menu idle tick).
     void animateBattleIdleAt(EnemyType type, BossType boss, int startRow);
 
-    // Enemy attack: 3-frame windup/swing/impact.
-    void printBattleAttack(EnemyType type, BossType boss = BossType::NONE);
+    // Enemy attack: 3-frame windup/swing/impact. knightGuard renders the
+    // knight in his shield-brace pose (set when the player has armor up).
+    void printBattleAttack(EnemyType type, BossType boss = BossType::NONE, bool knightGuard = false);
 
     // Player damage lands: knight swings, enemy flashes with its hit face.
-    void printBattleHit(EnemyType type, BossType boss = BossType::NONE);
+    // trailElem recolors the sword trail + impact spark by the attack's
+    // elemental tag (FIRE/POISON/WIND); NONE/physical keeps the steel trail.
+    void printBattleHit(EnemyType type, BossType boss = BossType::NONE, DamageType trailElem = DamageType::NONE);
 
     // DEFEND card: knight raises and braces his shield.
     void printBattleBlock(EnemyType type, BossType boss = BossType::NONE);
@@ -76,6 +79,9 @@ namespace EnemyArt {
     // Picks the backdrop for this encounter (a new environment every 10
     // encounters, cycling after the last).
     void setBattleBackdrop(int encounterNumber);
+
+    // Day-forest scene used only by the tutorial fight.
+    void setTutorialBackdrop();
 
     // Picks a per-name sprite (beasts, undead, the wyvern) by matching the
     // enemy's name. Call at encounter start; names without their own sheet
