@@ -80,10 +80,10 @@ static const ArtSet UNDEAD_SET   = loadSet("assets/sprites/undead_skeleton.png")
 static const ArtSet MELEE_BANDIT     = loadSet("assets/sprites/melee_bandit.png");
 static const ArtSet MELEE_WARRIOR    = loadSet("assets/sprites/melee_warrior.png");
 static const ArtSet MELEE_RAIDER     = loadSet("assets/sprites/melee_raider.png");
-static const ArtSet MELEE_BARBARIAN  = loadSet("assets/sprites/melee_barbarian.png");
 static const ArtSet MELEE_BERSERKER  = loadSet("assets/sprites/melee_berserker.png");
 static const ArtSet MELEE_GLADIATOR  = loadSet("assets/sprites/melee_gladiator.png");
 static const ArtSet MELEE_ENFORCER   = loadSet("assets/sprites/melee_enforcer.png");
+static const ArtSet MELEE_KNIGHT     = loadSet("assets/sprites/melee_knight.png");
 static const ArtSet BEAST_WOLF       = loadSet("assets/sprites/beast_wolf.png");
 static const ArtSet BEAST_SPIDER     = loadSet("assets/sprites/beast_spider.png");
 static const ArtSet BEAST_SERPENT    = loadSet("assets/sprites/beast_serpent.png");
@@ -98,7 +98,7 @@ static const ArtSet UNDEAD_BANSHEE   = loadSet("assets/sprites/undead_banshee.pn
 static const ArtSet UNDEAD_REVENANT  = loadSet("assets/sprites/undead_revenant.png");
 static const ArtSet UNDEAD_LICH      = loadSet("assets/sprites/undead_lich.png");
 static const ArtSet TUT_SLIME        = loadSet("assets/sprites/tutorial_slime.png");
-static const ArtSet TANK_KNIGHT      = loadSet("assets/sprites/tank_knight.png");
+static const ArtSet TANK_BARBARIAN   = loadSet("assets/sprites/tank_barbarian.png");
 static const ArtSet TANK_SENTINEL    = loadSet("assets/sprites/tank_sentinel.png");
 static const ArtSet TANK_WARDEN      = loadSet("assets/sprites/tank_warden.png");
 static const ArtSet TANK_PALADIN     = loadSet("assets/sprites/tank_paladin.png");
@@ -112,7 +112,7 @@ static const ArtSet* namedVariant = nullptr;
 void setEnemyVariant(const std::string& enemyName) {
     static const struct { const char* key; const ArtSet* set; } TABLE[] = {
         {"Bandit",     &MELEE_BANDIT},    {"Warrior",  &MELEE_WARRIOR},
-        {"Raider",     &MELEE_RAIDER},    {"Barbarian",&MELEE_BARBARIAN},
+        {"Raider",     &MELEE_RAIDER},    {"Knight",   &MELEE_KNIGHT},
         {"Berserker",  &MELEE_BERSERKER}, {"Gladiator",&MELEE_GLADIATOR},
         {"Enforcer",   &MELEE_ENFORCER},
         {"Wolf",       &BEAST_WOLF},      {"Spider",   &BEAST_SPIDER},
@@ -123,7 +123,7 @@ void setEnemyVariant(const std::string& enemyName) {
         {"Wraith",     &UNDEAD_WRAITH},   {"Specter",  &UNDEAD_SPECTER},
         {"Banshee",    &UNDEAD_BANSHEE},  {"Revenant", &UNDEAD_REVENANT},
         {"Lich",       &UNDEAD_LICH},
-        {"Knight",     &TANK_KNIGHT},     {"Sentinel", &TANK_SENTINEL},
+        {"Barbarian",  &TANK_BARBARIAN},  {"Sentinel", &TANK_SENTINEL},
         {"Warden",     &TANK_WARDEN},     {"Paladin",  &TANK_PALADIN},
         {"Bastion",    &TANK_BASTION},    {"Fortress", &TANK_FORTRESS},
         {"Orc",        &TANK_ORC},        {"Slime",    &TUT_SLIME},

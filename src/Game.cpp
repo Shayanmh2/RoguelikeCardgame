@@ -1553,7 +1553,7 @@ void Game::startEncounter() {
         struct RosterEntry { EnemyType type; const char* name; };
         static const RosterEntry ROSTER[44] = {
             // 1-9, before the Stone Colossus
-            {EnemyType::MELEE, "Goblin"},   {EnemyType::TANK, "Knight"},
+            {EnemyType::MELEE, "Goblin"},   {EnemyType::TANK, "Barbarian"},
             {EnemyType::CASTER, "Wizard"},  {EnemyType::UNDEAD, "Skeleton"},
             {EnemyType::BEAST, "Wolf"},     {EnemyType::RANGED, "Slinger"},
             {EnemyType::MELEE, "Bandit"},   {EnemyType::TANK, "Guardian"},
@@ -1568,7 +1568,7 @@ void Game::startEncounter() {
             {EnemyType::MELEE, "Warrior"},  {EnemyType::TANK, "Warden"},
             {EnemyType::CASTER, "Sorcerer"},{EnemyType::UNDEAD, "Specter"},
             {EnemyType::BEAST, "Basilisk"}, {EnemyType::RANGED, "Deadeye"},
-            {EnemyType::MELEE, "Barbarian"},{EnemyType::TANK, "Paladin"},
+            {EnemyType::MELEE, "Knight"},   {EnemyType::TANK, "Paladin"},
             {EnemyType::CASTER, "Mystic"},
             // 31-39, before the Hydra
             {EnemyType::UNDEAD, "Banshee"}, {EnemyType::BEAST, "Cockatrice"},
