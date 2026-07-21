@@ -401,10 +401,7 @@ static bool artOpaque(const Art& a, size_t r, size_t c) {
     return c < op.size() && op[c];
 }
 
-// Emits one terminal row from source rows `row`/`row+1`: foreground = top
-// pixel, background = bottom, glyph U+2580. Packing two rows per cell
-// corrects for terminal cells being ~2x taller than wide. Everything goes
-// into one buffer (single write) with color codes coalesced across runs.
+
 static size_t appendRowPair(std::string& out, const Art& art, size_t row, RGB (*transform)(RGB)) {
     size_t width = std::max(artRowWidth(art, row), artRowWidth(art, row + 1));
     char code[32];
@@ -535,14 +532,14 @@ static void moveCursorUp(size_t n) {
     if (n > 0) std::cout << "\033[" << n << "A";
 }
 
-// Jumps the cursor to the pinned scene position (row 0, laid down once per
-// turn by printBattle()) so an in-turn animation redraws over that same
-// block instead of echoing a fresh copy below whatever text has printed
-// since. Returns the row to restore once the animation is done.
-static int pinAt(int row) {
+
+static int g_battleSceneRow = 0;
+
+
+static int pinAt() {
     std::cout.flush(); // SetConsoleCursorPosition acts immediately
     int cur = UIHelper::getCursorRow();
-    UIHelper::setCursorRow(row);
+    UIHelper::setCursorRow(g_battleSceneRow);
     return cur;
 }
 
@@ -552,20 +549,22 @@ static void unpin(int cur) {
 }
 
 void printBattle(EnemyType type, BossType boss) {
+    std::cout.flush();
+    g_battleSceneRow = UIHelper::getCursorRow();
     renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
     std::cout << "\n";
 }
 
-void animateBattleIdleAt(EnemyType type, BossType boss, int startRow) {
+void animateBattleIdleAt(EnemyType type, BossType boss) {
     bgPhase = !bgPhase; // ambient flicker (torches, fireflies, shimmer)
     auraElapsedMs += AURA_TICK_MS;
-    int cur = pinAt(startRow);
+    int cur = pinAt();
     renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
     unpin(cur);
 }
 
 void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     // With armor up the knight holds his shield brace instead of standing idle.
     const Art& knight = knightGuard ? KNIGHT_ART_BLOCK2 : KNIGHT_ART_A;
     const ArtSet& s = artSet(type, boss);
@@ -589,7 +588,7 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
 }
 
 void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     // Knight swings; the enemy flashes with its hit face on the final frame.
     // The trail/spark overlay tracks the attack's element.
     size_t v = slashVariant(trailElem) * 3;
@@ -607,7 +606,7 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
 }
 
 void printBattleBlock(EnemyType type, BossType boss) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     const Art& idleEnemy = get(type, boss);
     renderBattle(KNIGHT_ART_BLOCK1, idleEnemy, nullptr, nullptr);
     UIHelper::pause(90);
@@ -618,7 +617,7 @@ void printBattleBlock(EnemyType type, BossType boss) {
 }
 
 void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     size_t fxIdx = 0; // fx sheet order: poison, burn, stun, weak
     switch (glow) {
         case CastGlow::POISON: fxIdx = 0; break;
@@ -633,7 +632,7 @@ void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
 }
 
 void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool onEnemy) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     RGB (*tint)(RGB) = statusTint(glow);
     renderBattle(KNIGHT_ART_A, get(type, boss),
                  onEnemy ? nullptr : tint, onEnemy ? tint : nullptr);
@@ -642,7 +641,7 @@ void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool o
 }
 
 void printBattleDeath(EnemyType type, BossType boss) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     renderBattle(KNIGHT_ART_A, getDeathArt(type, boss),
                  nullptr, [](RGB c) { return darken(c, 0.35); });
     UIHelper::pause(300);
@@ -650,7 +649,7 @@ void printBattleDeath(EnemyType type, BossType boss) {
 }
 
 void printBattleKnightHit(EnemyType type, BossType boss) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     renderBattle(KNIGHT_ART_HIT, get(type, boss),
                  hitFlash, nullptr);
     UIHelper::pause(100);
@@ -665,7 +664,7 @@ void printBattleKnightDeath(EnemyType type, BossType boss) {
 }
 
 void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow) {
-    int cur = pinAt(0);
+    int cur = pinAt();
     RGB (*tint)(RGB) = (glow == SelfGlow::STRENGTH) ? tintStrength : tintHeal;
     renderBattle(KNIGHT_ART_A, get(type, boss), tint, nullptr);
     UIHelper::pause(280);

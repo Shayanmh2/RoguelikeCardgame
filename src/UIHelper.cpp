@@ -122,7 +122,13 @@ void UIHelper::printTitle() {
     printCentered("A turn-based deckbuilder roguelike", 60);
     std::cout << Color::RESET << Color::BOLD << Color::CYAN;
     printLine(60, '=');
-    std::cout << Color::RESET;
+    std::cout << Color::RESET << "\n" << Color::DIM;
+    printCentered("Stripped of his soul in a battle long forgotten,", 60);
+    printCentered("a lone knight descends into the dark to reclaim it.", 60);
+    printCentered("Each foe felled returns a fragment of who he was.", 60);
+    printCentered("At the depths below waits his own shadow,", 60);
+    printCentered("the last piece he must face to become a legend.", 60);
+    std::cout << Color::RESET << "\n";
     std::cout << Color::DIM << "Use arrow keys to navigate, Enter to select.\n\n" << Color::RESET;
 }
 
