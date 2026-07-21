@@ -105,7 +105,7 @@
     },
     {
       "name": "Uppercut",
-      "description": "Deal 10 damage, ignoring enemy defense.",
+      "description": "Deal 10 damage: ignoring enemy defense.",
       "type": "ATTACK",
       "effect": "PIERCE",
       "physType": "SMASH",
@@ -160,7 +160,7 @@
     },
     {
       "name": "Taunt",
-      "description": "Taunt the enemy - they're much more likely to attack for their next 2 turns.",
+      "description": "Taunt the enemy: they're much more likely to attack for their next 2 turns.",
       "type": "SPECIAL",
       "effect": "TAUNT",
       "cost": 1,
@@ -291,7 +291,7 @@
       "value": 26
     },
     {
-      "name": "Dodge",
+      "name": "Dodge Reversal",
       "description": "Counter: reverses the enemy's next attack or ailment back at them, doubled, +6. Fizzles if they do neither.",
       "type": "SPECIAL",
       "effect": "COUNTER",

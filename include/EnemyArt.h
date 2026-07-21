@@ -34,8 +34,10 @@ namespace EnemyArt {
     // Full scene, both idle frames.
     void printBattle(EnemyType type, BossType boss = BossType::NONE);
 
-    // Redraws the scene in place at console row startRow (menu idle tick).
-    void animateBattleIdleAt(EnemyType type, BossType boss, int startRow);
+    // Redraws the scene in place (menu idle tick), at the row printBattle()
+    // last drew it - tracked internally so it can't drift out of sync with
+    // wherever the console actually put it.
+    void animateBattleIdleAt(EnemyType type, BossType boss);
 
     // Enemy attack: 3-frame windup/swing/impact. knightGuard renders the
     // knight in his shield-brace pose (set when the player has armor up).

@@ -101,8 +101,8 @@ DamageType Enemy::getWeakness() const {
         case EnemyType::MELEE:  return DamageType::PIERCE;
         case EnemyType::TANK:   return DamageType::SMASH;
         case EnemyType::RANGED: return DamageType::WIND;
-        case EnemyType::CASTER: return DamageType::FIRE;
-        case EnemyType::BEAST:  return DamageType::POISON;
+        case EnemyType::CASTER: return DamageType::POISON;
+        case EnemyType::BEAST:  return DamageType::FIRE;   // beasts inflict poison themselves, so poison isn't their weakness
         case EnemyType::UNDEAD: return DamageType::FIRE;
         default:                return DamageType::NONE;
     }
@@ -115,7 +115,10 @@ std::string Enemy::getWeaknessLabel() const {
 DamageType Enemy::getResistance() const {
     // Not every archetype has one
     switch (type) {
+        case EnemyType::MELEE:  return DamageType::WIND;
         case EnemyType::TANK:   return DamageType::PIERCE;
+        case EnemyType::RANGED: return DamageType::FIRE;
+        case EnemyType::CASTER: return DamageType::SMASH;
         case EnemyType::UNDEAD: return DamageType::POISON;
         default:                return DamageType::NONE;
     }

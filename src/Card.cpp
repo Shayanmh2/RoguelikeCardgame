@@ -102,10 +102,12 @@ int Card::getMaxUpgrades() const {
     // but NOT for an ATTACK card like Bloodlust, where value still raises damage.
     if (effect == CardEffect::WEAK || effect == CardEffect::STUN || effect == CardEffect::TAUNT) return 0;
     if (effect == CardEffect::STRENGTH && type == CardType::SPECIAL) return 0;
-    // Starter caps at 1; common 3; rare 4; super rare/legendary 5
+    // Common (starter) 1; Uncommon 2; Rare 3; Super Rare 4; Legendary 5
     if (isStarter()) return 1;
-    if (legendary || superRare) return 5;
-    return rare ? 4 : 3;
+    if (legendary)   return 5;
+    if (superRare)   return 4;
+    if (rare)        return 3;
+    return 2;
 }
 
 void Card::upgrade() {
@@ -118,9 +120,9 @@ void Card::upgrade() {
     // keep description text in sync with the new value
     if (type == CardType::ATTACK) {
         if (effect == CardEffect::DOUBLE_HIT)
-            description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total)";
+            description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total).";
         else if (effect == CardEffect::PIERCE)
-            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense.";
+            description = "Deal " + std::to_string(value) + " damage: ignoring enemy defense.";
         else if (effect == CardEffect::STRENGTH) {
             double buff = superRare ? 3.0 : rare ? 2.0 : 1.2;
             std::ostringstream buffStr;
@@ -128,7 +130,7 @@ void Card::upgrade() {
             description = "Deal " + std::to_string(value) + " damage. Gain x" + buffStr.str() + " damage for 2 turns.";
         }
         else
-            description = "Deal " + std::to_string(value) + " damage";
+            description = "Deal " + std::to_string(value) + " damage.";
     } else if (type == CardType::DEFEND) {
         if (effect == CardEffect::FORTIFY)
             description = "Gain " + std::to_string(value) + " armor that persists for 3 turns (until broken).";
@@ -139,13 +141,13 @@ void Card::upgrade() {
         else if (effect == CardEffect::WARD)
             description = "Gain " + std::to_string(value) + " armor. Blocks the next ailment (Poison/Burn/Weak/Stun) the enemy inflicts on you.";
         else
-            description = "Gain " + std::to_string(value) + " armor";
+            description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {
         if (effect == CardEffect::COUNTER)
             description = "Counter: reverses the enemy's next attack or ailment back at them, doubled, +" + std::to_string(value)
                         + ". Fizzles if they do neither.";
         else if (effect == CardEffect::PARRY)
-            description = "Parries the attack, then riposte for 1.5x damage.";
+            description = "Parries the attack: riposte for 1.5x damage.";
         else if (effect == CardEffect::POISON)
             description = "Apply " + std::to_string(value) + " Poison (" + std::to_string(value) + " dmg/turn for 3 turns).";
         else if (effect == CardEffect::BURN)

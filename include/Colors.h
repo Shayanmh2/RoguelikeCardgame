@@ -5,7 +5,7 @@ namespace Color {
     // Reset / style
     constexpr const char* RESET   = "\033[0m";
     constexpr const char* BOLD    = "\033[1m";
-    constexpr const char* DIM     = "\033[2m";
+    constexpr const char* DIM     = "\033[38;5;244m";
 
     // Bright colors (most readable on dark terminals)
     constexpr const char* RED     = "\033[91m";
@@ -52,7 +52,7 @@ namespace Color {
     constexpr const char* SUPER_RARE_TINT = "\033[38;5;218m"; // pale pink
 
     // Legendary is a step up from the pastel family on purpose - bold, saturated
-    // neon gold, so Dodge (the only legendary card) visually stands out rather
+    // neon gold, so Dodge Reversal (the only legendary card) visually stands out rather
     // than just being another pastel.
     constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
 
