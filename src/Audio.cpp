@@ -4,13 +4,15 @@
 #include <windows.h>
 #include <mmsystem.h>
 #include <atomic>
+#include <chrono>
+#include <mutex>
 #include <thread>
 #include <string>
 
-static std::atomic<bool> bgmRunning{false};
-// Generation guard: bumping this retires any previous BGM thread even if it is
-// mid-"play wait", so a track switch can't race the old loop into reopening.
+
 static std::atomic<int>  bgmGen{0};
+
+static std::mutex        bgmPathMutex;
 static std::string       bgmCurrentPath;
 
 // Returns the directory containing the running exe (with trailing backslash).
@@ -26,15 +28,31 @@ static bool fileExists(const std::string& path) {
     return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
-// BGM thread: opens file with "bgm" MCI alias, plays (blocking), closes, repeats.
-// Exits as soon as its generation is stale (a switch or stop bumped bgmGen).
+
+static std::string aliasFor(int gen) { return "bgm" + std::to_string(gen); }
+
 static void bgmLoop(const std::string& path, int myGen) {
-    while (bgmRunning && bgmGen.load() == myGen) {
-        std::string openCmd = "open \"" + path + "\" alias bgm";
-        if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) break;
-        mciSendStringA("play bgm wait", nullptr, 0, nullptr); // blocks until track ends
-        mciSendStringA("close bgm", nullptr, 0, nullptr);
+    std::string alias = aliasFor(myGen);
+    std::string openCmd = "open \"" + path + "\" alias " + alias;
+    if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) return;
+    mciSendStringA(("play " + alias).c_str(), nullptr, 0, nullptr); 
+
+    while (bgmGen.load() == myGen) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        if (bgmGen.load() != myGen) break;
+
+        char status[64] = {0};
+        mciSendStringA(("status " + alias + " mode").c_str(), status, sizeof(status), nullptr);
+        if (std::string(status) != "playing") {
+
+            mciSendStringA(("close " + alias).c_str(), nullptr, 0, nullptr);
+            if (mciSendStringA(openCmd.c_str(), nullptr, 0, nullptr) != 0) return;
+            mciSendStringA(("play " + alias).c_str(), nullptr, 0, nullptr);
+        }
     }
+
+    mciSendStringA(("stop " + alias).c_str(), nullptr, 0, nullptr);
+    mciSendStringA(("close " + alias).c_str(), nullptr, 0, nullptr);
 }
 
 // Prefer WAV, fall back to MP3; empty string if neither exists.
@@ -47,30 +65,26 @@ static std::string resolveTrack(const std::string& base) {
 void Audio::playBGM(int segment) {
     std::string soundsDir = exeDir() + "sounds\\";
 
-    // Segment 0 -> bgm, segment N -> bgmN+1 (bgm2, bgm3, ...), falling back to
-    // the base bgm track until the per-segment file is dropped into sounds/.
     std::string path;
     if (segment > 0) path = resolveTrack(soundsDir + "bgm" + std::to_string(segment + 1));
     if (path.empty()) path = resolveTrack(soundsDir + "bgm");
     if (path.empty()) return; // no BGM file found - run silently
 
-    if (bgmRunning && path == bgmCurrentPath) return; // this track is already playing
+    {
+        std::lock_guard<std::mutex> lock(bgmPathMutex);
+        if (path == bgmCurrentPath) return; // this track is already playing (or bgmCurrentPath is empty and nothing is)
+        bgmCurrentPath = path;
+    }
 
-    // Retire the old loop and start the new track.
+
     int gen = ++bgmGen;
-    mciSendStringA("stop bgm", nullptr, 0, nullptr);
-    mciSendStringA("close bgm", nullptr, 0, nullptr);
-    bgmCurrentPath = path;
-    bgmRunning = true;
     std::thread(bgmLoop, path, gen).detach();
 }
 
 void Audio::stopBGM() {
-    bgmRunning = false;
-    ++bgmGen;
+    std::lock_guard<std::mutex> lock(bgmPathMutex);
     bgmCurrentPath.clear();
-    mciSendStringA("stop bgm", nullptr, 0, nullptr);
-    mciSendStringA("close bgm", nullptr, 0, nullptr);
+    ++bgmGen; // claimed by nothing - any running thread notices and tears itself down
 }
 
 void Audio::playSFX(const std::string& name) {
