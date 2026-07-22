@@ -41,18 +41,9 @@ private:
     bool enemyStatusWardActive = false; // Shadow Knight mirroring Status Guard: blocks the next ailment the player inflicts on it
     int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
 
-    // Once per boss attempt: a hit that would kill the player instead leaves
-    // them at 1 HP. Reset to true every time a new boss encounter starts;
-    // consumed the first time it saves them, so a second lethal hit kills normally.
-    bool bossSecondWindAvailable = false;
+    bool bossSecondWindAvailable = false; // once per boss attempt: a lethal hit leaves you at 1 HP instead
 
-    // Shadow Knight only: up to 3 cards mirrored from the player's own deck,
-    // picked in secret at the start of the player's turn. One is revealed and
-    // played immediately after each card the player plays this turn, so the
-    // knight's response to a given play is never visible in advance - by the
-    // time you see it, it's already resolving. Any left unused at turn's end
-    // are played out during the knight's own turn instead of being wasted.
-    std::vector<Card> knightPreparedMoves;
+    std::vector<Card> knightPreparedMoves; // Shadow Knight: up to 3 cards mirrored this round, revealed one per card played
 
     // Set by playCardFromHand() every time a card is played, so callers (the tutorial)
     // can tell what was just played even if that same handleInput() call also auto-ended
@@ -68,9 +59,9 @@ private:
     void resetEnergy();
     void playCardFromHand(int index);
     void applyCardEffect(const Card& card);
-    void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward, if active
-    bool applyEnemyStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through a mirrored Status Guard's ward, if active; false if warded
-    bool tryStunEnemy(); // enemy.tryApplyStun(), but blockable by a mirrored Status Guard's ward
+    void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward
+    bool applyEnemyStatus(StatusType type, int amount, double weakMultiplier = 1.5); // same, mirrored; false if warded
+    bool tryStunEnemy(); // enemy.tryApplyStun(), blockable by a mirrored ward
     void refreshBattleAuras(); // syncs the battle scene's persistent status glows to current playerStatus/enemy state
     void enemyTurn();
     void endPlayerTurn();
@@ -85,12 +76,7 @@ private:
     void nextEncounter();
     void handleEncounterWin();
     void handleGameVictory(); // first Shadow Knight kill: legendary drop, victory screen, run ends
-    // The Continue/End Run choice - shared by handleEncounterWin() and a fresh Load Save.
-    // justWonEncounter distinguishes the two: after a real win, Continue must advance
-    // past the encounter just cleared (nextEncounter()); after a load, the saved
-    // encounter number is already the one not yet fought, so Continue must start
-    // THAT encounter directly (startEncounter()) - advancing here would skip it entirely.
-    void offerContinueOrEndRun(bool justWonEncounter = true);
+    void offerContinueOrEndRun(bool justWonEncounter = true); // justWonEncounter=false (load) starts the saved encounter instead of advancing past it
     void restSite();
     Enemy generateBossEnemy();
     void  bossAction();
