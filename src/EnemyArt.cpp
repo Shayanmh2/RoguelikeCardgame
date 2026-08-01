@@ -106,6 +106,14 @@ static const ArtSet TANK_BASTION     = loadSet("assets/sprites/tank_bastion.png"
 static const ArtSet TANK_FORTRESS    = loadSet("assets/sprites/tank_fortress.png");
 static const ArtSet TANK_ORC         = loadSet("assets/sprites/tank_orc.png");
 static const ArtSet CASTER_ENCHANTER = loadSet("assets/sprites/caster_enchanter.png");
+// New/renamed enemies whose art doesn't exist yet - loadSet returns empty for a
+// missing file, so setEnemyVariant() falls back to the generic type sprite until
+// the real PNG is dropped in, at which point it's picked up with no code change.
+static const ArtSet CASTER_VAMPIRE   = loadSet("assets/sprites/caster_vampire.png");
+static const ArtSet RANGED_FALCON    = loadSet("assets/sprites/ranged_falcon.png");
+static const ArtSet RANGED_ASSASSIN  = loadSet("assets/sprites/ranged_assassin.png");
+static const ArtSet RANGED_OMNEYE    = loadSet("assets/sprites/ranged_omneye.png");
+static const ArtSet RANGED_DEADEYE   = loadSet("assets/sprites/ranged_deadeye.png");
 
 static const ArtSet* namedVariant = nullptr;
 
@@ -127,7 +135,9 @@ void setEnemyVariant(const std::string& enemyName) {
         {"Warden",     &TANK_WARDEN},     {"Paladin",  &TANK_PALADIN},
         {"Bastion",    &TANK_BASTION},    {"Fortress", &TANK_FORTRESS},
         {"Orc",        &TANK_ORC},        {"Slime",    &TUT_SLIME},
-        {"Enchanter",  &CASTER_ENCHANTER},
+        {"Enchanter",  &CASTER_ENCHANTER},{"Vampire",  &CASTER_VAMPIRE},
+        {"Falcon",     &RANGED_FALCON},   {"Assassin", &RANGED_ASSASSIN},
+        {"Omneye",     &RANGED_OMNEYE},   {"Deadeye",  &RANGED_DEADEYE},
     };
     namedVariant = nullptr;
     for (const auto& e : TABLE) {
@@ -364,6 +374,16 @@ void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
     auraEnemy = enemy;
 }
 
+static bool enemyGhost = false;
+void setEnemyGhost(bool on) { enemyGhost = on; }
+
+// Fades a pixel toward a translucent blue-gray for a spectral, half-there look.
+static RGB ghostFade(RGB c) {
+    return { (unsigned char)(c.r * 0.40 + 34),
+             (unsigned char)(c.g * 0.40 + 44),
+             (unsigned char)(c.b * 0.40 + 66) };
+}
+
 // Collects every tint the side currently carries and rotates through them
 // every AURA_CYCLE_MS. A side with one active status just holds that color.
 static RGB (*pickAuraTint(const AuraFlags& f))(RGB) {
@@ -467,7 +487,9 @@ static void renderBattle(const Art& left, const Art& right,
     size_t boff = rows - artRows(bg);
 
     RGB (*leftFx)(RGB)  = lt ? lt : pickAuraTint(auraKnight);
-    RGB (*rightFx)(RGB) = rt ? rt : pickAuraTint(auraEnemy);
+    // A ghosted enemy fades out, overriding its idle aura tint (explicit flash
+    // transforms still win, so hit/status flashes read clearly for a beat).
+    RGB (*rightFx)(RGB) = rt ? rt : (enemyGhost ? ghostFade : pickAuraTint(auraEnemy));
 
     auto pixAt = [&](size_t r, size_t c) -> RGB {
         if (c >= (size_t)BATTLE_LEFT_INDENT && r >= loff) {

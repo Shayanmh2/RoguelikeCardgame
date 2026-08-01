@@ -78,6 +78,10 @@ namespace EnemyArt {
     // Set before drawing the scene.
     void setBattleAuras(AuraFlags knight, AuraFlags enemy);
 
+    // Ghost/Illusion: render the enemy faded and spectral (Mystic, Specter,
+    // Wraith while invulnerable). Set before drawing the scene, cleared after.
+    void setEnemyGhost(bool on);
+
     // Picks the backdrop for this encounter (a new environment every 10
     // encounters, cycling after the last).
     void setBattleBackdrop(int encounterNumber);

@@ -43,6 +43,18 @@ private:
 
     bool bossSecondWindAvailable = false; // once per boss attempt: a lethal hit leaves you at 1 HP instead
 
+    // Per-enemy signature mechanics, all reset in startEncounter().
+    bool playerAttackOnly = false;   // Revenant taunt: player may only play ATTACK cards this turn
+    bool enemyInvulnerable = false;  // Mystic Illusion / Specter+Wraith Ghost: enemy takes 0 direct damage for the player's turn
+    bool enemyParryStance = false;   // Revenant parry: deflects + ripostes the player's next attack
+    int  nextHandPenalty = 0;        // Enchanter Tempt / Sorcerer Ice Blast: draw this many fewer cards next hand
+    int  curseTurnsLeft = 0;         // Basilisk Curse: player turns left before an automatic loss (0 = no curse active)
+    bool assassinAmbushArmed = false;// Assassin: one free mid-turn strike on a random card the player plays this turn
+    bool lichAddAlive = false;       // Lich Raise Undead: a summoned skeleton bodyguards the Lich until cut down
+    int  lichAddHp = 0;
+    int  lichAddMaxHp = 0;
+    int  lichAddAtk = 0;
+
     std::vector<Card> knightPreparedMoves; // Shadow Knight: up to 3 cards mirrored this round, revealed one per card played
 
     // Set by playCardFromHand() every time a card is played, so callers (the tutorial)
@@ -62,6 +74,9 @@ private:
     void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward
     bool applyEnemyStatus(StatusType type, int amount, double weakMultiplier = 1.5); // same, mirrored; false if warded
     bool tryStunEnemy(); // enemy.tryApplyStun(), blockable by a mirrored ward
+    void enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult); // regular-enemy attack resolution (armor/counter/parry), no boss second-wind
+    void triggerAssassinAmbush(); // Assassin only: one free strike after a random card the player plays
+    void armPerTurnEnemyMechanics(); // re-arms Assassin ambush at the start of each player turn
     void refreshBattleAuras(); // syncs the battle scene's persistent status glows to current playerStatus/enemy state
     void enemyTurn();
     void endPlayerTurn();
