@@ -275,6 +275,7 @@ void Game::displayEnemyInfo() const {
         else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", "weakens you, or attacks.");
         else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", "weakens you hard, or attacks.");
         else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", "lose the run if it isn't dead in 5 turns!");
+        else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", "a landed lash limits you to 1 card next turn.");
         // UNDEAD
         else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", "bites, heals itself, poisons you.");
         else if (nameHas("Banshee"))   line(Color::CARD_SPECIAL, "Wailing Scream", "weakens you, strengthens herself.");
@@ -496,10 +497,15 @@ void Game::playCardFromHand(int index) {
             std::cout << Color::DIM << "Card " << index << " already played this turn." << Color::RESET << "\n";
             return;
         }
+        if (playerBoundTurn && cardsPlayedThisTurn >= 1) {
+            std::cout << Color::MAGENTA << "The tentacles hold fast - only one card while BOUND." << Color::RESET << "\n";
+            return;
+        }
         if (!spendEnergy(card.getCost())) return;
 
         Card playedCard = playerDeck.playCard(index - 1);
 
+        cardsPlayedThisTurn++;
         lastActionWasCardPlay = true;
         lastPlayedCardType = playedCard.getType();
         lastPlayedPhysType = playedCard.getPhysType();
@@ -1029,6 +1035,20 @@ void Game::enemyTurn() {
         } else doAttack(atk, false);
         return;
     }
+    if (nameHas("Fleshmass")) {
+        themed("The Fleshmass lashes out with grasping tentacles!");
+        int hpBefore = playerHealth;
+        doAttack(atk, false);
+        // BIND: a lash that draws blood coils on. Skips whiffs (dodged/parried/armor-eaten).
+        if (playerHealth < hpBefore && playerHealth > 0) {
+            fleshmassBindPending = true;
+            Audio::playSFX("special");
+            std::cout << Color::BOLD << Color::MAGENTA << "Tentacles coil around you! BOUND:" << Color::RESET
+                      << " you can only play one card next turn.\n";
+            UIHelper::pause(250);
+        }
+        return;
+    }
 
     // UNDEAD
     if (nameHas("Ghoul")) {
@@ -1184,6 +1204,7 @@ void Game::endPlayerTurn() {
     playerAttackOnly = false;
     enemyInvulnerable = false;
     enemyParryStance = false;
+    playerBoundTurn = false;
     EnemyArt::setEnemyGhost(false); // drop the fade before the enemy's own turn redraws
     int curseAtStart = curseTurnsLeft; // only tick down on turns the curse was already active (not the cast turn)
 
@@ -1261,6 +1282,9 @@ void Game::endPlayerTurn() {
 
     prepareShadowKnightMoves(); // no-op unless this fight is the Shadow Knight
     armPerTurnEnemyMechanics(); // re-arm the Assassin ambush for the new player turn
+    playerBoundTurn = fleshmassBindPending; // Fleshmass Bind lands on the turn after the lash
+    fleshmassBindPending = false;
+    cardsPlayedThisTurn = 0;
     playerTurnActive = true;
     UIHelper::waitForKey("  (press any key for your turn)");
     // handleInput() will clear and redraw the full state for the new turn
@@ -1395,6 +1419,10 @@ void Game::handleInput() {
     if (playerAttackOnly)
         std::cout << Color::RED << "TAUNTED" << Color::RESET
                   << "  You may only play " << Color::CARD_ATTACK << "ATTACK" << Color::RESET << " cards this turn.\n";
+    if (playerBoundTurn)
+        std::cout << Color::BOLD << Color::MAGENTA << "BOUND" << Color::RESET
+                  << "  Tentacles restrict you to one card this turn"
+                  << (cardsPlayedThisTurn >= 1 ? " - it has been played." : ".") << "\n";
 
     std::cout << Color::DIM;
     for (int i = 0; i < 68; i++) std::cout << '-';
@@ -1420,13 +1448,15 @@ void Game::handleInput() {
             cantAfford = ci.getCost() > playerEnergy;
             restricted = playerAttackOnly && ci.getType() != CardType::ATTACK; // Revenant taunt
         }
+        bool bound = !used && playerBoundTurn && cardsPlayedThisTurn >= 1; // Fleshmass Bind: one play spent
 
         std::string optLabel = "Select Card " + std::to_string(i + 1);
         if (used) optLabel += " (used)";
         else if (cantAfford) optLabel += " (no energy)";
+        else if (bound) optLabel += " (bound)";
         else if (restricted) optLabel += " (taunted)";
         options.push_back(optLabel);
-        disabled.push_back(used || cantAfford || restricted);
+        disabled.push_back(used || cantAfford || restricted || bound);
         int optIdx = (int)options.size() - 1;
 
         if (used) {
@@ -2091,7 +2121,7 @@ void Game::startEncounter() {
             // 41-48, before the Dragon + Shadow Knight finale
             {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Orc"},
             {EnemyType::CASTER, "Archon"},  {EnemyType::UNDEAD, "Lich"},
-            {EnemyType::BEAST, "Chimera"},  {EnemyType::MELEE, "Enforcer"},
+            {EnemyType::BEAST, "Fleshmass"},{EnemyType::MELEE, "Enforcer"},
             {EnemyType::TANK, "Fortress"},  {EnemyType::CASTER, "Spellmaster"},
         };
         int r = currentRun.getRegularIndex() % 44;
@@ -2120,6 +2150,9 @@ void Game::startEncounter() {
     curseTurnsLeft = 0;
     lichAddAlive = false;
     lichAddHp = lichAddMaxHp = lichAddAtk = 0;
+    fleshmassBindPending = false;
+    playerBoundTurn = false;
+    cardsPlayedThisTurn = 0;
     armPerTurnEnemyMechanics(); // arm the Assassin ambush if this fight is the Assassin
 
     inEncounter = true;

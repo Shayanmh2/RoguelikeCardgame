@@ -110,10 +110,16 @@ static const ArtSet CASTER_ENCHANTER = loadSet("assets/sprites/caster_enchanter.
 // missing file, so setEnemyVariant() falls back to the generic type sprite until
 // the real PNG is dropped in, at which point it's picked up with no code change.
 static const ArtSet CASTER_VAMPIRE   = loadSet("assets/sprites/caster_vampire.png");
+static const ArtSet CASTER_SAGE      = loadSet("assets/sprites/caster_sage.png");
+static const ArtSet CASTER_SORCERER  = loadSet("assets/sprites/caster_sorcerer.png");
+static const ArtSet CASTER_MYSTIC    = loadSet("assets/sprites/caster_mystic.png");
+static const ArtSet CASTER_ARCHON    = loadSet("assets/sprites/caster_archon.png");
+static const ArtSet CASTER_SPELLMASTER = loadSet("assets/sprites/caster_spellmaster.png");
 static const ArtSet RANGED_FALCON    = loadSet("assets/sprites/ranged_falcon.png");
 static const ArtSet RANGED_ASSASSIN  = loadSet("assets/sprites/ranged_assassin.png");
 static const ArtSet RANGED_OMNEYE    = loadSet("assets/sprites/ranged_omneye.png");
 static const ArtSet RANGED_DEADEYE   = loadSet("assets/sprites/ranged_deadeye.png");
+static const ArtSet BEAST_FLESHMASS  = loadSet("assets/sprites/beast_fleshmass.png");
 
 static const ArtSet* namedVariant = nullptr;
 
@@ -126,7 +132,7 @@ void setEnemyVariant(const std::string& enemyName) {
         {"Wolf",       &BEAST_WOLF},      {"Spider",   &BEAST_SPIDER},
         {"Serpent",    &BEAST_SERPENT},   {"Wyvern",   &BEAST_WYVERN},
         {"Basilisk",   &BEAST_BASILISK},  {"Manticore",&BEAST_MANTICORE},
-        {"Cockatrice", &BEAST_COCKATRICE},{"Chimera",  &BEAST_SET},
+        {"Cockatrice", &BEAST_COCKATRICE},{"Fleshmass",&BEAST_FLESHMASS},
         {"Skeleton",   &UNDEAD_SET},      {"Ghoul",     &UNDEAD_GHOUL},
         {"Wraith",     &UNDEAD_WRAITH},   {"Specter",  &UNDEAD_SPECTER},
         {"Banshee",    &UNDEAD_BANSHEE},  {"Revenant", &UNDEAD_REVENANT},
@@ -136,6 +142,9 @@ void setEnemyVariant(const std::string& enemyName) {
         {"Bastion",    &TANK_BASTION},    {"Fortress", &TANK_FORTRESS},
         {"Orc",        &TANK_ORC},        {"Slime",    &TUT_SLIME},
         {"Enchanter",  &CASTER_ENCHANTER},{"Vampire",  &CASTER_VAMPIRE},
+        {"Sage",       &CASTER_SAGE},     {"Sorcerer", &CASTER_SORCERER},
+        {"Mystic",     &CASTER_MYSTIC},   {"Archon",   &CASTER_ARCHON},
+        {"Spellmaster",&CASTER_SPELLMASTER},
         {"Falcon",     &RANGED_FALCON},   {"Assassin", &RANGED_ASSASSIN},
         {"Omneye",     &RANGED_OMNEYE},   {"Deadeye",  &RANGED_DEADEYE},
     };

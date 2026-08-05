@@ -54,6 +54,9 @@ private:
     int  lichAddHp = 0;
     int  lichAddMaxHp = 0;
     int  lichAddAtk = 0;
+    bool fleshmassBindPending = false; // Fleshmass Bind: its lash landed; the player's next turn is bound
+    bool playerBoundTurn = false;      // Bind active this player turn: only one card play allowed
+    int  cardsPlayedThisTurn = 0;      // successful plays this turn (enforces Bind's 1-play limit)
 
     std::vector<Card> knightPreparedMoves; // Shadow Knight: up to 3 cards mirrored this round, revealed one per card played
 
