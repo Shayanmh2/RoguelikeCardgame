@@ -173,6 +173,73 @@ void Game::displayStatus() const {
 
 }
 
+// One-line flavor text per regular enemy, matched the same way as the move
+// hints below (substring on the base name, so "Greater "/"Eternal " prefixes
+// from later cycles still match). Grouped by zone/theme, not by type.
+static std::string enemyFlavorText(const std::string& enemyName) {
+    auto has = [&](const char* k){ return enemyName.find(k) != std::string::npos; };
+    // Bosses first: generateBossEnemy() prefixes them with "Ancient "/"Eternal " on
+    // later cycles, so substring matching still catches them - but "Shadow Knight"
+    // also contains "Knight", so these have to be tested before the regular roster
+    // or the finale would inherit the Dark Dungeon knight's line.
+    if      (has("Stone Colossus")) return "The dungeon's foundation stood up one day. Everything since has been rubble it walked through.";
+    else if (has("Vile Witch"))     return "She bought every guard in these halls, and still does her own poisoning.";
+    else if (has("Thunder Beast"))  return "The storm over this forest isn't weather. It has been following him for years.";
+    else if (has("Hydra"))          return "Take a head and the lake hands it another. The lake has always been generous with it.";
+    else if (has("Undead Dragon"))  return "Died on this peak an age ago and has never once accepted the terms.";
+    else if (has("Shadow Knight"))  return "It has watched you the whole way up, and knows your deck better than you do.";
+    // The Dungeon
+    else if (has("Goblin"))    return "A scrawny dungeon-scavenger, quick with a blade and quicker to flee.";
+    else if (has("Orc"))       return "A dull-eyed brute muscled into the front ranks by sheer size.";
+    else if (has("Wizard"))    return "A washed-up spellcaster who never left the ruins he once studied in.";
+    else if (has("Skeleton"))  return "Old bones stirred back to motion by whatever still lingers down here.";
+    else if (has("Spider"))    return "Fat and pale from years in the dark, spinning webs across forgotten halls.";
+    else if (has("Archer"))    return "A hooded scavenger who'd rather put an arrow in you from range.";
+    else if (has("Bandit"))    return "A dungeon-squatter who's learned every blind corner to strike from.";
+    else if (has("Warden"))    return "Once kept these halls locked; now it keeps anything that still moves inside.";
+    else if (has("Sage"))      return "An old hermit who mistook the ruins for a place to be left alone.";
+    // The Dark Dungeon
+    else if (has("Ghoul"))     return "Something that used to be a person, now driven by hunger alone.";
+    else if (has("Basilisk"))  return "A pale-eyed reptile whose stare has turned half this dungeon to statues.";
+    else if (has("Assassin"))  return "A shape that waits in the dark until you've already committed to a move.";
+    else if (has("Knight"))    return "A knight who took the witch's coin and never looked back.";
+    else if (has("Sentinel"))  return "Corrupted long ago, it still thinks it's guarding something worth guarding.";
+    else if (has("Enchanter")) return "A charm-caster who'd rather empty your hand than fight for it.";
+    else if (has("Wraith"))    return "A grudge with no body left to carry it, drifting the witch's halls.";
+    else if (has("Cockatrice"))return "Half bird, half serpent, all of it eager to turn you to stone.";
+    else if (has("Omneye"))    return "A single vast eye the witch keeps chained to watch her domain.";
+    // The Wicked Forest
+    else if (has("Raider"))    return "Ambushes from the treeline, gone before the storm-thunder fades.";
+    else if (has("Barbarian")) return "A tribal warrior who calls this storm-choked wood home.";
+    else if (has("Mystic"))    return "A veiled seer who fades from sight whenever the lightning does.";
+    else if (has("Banshee"))   return "Her scream carries further than the thunder, and cuts twice as deep.";
+    else if (has("Wolf"))      return "Runs in packs no one's ever seen more than one member of at a time.";
+    else if (has("Falcon"))    return "A hunter and her trained falcon, moving as a single predator.";
+    else if (has("Berserker")) return "Feral even by the forest's standards, and getting worse the longer this drags on.";
+    else if (has("Guardian"))  return "An eagle-headed knight who's nested in this canopy longer than anyone can say.";
+    else if (has("Vampire"))   return "Elegant, patient, and never quite as far away as she seems.";
+    // The Dark Lake
+    else if (has("Specter"))   return "A shape the fog keeps almost showing you, and never quite does.";
+    else if (has("Serpent"))   return "Something long and patient, coiling just beneath the black water.";
+    else if (has("Deadeye"))   return "A marksman who's had nothing to do out here but perfect one shot.";
+    else if (has("Warrior"))   return "Shipwrecked here years ago and never found a way back to shore.";
+    else if (has("Bastion"))   return "A drowned wall of a man, still holding a line no one else remembers.";
+    else if (has("Spellmaster"))return "Brews plague in the lake's stagnant shallows, and drinks it like water.";
+    else if (has("Revenant"))  return "Rose from the lakebed still furious about how it got there.";
+    else if (has("Fleshmass")) return "A heap of wrong-colored flesh the lake spat up and never wanted back.";
+    else if (has("Wyvern"))    return "Nests in the reeds at the lake's edge, half-drowned and twice as vicious for it.";
+    // The Mountain
+    else if (has("Gladiator")) return "Fought his way up from the lowlands and never stopped climbing.";
+    else if (has("Paladin"))   return "A holy knight whose halo hasn't dimmed even this far from anything holy.";
+    else if (has("Sorcerer"))  return "Never seemed to notice the mountain froze around him. Maybe he did that.";
+    else if (has("Lich"))      return "The oldest thing on this mountain, and the only one still keeping score.";
+    else if (has("Manticore")) return "A lion's hunger with a scorpion's patience, prowling the high crags.";
+    else if (has("Enforcer"))  return "Keeps discipline on this mountain the way a hammer keeps discipline on stone.";
+    else if (has("Fortress"))  return "Less a soldier than a wall that decided to start moving.";
+    else if (has("Archon"))    return "Something that used to be holy, fallen far enough to land on this peak.";
+    return "";
+}
+
 void Game::displayEnemyInfo() const {
     int atk = enemy.getBaseAttack();
     int def = enemy.getBaseDefense(); // used below for move-estimate formulas, not the live display
@@ -180,6 +247,9 @@ void Game::displayEnemyInfo() const {
     EnemyArt::print(EnemyArt::getWalkFrame(enemy.getType(), enemy.getBossType()));
 
     std::cout << "\n" << Color::BOLD << Color::RED << enemy.getName() << Color::RESET << "\n";
+    std::string flavor = enemyFlavorText(enemy.getName());
+    if (!flavor.empty())
+        std::cout << "  " << Color::DIM << flavor << Color::RESET << "\n";
     std::cout << "  HP:  " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
               << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << "\n";
     // ARM and DEF are both flat damage reduction, so they're shown as one combined
@@ -235,89 +305,99 @@ void Game::displayEnemyInfo() const {
         }
     } else {
         auto nameHas = [&](const char* k){ return enemy.getName().find(k) != std::string::npos; };
-        auto line = [&](const char* clr, const char* mv, const char* desc){
-            std::cout << "  " << clr << mv << Color::RESET << " - " << desc << "\n";
+        // tag shown in parens right after the move name: exact hit chance and/or damage,
+        // pulled from the same roll thresholds/formulas enemyTurn() actually uses.
+        auto line = [&](const char* clr, const char* mv, const std::string& tag, const std::string& desc){
+            std::cout << "  " << clr << mv << Color::RESET;
+            if (!tag.empty()) std::cout << Color::DIM << " (" << tag << ")" << Color::RESET;
+            std::cout << " - " << desc << "\n";
         };
+        auto pct     = [](int p){ return std::to_string(p) + "%"; };
+        auto justDmg = [](int d){ return std::to_string(d) + " dmg"; };
+        auto pctDmg  = [](int p, int d){ return std::to_string(p) + "%, " + std::to_string(d) + " dmg"; };
+        auto pctTag  = [](int p, const std::string& s){ return std::to_string(p) + "%, " + s; };
         bool named = true;
         // MELEE
-        if      (nameHas("Goblin"))    line(Color::RED, "Jab", "a quick strike.");
-        else if (nameHas("Bandit"))    line(Color::RED, "Dagger Throw", "a hurled blade.");
-        else if (nameHas("Raider"))    line(Color::RED, "Bash", "a heavy smash.");
-        else if (nameHas("Warrior"))   line(Color::RED, "Pierce", "a lunge that bypasses half your armor.");
-        else if (nameHas("Knight"))    line(Color::ARMOR_CLR, "Shield Bash", "raises armor, then chips you.");
-        else if (nameHas("Berserker")) line(Color::RED, "Frenzy", "grows stronger, then swings.");
-        else if (nameHas("Gladiator")) line(Color::RED, "Uppercut", "a brutal armor-piercing blow.");
-        else if (nameHas("Enforcer"))  line(Color::RED, "Combo Strike", "hits you twice.");
+        if      (nameHas("Goblin"))    line(Color::RED, "Jab", justDmg(atk), "a quick strike.");
+        else if (nameHas("Bandit"))    line(Color::RED, "Dagger Throw", justDmg(atk), "a hurled blade.");
+        else if (nameHas("Raider"))    line(Color::RED, "Bash", justDmg(atk), "a heavy smash.");
+        else if (nameHas("Warrior"))   line(Color::RED, "Pierce", justDmg(atk), "a lunge that bypasses half your armor.");
+        else if (nameHas("Knight"))    line(Color::ARMOR_CLR, "Shield Bash", justDmg(std::max(1, atk / 2)), "raises armor, then chips you.");
+        else if (nameHas("Berserker")) line(Color::RED, "Frenzy", pctDmg(55, atk), "45% chance to grow +2 attack instead.");
+        else if (nameHas("Gladiator")) line(Color::RED, "Uppercut", justDmg(atk + 3), "a brutal armor-piercing blow.");
+        else if (nameHas("Enforcer"))  line(Color::RED, "Combo Strike", justDmg(atk) + " x2", "hits you twice.");
         // TANK
-        else if (nameHas("Guardian"))  line(Color::RED, "Whirlwind", "a piercing sweep, or braces.");
-        else if (nameHas("Barbarian")) line(Color::ARMOR_CLR, "Iron Skin", "big armor, may weaken you.");
-        else if (nameHas("Sentinel"))  line(Color::ARMOR_CLR, "Fortify", "stacks armor, or attacks.");
-        else if (nameHas("Warden"))    line(Color::RED, "Smackdown", "a solid hit, or braces.");
-        else if (nameHas("Paladin"))   line(Color::RED, "Cleave", "a piercing strike, or braces.");
-        else if (nameHas("Bastion"))   line(Color::ARMOR_CLR, "Bastion", "a wall of armor, or attacks.");
-        else if (nameHas("Fortress"))  line(Color::ARMOR_CLR, "Shield Bash", "armor, then bashes you.");
-        else if (nameHas("Orc"))       line(Color::RED, "Body Slam", "a crushing blow, or braces.");
+        else if (nameHas("Guardian"))  line(Color::RED, "Whirlwind", pctDmg(60, atk), "a piercing sweep, or braces.");
+        else if (nameHas("Barbarian")) line(Color::ARMOR_CLR, "Iron Skin", pctTag(60, "Armor +" + std::to_string(def + 6)), "big armor (may also weaken you); else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Sentinel"))  line(Color::ARMOR_CLR, "Fortify", pctTag(60, "Armor +" + std::to_string(def + 4)), "stacks armor; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Warden"))    line(Color::RED, "Smackdown", pctDmg(60, atk + 1), "a solid hit, or braces.");
+        else if (nameHas("Paladin"))   line(Color::RED, "Cleave", pctDmg(60, atk + 2), "a piercing strike, or braces.");
+        else if (nameHas("Bastion"))   line(Color::ARMOR_CLR, "Bastion", pctTag(60, "Armor +" + std::to_string(def + 8)), "a wall of armor; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Fortress"))  line(Color::ARMOR_CLR, "Shield Bash", justDmg(std::max(1, atk / 2)), "armor, then bashes you.");
+        else if (nameHas("Orc"))       line(Color::RED, "Body Slam", pctDmg(60, atk + 2), "a crushing blow, or braces.");
         // CASTER
-        else if (nameHas("Sage"))      line(Color::BURN_CLR, "Torch", "Burn 5; may heal when low.");
-        else if (nameHas("Archon"))    line(Color::BURN_CLR, "Hellfire", "Burn 12; may heal when low.");
-        else if (nameHas("Spellmaster"))line(Color::POISON_CLR, "Virulent Plague", "Poison 14; may heal when low.");
-        else if (nameHas("Enchanter")) line(Color::CARD_SPECIAL, "Tempt", "shrinks your next hand to 3 cards.");
-        else if (nameHas("Sorcerer"))  line(Color::BLUE, "Ice Blast", "weakens you and thins your next hand.");
-        else if (nameHas("Vampire"))   line(Color::MAGENTA, "Vampiric Drain", "hits you, heals herself, weakens you.");
-        else if (nameHas("Mystic"))    line(Color::CYAN, "Illusion", "becomes untargetable for a turn.");
+        else if (nameHas("Sage"))      line(Color::BURN_CLR, "Torch", pctTag(70, "Burn 5"), "may heal when low; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Archon"))    line(Color::BURN_CLR, "Hellfire", pctTag(70, "Burn 12"), "may heal when low; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Spellmaster"))line(Color::POISON_CLR, "Virulent Plague", pctTag(70, "Poison 14"), "may heal when low; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Enchanter")) line(Color::CARD_SPECIAL, "Tempt", pct(60), "shrinks your next hand to 3 cards; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Sorcerer"))  line(Color::BLUE, "Ice Blast", pct(60), "weakens you and thins your next hand; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Vampire"))   line(Color::MAGENTA, "Vampiric Drain", pctDmg(65, 10), "hits you, heals herself +6, weakens you 2.");
+        else if (nameHas("Mystic"))    line(Color::CYAN, "Illusion", pct(50), "becomes untargetable for a turn; else attacks for " + justDmg(atk) + ".");
         // RANGED
-        else if (nameHas("Deadeye"))   line(Color::RED, "Dead Shot", "a shot that pierces your armor.");
-        else if (nameHas("Wyvern"))    line(Color::RED, "Flying Gnash", "a piercing dive.");
-        else if (nameHas("Omneye"))    line(Color::RED, "Eye-Beam", "a piercing beam; may weaken you.");
-        else if (nameHas("Assassin"))  line(Color::RED, "Ambush", "strikes mid-turn on a random card you play.");
+        else if (nameHas("Deadeye"))   line(Color::RED, "Dead Shot", justDmg(atk), "a shot that pierces your armor.");
+        else if (nameHas("Wyvern"))    line(Color::RED, "Flying Gnash", justDmg(atk + 2), "a piercing dive.");
+        else if (nameHas("Omneye"))    line(Color::RED, "Eye-Beam", pctDmg(70, atk + 2), "a piercing beam; else a 30% weakening gaze.");
+        else if (nameHas("Assassin"))  line(Color::RED, "Ambush", "45%, " + justDmg(atk), "strikes mid-turn on a random card you play (armor-piercing).");
         // BEAST
-        else if (nameHas("Wolf"))      line(Color::RED, "Bite", "a lunging bite, or braces.");
-        else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", "weakens you, or attacks.");
-        else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", "weakens you hard, or attacks.");
-        else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", "lose the run if it isn't dead in 5 turns!");
-        else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", "a landed lash limits you to 1 card next turn.");
+        else if (nameHas("Wolf"))      line(Color::RED, "Bite", pctDmg(70, atk), "a lunging bite, or braces.");
+        else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", pctTag(50, "Weaken 2"), "else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", pctTag(50, "Weaken 3"), "else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", pct(40), "lose the run if it isn't dead in 5 turns! Else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", justDmg(atk), "a landed lash limits you to 1 card next turn.");
         // UNDEAD
-        else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", "bites, heals itself, poisons you.");
-        else if (nameHas("Banshee"))   line(Color::CARD_SPECIAL, "Wailing Scream", "weakens you, strengthens herself.");
-        else if (nameHas("Specter") || nameHas("Wraith")) line(Color::CYAN, "Ghost", "becomes untargetable for a turn.");
-        else if (nameHas("Revenant"))  line(Color::CYAN, "Parry / Taunt", "counters your attack, or forces attack-only.");
-        else if (nameHas("Lich"))      line(Color::MAGENTA, "Raise Undead", "summons a skeleton that guards it.");
+        else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", justDmg(atk), "bites, heals itself +8, poisons you 3.");
+        else if (nameHas("Banshee"))   line(Color::CARD_SPECIAL, "Wailing Scream", "Weaken 2", "weakens you, strengthens herself +2 attack.");
+        else if (nameHas("Specter") || nameHas("Wraith")) line(Color::CYAN, "Ghost", pct(50), "becomes untargetable for a turn; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Revenant"))  line(Color::CYAN, "Parry / Taunt", "35% / 35%", "counters your attack, or forces attack-only; else attacks for " + justDmg(atk) + " (30%).");
+        else if (nameHas("Lich"))      line(Color::MAGENTA, "Raise Undead", pctTag(45, "Summon (6 atk)"), "summons a skeleton that guards it; else attacks for " + justDmg(atk) + ".");
         else named = false;
 
         if (named) {
-            line(Color::RED, "Basic attack", "a plain strike otherwise.");
+            line(Color::RED, "Basic attack", justDmg(atk), "a plain strike otherwise.");
         } else {
             switch (enemy.getType()) {
                 case EnemyType::MELEE:
-                    std::cout << "  " << Color::RED     << "Attack"  << Color::RESET << " (likely)   - deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (rarely)   - gains " << def << " armor\n";
+                    std::cout << "  " << Color::RED     << "Attack"  << Color::RESET << " (70%, " << atk << " dmg) - reduced by your armor\n";
+                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (30%)         - gains " << def << " armor\n";
                     break;
                 case EnemyType::RANGED:
-                    std::cout << "  " << Color::RED      << "Pierce attack"   << Color::RESET << " (likely)     - deals ~" << std::max(0, atk - def) << " dmg, bypasses half your armor\n";
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend"         << Color::RESET << " (sometimes)  - gains " << std::max(1, def - 1) << " armor\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Crippling shot" << Color::RESET << " (rarely)     - weakens you (-2 dmg for 2 turns)\n";
+                    std::cout << "  " << Color::RED      << "Pierce attack"   << Color::RESET << " (60%, " << atk << " dmg) - bypasses half your armor\n";
+                    std::cout << "  " << Color::ARMOR_CLR << "Defend"         << Color::RESET << " (20%)         - gains " << std::max(1, def - 1) << " armor\n";
+                    std::cout << "  " << Color::CARD_SPECIAL << "Crippling shot" << Color::RESET << " (20%)         - weakens you (-2 dmg for 2 turns)\n";
                     break;
                 case EnemyType::TANK:
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (likely)   - gains " << def << " armor\n";
-                    std::cout << "  " << Color::RED       << "Attack" << Color::RESET << " (sometimes)- deals ~" << std::max(0, std::max(1, atk - 2) - def) << " dmg (reduced by your armor)\n";
+                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (65%)         - gains " << def << " armor\n";
+                    std::cout << "  " << Color::RED       << "Attack" << Color::RESET << " (35%, " << std::max(1, atk - 2) << " dmg) - reduced by your armor\n";
                     break;
                 case EnemyType::CASTER:
-                    std::cout << "  " << Color::CARD_SPECIAL << "Poison Bolt" << Color::RESET << " (sometimes) - poisons you (3 stacks)\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Fireball"    << Color::RESET << " (sometimes) - burns you (2 turns)\n";
-                    std::cout << "  " << Color::RED         << "Attack"      << Color::RESET << " (sometimes) - deals ~" << std::max(0, atk + 1 - def) << " dmg\n";
-                    if (enemy.getHealth() < enemy.getMaxHealth() / 3)
-                        std::cout << "  " << Color::HEAL    << "Heal"         << Color::RESET << " (likely, low HP!) - recovers ~" << (8 + def / 2) << " HP\n";
-                    else
-                        std::cout << "  " << Color::DIM     << "[May cast Heal if HP drops below 33%]" << Color::RESET << "\n";
+                    if (enemy.getHealth() < enemy.getMaxHealth() / 3) {
+                        std::cout << "  " << Color::HEAL    << "Heal"   << Color::RESET << " (60%)         - recovers ~" << (8 + def / 2) << " HP (low HP)\n";
+                        std::cout << "  " << Color::RED      << "Attack" << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
+                    } else {
+                        std::cout << "  " << Color::CARD_SPECIAL << "Poison Bolt" << Color::RESET << " (40%)         - poisons you (3 stacks)\n";
+                        std::cout << "  " << Color::CARD_SPECIAL << "Fireball"    << Color::RESET << " (20%)         - burns you (2 turns)\n";
+                        std::cout << "  " << Color::RED         << "Attack"      << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
+                        std::cout << "  " << Color::DIM     << "[Casts Heal instead if HP drops below 33%]" << Color::RESET << "\n";
+                    }
                     break;
                 case EnemyType::BEAST:
-                    std::cout << "  " << Color::RED       << "Attack"         << Color::RESET << " (likely)   - deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Venomous bite"  << Color::RESET << " (sometimes)- poisons you (3 stacks)\n";
-                    std::cout << "  " << Color::ARMOR_CLR  << "Defend"         << Color::RESET << " (rarely)   - gains " << std::max(1, def - 1) << " armor\n";
+                    std::cout << "  " << Color::RED       << "Attack"         << Color::RESET << " (60%, " << atk << " dmg) - reduced by your armor\n";
+                    std::cout << "  " << Color::CARD_SPECIAL << "Venomous bite"  << Color::RESET << " (25%)         - poisons you (3 stacks)\n";
+                    std::cout << "  " << Color::ARMOR_CLR  << "Defend"         << Color::RESET << " (15%)         - gains " << std::max(1, def - 1) << " armor\n";
                     break;
                 case EnemyType::UNDEAD:
-                    std::cout << "  " << Color::RED      << "Attack"         << Color::RESET << " (likely)   - deals ~" << std::max(0, atk - def) << " dmg (reduced by your armor)\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Chilling touch" << Color::RESET << " (sometimes)- weakens you (-2 dmg for 2 turns)\n";
+                    std::cout << "  " << Color::RED      << "Attack"         << Color::RESET << " (75%, " << atk << " dmg) - reduced by your armor\n";
+                    std::cout << "  " << Color::CARD_SPECIAL << "Chilling touch" << Color::RESET << " (25%)         - weakens you (-2 dmg for 2 turns)\n";
                     break;
             }
         }
@@ -1230,6 +1310,11 @@ void Game::endPlayerTurn() {
         resetEnergy();
 
         // Tick player status effects (start of player's new turn)
+        // Second wind has to be offered here too. It used to be checked only in
+        // bossStrikesPlayer(), so a poison or burn tick that reduced you to 0
+        // killed you outright with the save still unspent - which is exactly
+        // the case a player at 1 HP hits, since any tick at all is lethal
+        // there. That read as "last stand doesn't work".
         int playerPoisonDmg = playerStatus.processPoison();
         if (playerPoisonDmg > 0) {
             playerHealth = std::max(0, playerHealth - playerPoisonDmg);
@@ -1237,6 +1322,10 @@ void Game::endPlayerTurn() {
                       << " you take " << Color::DAMAGE << playerPoisonDmg << Color::RESET
                       << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
                       << playerHealth << Color::RESET << ")\n";
+            if (trySecondWind())
+                std::cout << "  " << Color::BOLD << Color::YELLOW
+                          << "You refuse to fall! Clinging to 1 HP, you survive the poison!"
+                          << Color::RESET << "\n";
             UIHelper::pause(250);
         }
         int playerBurnDmg = playerStatus.processBurn();
@@ -1246,6 +1335,10 @@ void Game::endPlayerTurn() {
                       << " you take " << Color::DAMAGE << playerBurnDmg << Color::RESET
                       << " damage! (HP: " << hpColor(playerHealth, maxPlayerHealth)
                       << playerHealth << Color::RESET << ")\n";
+            if (trySecondWind())
+                std::cout << "  " << Color::BOLD << Color::YELLOW
+                          << "You refuse to fall! Clinging to 1 HP, you survive the flames!"
+                          << Color::RESET << "\n";
             UIHelper::pause(250);
         }
         // WEAK/STRENGTH tick at end of player turn (after all attacks are resolved)
@@ -2069,7 +2162,101 @@ void Game::offerExtraPlay() {
     UIHelper::waitForKey();
 }
 
+// Narrative beats, three per zone: "enter" plays at the zone's first fight
+// (no boss spoilers - the boss is still 8-9 fights away), "approach" plays
+// right before that zone's boss (this is where it's named), "outro" plays
+// after the boss falls (the "soul fragment" recovered). Only plays on the
+// first run through (cycle 0) - by the time an endless cycle repeats, the
+// knight is already whole again.
+namespace {
+    using Lines = std::vector<std::string>;
+    struct ZoneStory { Lines enter, approach, outro; };
+    const ZoneStory ZONE_STORY[5] = {
+        { // The Dungeon -> Stone Colossus
+          { "The knight passes through a rusted portcullis into a dungeon of wet stone, his "
+            "footsteps the only sound in corridors that swallow torchlight before it can catch.",
+            "Something is missing in him, has been missing longer than he can remember, and "
+            "the emptiness sits behind his ribs like a held breath.",
+            "He grips a notched sword he isn't sure he ever learned to use, and presses deeper "
+            "into the gloom." },
+          { "The passage finally opens into a vast chamber, and the ground itself seems to wake.",
+            "A stone colossus rises from the rubble, older than the dungeon around it, and "
+            "plants itself squarely in the only way forward." },
+          { "Among the rubble, the knight kneels and closes a gauntleted hand around the first "
+            "fragment, a small point of light resting in the dust.",
+            "It settles into the hollow behind his ribs, and for a moment his armor doesn't "
+            "feel quite so heavy." } },
+        { // The Dark Dungeon -> Vile Witch
+          { "The passage narrows and darkens, stone giving way to something less honest:",
+            "runes scored into the floor, a green light that flickers without a source, "
+            "whispers that stop the instant he turns toward them." },
+          { "The corridor opens on a chamber ringed with shattered cauldrons.",
+            "A vile witch waits at its heart, with the patience of something that has already "
+            "decided how this ends." },
+          { "The cauldrons lie in pieces, and the wrongness in the air finally lifts.",
+            "He takes the second fragment from her ruined altar.",
+            "It settles in quietly, and with it comes a clarity he hadn't known he'd lost." } },
+        { // The Wicked Forest -> Thunder Beast
+          { "Trees older than the dungeon close overhead, branches woven so tight no daylight "
+            "reaches the forest floor.",
+            "The air itself feels charged, hair lifting on his arms with every step, thunder "
+            "answering thunder in a storm that never quite arrives." },
+          { "The storm finally breaks over a clearing at the heart of the wood.",
+            "A thunder beast commands the canopy there, lightning coiled and ready." },
+          { "When the last peal fades and the ozone smell clears, the forest seems to exhale "
+            "with him.",
+            "The third fragment lies scorched into the earth where the beast fell.",
+            "Something in his legs remembers how to move fast again." } },
+        { // The Dark Lake -> Hydra
+          { "The shoreline is black glass under a fog that swallows sound as readily as light.",
+            "The lake gives back no stars, only his own pale reflection.",
+            "He pushes a rotting raft out into the mist." },
+          { "Out past the fog line the water answers with ripples that have nothing to do "
+            "with the wind.",
+            "The hydra wakes beneath the surface, unwilling to let anything cross unchallenged." },
+          { "The lake stills once the last head falls silent, and the fourth fragment drifts "
+            "to him on the tide.",
+            "His movements feel less like effort now, more like current." } },
+        { // The Mountain -> Undead Dragon
+          { "Past the treeline the world turns to wind and ice, a narrow ledge of slate the "
+            "only path between him and the drop.",
+            "Frost climbs his plate faster than his own breath can melt it." },
+          { "The ledge ends at a cave mouth colder than the wind outside.",
+            "Something waits within: a dragon that died once and never quite left." },
+          { "The dragon's frozen breath goes still.",
+            "He draws the fifth fragment from its shell, and warmth spreads through him.",
+            "Nearly whole now, he can feel the shape of who he used to be." } },
+    };
+    // The Peak: plays once, right before the Shadow Knight (encounter 50). No
+    // matching outro - handleGameVictory() already covers that beat.
+    const Lines PEAK_APPROACH = {
+        "Above the clouds the sky turns a bruised purple, the air too thin to hold much of "
+        "anything.",
+        "At the summit's edge, something is already waiting: a knight in his own armor, "
+        "carrying his own sword, wearing every piece of himself he's spent this whole climb "
+        "trying to reclaim."
+    };
+
+    void showStoryBeat(const Lines& lines) {
+        UIHelper::clearScreen();
+        std::cout << "\n";
+        for (const std::string& line : lines)
+            UIHelper::typeWrite(std::string(Color::DIM) + line + Color::RESET + "\n\n");
+        UIHelper::waitForKey();
+    }
+}
+
 void Game::startEncounter() {
+    if (currentRun.getCycle() == 0) {
+        if (currentRun.isBossEncounter()) {
+            int bossIdx = currentRun.getBossIndex(); // 0..5
+            if (bossIdx == 5) showStoryBeat(PEAK_APPROACH); // right before the Shadow Knight
+            else if (bossIdx >= 0 && bossIdx < 5) showStoryBeat(ZONE_STORY[bossIdx].approach);
+        } else if (currentRun.getRegularIndex() % 9 == 0) {
+            int zone = currentRun.getRegularIndex() / 9; // 0..4, one per zone
+            if (zone >= 0 && zone < 5) showStoryBeat(ZONE_STORY[zone].enter);
+        }
+    }
     UIHelper::clearScreen();
     EnemyArt::setBattleBackdrop(currentRun.getCurrentEncounter());
     // BGM tracks the same 10-encounter segments as the backdrop, so the music
@@ -2091,38 +2278,51 @@ void Game::startEncounter() {
         int defense = currentRun.getEnemyDefense();
 
         // The 44 unique regular enemies, ordered so no two consecutive fights
-        // share a type.
+        // share a type. Reordered so each zone's lineup both escalates in
+        // apparent power (weakest zone 1, strongest zone 5) and fits the
+        // zone's own theme (e.g. Wolf/Falcon in the Wicked Forest, Sorcerer's
+        // ice in the Mountain, Serpent/Fleshmass in the Dark Lake).
         struct RosterEntry { EnemyType type; const char* name; };
         static const RosterEntry ROSTER[44] = {
-            // 1-9, before the Stone Colossus
-            {EnemyType::MELEE, "Goblin"},   {EnemyType::TANK, "Barbarian"},
+            // 1-9, The Dungeon, before the Stone Colossus
+            {EnemyType::MELEE, "Goblin"},   {EnemyType::TANK, "Orc"},
             {EnemyType::CASTER, "Wizard"},  {EnemyType::UNDEAD, "Skeleton"},
-            {EnemyType::BEAST, "Wolf"},     {EnemyType::RANGED, "Archer"},
-            {EnemyType::MELEE, "Bandit"},   {EnemyType::TANK, "Guardian"},
+            {EnemyType::BEAST, "Spider"},   {EnemyType::RANGED, "Archer"},
+            {EnemyType::MELEE, "Bandit"},   {EnemyType::TANK, "Warden"},
             {EnemyType::CASTER, "Sage"},
-            // 11-19, before the Vile Witch
-            {EnemyType::UNDEAD, "Ghoul"},   {EnemyType::BEAST, "Spider"},
-            {EnemyType::RANGED, "Falcon"},  {EnemyType::MELEE, "Raider"},
+            // 11-19, The Dark Dungeon, before the Vile Witch
+            {EnemyType::UNDEAD, "Ghoul"},   {EnemyType::BEAST, "Basilisk"},
+            {EnemyType::RANGED, "Assassin"},{EnemyType::MELEE, "Knight"},
             {EnemyType::TANK, "Sentinel"},  {EnemyType::CASTER, "Enchanter"},
-            {EnemyType::UNDEAD, "Wraith"},  {EnemyType::BEAST, "Serpent"},
-            {EnemyType::RANGED, "Assassin"},
-            // 21-29, before the Thunder Beast
-            {EnemyType::MELEE, "Warrior"},  {EnemyType::TANK, "Warden"},
-            {EnemyType::CASTER, "Sorcerer"},{EnemyType::UNDEAD, "Specter"},
-            {EnemyType::BEAST, "Basilisk"}, {EnemyType::RANGED, "Deadeye"},
-            {EnemyType::MELEE, "Knight"},   {EnemyType::TANK, "Paladin"},
-            {EnemyType::CASTER, "Mystic"},
-            // 31-39, before the Hydra
-            {EnemyType::UNDEAD, "Banshee"}, {EnemyType::BEAST, "Cockatrice"},
-            {EnemyType::RANGED, "Omneye"},  {EnemyType::MELEE, "Berserker"},
-            {EnemyType::TANK, "Bastion"},   {EnemyType::CASTER, "Vampire"},
-            {EnemyType::UNDEAD, "Revenant"},{EnemyType::BEAST, "Manticore"},
+            {EnemyType::UNDEAD, "Wraith"},  {EnemyType::BEAST, "Cockatrice"},
+            {EnemyType::RANGED, "Omneye"},
+            // 21-29, The Wicked Forest, before the Thunder Beast
+            {EnemyType::MELEE, "Raider"},   {EnemyType::TANK, "Barbarian"},
+            {EnemyType::CASTER, "Mystic"},  {EnemyType::UNDEAD, "Banshee"},
+            {EnemyType::BEAST, "Wolf"},     {EnemyType::RANGED, "Falcon"},
+            {EnemyType::MELEE, "Berserker"},{EnemyType::TANK, "Guardian"},
+            {EnemyType::CASTER, "Vampire"},
+            // 31-39, The Dark Lake, before the Hydra
+            // Gladiator <-> Deadeye and Sorcerer <-> Revenant swapped in from
+            // the Mountain, Fortress <-> Fleshmass traded across as well.
+            // Warrior and Spellmaster then trade places purely to keep the
+            // no-repeated-type rule: the swaps had left Gladiator/Warrior both
+            // MELEE and Spellmaster/Sorcerer both CASTER back to back.
+            // Type run: UNDEAD BEAST MELEE TANK CASTER MELEE CASTER TANK RANGED
+            {EnemyType::UNDEAD, "Specter"}, {EnemyType::BEAST, "Serpent"},
+            {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Bastion"},
+            {EnemyType::CASTER, "Spellmaster"}, {EnemyType::MELEE, "Warrior"},
+            {EnemyType::CASTER, "Sorcerer"},{EnemyType::TANK, "Fortress"},
             {EnemyType::RANGED, "Wyvern"},
-            // 41-48, before the Dragon + Shadow Knight finale
-            {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Orc"},
-            {EnemyType::CASTER, "Archon"},  {EnemyType::UNDEAD, "Lich"},
-            {EnemyType::BEAST, "Fleshmass"},{EnemyType::MELEE, "Enforcer"},
-            {EnemyType::TANK, "Fortress"},  {EnemyType::CASTER, "Spellmaster"},
+            // 41-48, The Mountain, before the Dragon + Shadow Knight finale
+            // Lich and Manticore trade places for the same reason - Revenant
+            // arriving here would otherwise sit directly before Lich, two
+            // UNDEAD in a row.
+            // Type run: RANGED MELEE UNDEAD BEAST UNDEAD TANK BEAST CASTER
+            {EnemyType::RANGED, "Deadeye"}, {EnemyType::MELEE, "Enforcer"},
+            {EnemyType::UNDEAD, "Revenant"},{EnemyType::BEAST, "Manticore"},
+            {EnemyType::UNDEAD, "Lich"},    {EnemyType::TANK, "Paladin"},
+            {EnemyType::BEAST, "Fleshmass"},{EnemyType::CASTER, "Archon"},
         };
         int r = currentRun.getRegularIndex() % 44;
         EnemyType etype = ROSTER[r].type;
@@ -2492,6 +2692,14 @@ void Game::handleEncounterWin() {
                   << BOSS_HP_BOOST << "! (" << playerHealth << "/" << maxPlayerHealth << ")" << Color::RESET << "\n";
         UIHelper::pause(500);
 
+        // Zone outro: the soul fragment recovered from this boss. Bosses 1-5
+        // (Colossus through Dragon) each close out a zone; the Shadow Knight
+        // (6) has its own ending in handleGameVictory() instead.
+        if (currentRun.getCycle() == 0 && bossOccurrence >= 1 && bossOccurrence <= 5) {
+            UIHelper::waitForKey();
+            showStoryBeat(ZONE_STORY[bossOccurrence - 1].outro);
+        }
+
         // First Shadow Knight kill ends the game
         if (enemy.getBossType() == BossType::SHADOW_KNIGHT && currentRun.getCycle() == 0) {
             handleGameVictory();
@@ -2590,6 +2798,10 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
         std::cout << "  Resume later with " << Color::YELLOW << "Load Save" << Color::RESET
                   << " on the main menu. Overwrites any existing save. If you die, the save is deleted.\n\n";
         if (UIHelper::menuSelect({"Yes", "No"}) == 0) {
+            // Saving here (instead of Continue) skips nextEncounter() - advance the
+            // counter ourselves so the save points at the next fight, not the one
+            // just won (loading would otherwise replay it).
+            if (justWonEncounter) currentRun.nextEncounter();
             saveGame();
             std::cout << "\n" << Color::GREEN << "Progress saved!" << Color::RESET << "\n";
             UIHelper::waitForKey();
