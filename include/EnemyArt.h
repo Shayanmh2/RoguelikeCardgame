@@ -4,16 +4,19 @@
 #include <vector>
 #include <string>
 
-// Battle sprites, rendered as 24-bit color half-blocks (U+2580): each cell's
-// foreground is the top pixel, background the bottom, so two image rows share
-// one terminal row.
+// Battle sprites. The terminal build rendered these as 24-bit color
+// half-blocks (U+2580); this build draws the same PNG sheets as real textures
+// through SDL, at a proper on-screen scale, with the sword-trail and cast
+// overlays composited on top. The interface is unchanged so Game.cpp compiles
+// against it untouched.
 namespace EnemyArt {
     struct RGB { unsigned char r, g, b; };
 
-    // True-color pixel frame, loaded from a PNG sprite sheet.
+    // A single frame of a loaded sheet. Opaque handle - the pixels live in a
+    // GPU texture now, so callers just pass this back to print().
     struct Art {
-        std::vector<std::vector<RGB>> trueColorGrid;
-        std::vector<std::vector<bool>> trueColorOpaque; // false = transparent
+        const void* set = nullptr; // ArtSet the frame belongs to
+        int frame = 0;
     };
 
     // Boss != NONE takes priority over the base EnemyType.
