@@ -1,24 +1,107 @@
+// SDL2 build of UIHelper. Everything that only writes text is unchanged from
+// the terminal version - std::cout is redirected into the Console grid, which
+// understands the same ANSI escapes, so all the layout and color code below
+// renders exactly as it did in the terminal. Only the four genuinely
+// platform-bound pieces are reimplemented: sleeping, reading a key, clearing
+// the screen, and the cursor row queries.
 #include "UIHelper.h"
 #include "Colors.h"
+#include "Console.h"
+#include "Platform.h"
 #include <iostream>
 #include <cmath>
 #include <cctype>
+#include <algorithm>
 
-#ifdef _WIN32
-#define NOMINMAX
-#include <windows.h>
-#include <conio.h>
-static void platSleep(int ms) { Sleep(ms); }
-// Drop buffered keypresses so a menu's first _getch() reads a fresh key, not a stale one
-static void flushInputBuffer() { while (_kbhit()) _getch(); }
-#else
-#include <thread>
-#include <chrono>
-static void platSleep(int ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+// Sleeping now pumps the SDL event/render loop instead of blocking the thread,
+// so the window keeps drawing (and stays closable) during every game pause.
+static void platSleep(int ms) { Platform::delay(ms); }
+static void flushInputBuffer() { Platform::flushKeys(); }
+
+// Shared input loop for both menus. The drawing side is untouched from the
+// terminal build - it still reprints the block via DECRC - so this only has to
+// decide which option is current and when to commit. optionRow maps each
+// option to the console row it was drawn on, which makes the list clickable
+// and hoverable in addition to arrow-key driven.
+// `current` is taken by reference on purpose: each caller's printAll lambda
+// captures that same variable to decide which row to highlight, so moving the
+// selection has to write through to it. Taking it by value left the arrow keys
+// updating a private copy that nothing ever drew - the selection looked stuck.
+static int menuInputLoop(int n,
+                         const std::function<bool(int)>& isDisabled,
+                         const std::function<void()>& printAll,
+                         int& current,
+                         const std::vector<int>& optionRow,
+                         const std::function<void()>& onIdleTick,
+                         int idleTickMs) {
+    auto step = [&](int dir) {
+        int next = current;
+        for (int i = 0; i < n; i++) {
+            next = (next + dir + n) % n;
+            if (!isDisabled(next)) break;
+        }
+        if (!isDisabled(next) && next != current) {
+            current = next;
+            std::cout << "\0338"; // DECRC - back to the block start, then reprint
+            printAll();
+        }
+    };
+    auto optionAtRow = [&](int row) {
+        if (row < 0) return -1;
+        for (int i = 0; i < n; i++)
+            if (optionRow[i] >= 0 && optionRow[i] == row && !isDisabled(i)) return i;
+        return -1;
+    };
+
+    flushInputBuffer();
+    Uint32 lastTick = SDL_GetTicks();
+
+    // Hover only re-targets when the mouse actually moves. Sampling it every
+    // frame instead made the arrow keys look broken: moving the selection with
+    // the keyboard was immediately overwritten by whatever row the (stationary)
+    // cursor happened to be resting on.
+    int lastMx = -1, lastMy = -1;
+    Platform::mousePos(lastMx, lastMy);
+
+    while (true) {
+        int mx, my;
+        Platform::mousePos(mx, my);
+        if (mx != lastMx || my != lastMy) {
+            lastMx = mx; lastMy = my;
+            int hovered = optionAtRow(Console::rowAtY(my));
+            if (hovered >= 0 && hovered != current) {
+                current = hovered;
+                std::cout << "\0338";
+                printAll();
+            }
+        }
+
+        int cx, cy;
+        if (Platform::takeClick(cx, cy)) {
+            int clicked = optionAtRow(Console::rowAtY(cy));
+            if (clicked >= 0) { std::cout << "\n"; return clicked; }
+        }
+
+        Platform::KeyEvent k = Platform::pollKey();
+        switch (k.key) {
+            case Platform::Key::UP:
+            case Platform::Key::LEFT:  step(-1); break;
+            case Platform::Key::DOWN:
+            case Platform::Key::RIGHT: step(+1); break;
+            case Platform::Key::ENTER:
+                if (!isDisabled(current)) { std::cout << "\n"; return current; }
+                break;
+            case Platform::Key::ESCAPE: return -1;
+            default: break;
+        }
+
+        if (onIdleTick && SDL_GetTicks() - lastTick >= (Uint32)idleTickMs) {
+            onIdleTick();
+            lastTick = SDL_GetTicks();
+        }
+        Platform::frame();
+    }
 }
-static void flushInputBuffer() {}
-#endif
 
 void UIHelper::printLine(int width, char c) {
     std::cout << Color::DIM;
@@ -158,8 +241,7 @@ void UIHelper::pause(int ms) {
 }
 
 void UIHelper::clearScreen() {
-    std::cout << "\033[2J\033[H";
-    std::cout.flush();
+    Console::clear();
 }
 
 int UIHelper::visibleLen(const std::string& s) {
@@ -187,31 +269,24 @@ int UIHelper::visibleLen(const std::string& s) {
 
 void UIHelper::waitForKey(const std::string& prompt) {
     std::cout << "\033[2m" << prompt << "\033[0m";
-    std::cout.flush();
-#ifdef _WIN32
     flushInputBuffer();
-    _getch();
-#else
-    if (std::cin.peek() == '\n') std::cin.ignore();
-    std::cin.get();
-#endif
+    // A click anywhere counts as "any key", matching the prompt's intent.
+    while (true) {
+        Platform::KeyEvent k = Platform::pollKey();
+        if (k.key != Platform::Key::NONE) break;
+        int cx, cy;
+        if (Platform::takeClick(cx, cy)) break;
+        Platform::frame();
+    }
     std::cout << "\n";
 }
 
 int UIHelper::getCursorRow() {
-#ifdef _WIN32
-    CONSOLE_SCREEN_BUFFER_INFO info;
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    if (GetConsoleScreenBufferInfo(h, &info)) return info.dwCursorPosition.Y;
-#endif
-    return 0;
+    return Console::cursorRow();
 }
 
 void UIHelper::setCursorRow(int row) {
-#ifdef _WIN32
-    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
-    SetConsoleCursorPosition(h, COORD{ 0, (SHORT)row });
-#endif
+    Console::setCursorRow(row);
 }
 
 int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
@@ -294,74 +369,18 @@ int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
         std::cout.flush();
     };
 
+    int blockStart = Console::cursorRow();
     std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
     printAll();
-    flushInputBuffer();
 
-    while (true) {
-#ifdef _WIN32
-        if (onIdleTick) {
-            // Sleep in short slices so keypresses register immediately;
-            // hide the cursor while the animation redraws.
-            std::cout << "\033[?25l";
-            std::cout.flush();
-            int sinceTick = 0;
-            while (!_kbhit()) {
-                platSleep(15);
-                sinceTick += 15;
-                if (sinceTick >= idleTickMs) {
-                    onIdleTick();
-                    sinceTick = 0;
-                }
-            }
-            std::cout << "\033[?25h";
-            std::cout.flush();
-        }
-        int ch = _getch();
-        if (ch == 0 || ch == 224) {
-            int dir = _getch();
-            if (dir == 72) {  // up - wraps from the top to the bottom
-                int next = current;
-                for (int step = 0; step < n; step++) {
-                    next = (next - 1 + n) % n;
-                    if (!isDisabled(next)) break;
-                }
-                if (!isDisabled(next)) {
-                    current = next;
-                    std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
-                    printAll();
-                }
-            } else if (dir == 80) {  // down - wraps from the bottom to the top
-                int next = current;
-                for (int step = 0; step < n; step++) {
-                    next = (next + 1) % n;
-                    if (!isDisabled(next)) break;
-                }
-                if (!isDisabled(next)) {
-                    current = next;
-                    std::cout << "\0338";
-                    printAll();
-                }
-            }
-        } else if (ch == 13) {
-            std::cout << "\n";
-            return current;
-        } else if (ch == 27) {
-            return -1;
-        } else if (ch == 'H') {  // Shift+H - manual refresh if the screen ever looks glitched
-            clearScreen();
-            printAll();
-        }
-#else
-        std::string line;
-        if (!std::getline(std::cin, line)) return -1;
-        if (line.empty() && !isDisabled(current)) return current;
-        try {
-            int idx = std::stoi(line) - 1;
-            if (idx >= 0 && idx < n && !isDisabled(idx)) return idx;
-        } catch (...) {}
-#endif
+    // Which console row each option landed on, for mouse hit-testing.
+    std::vector<int> optionRow(n, -1);
+    for (int i = 0; i < totalLines; i++) {
+        int optIdx = allOpt[i];
+        if (optIdx >= 0 && optIdx < n) optionRow[optIdx] = blockStart + i;
     }
+
+    return menuInputLoop(n, isDisabled, printAll, current, optionRow, onIdleTick, idleTickMs);
 }
 
 int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex,
@@ -397,63 +416,32 @@ int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex
         std::cout.flush();
     };
 
+    int blockStart = Console::cursorRow();
     std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
     printOptions();
-    flushInputBuffer();
 
-    while (true) {
-#ifdef _WIN32
-        int ch = _getch();
-        if (ch == 0 || ch == 224) {
-            int dir = _getch();
-            if (dir == 72) {  // up - wraps from the top to the bottom
-                int next = current;
-                for (int step = 0; step < n; step++) {
-                    next = (next - 1 + n) % n;
-                    if (!isDisabled(next)) break;
-                }
-                if (!isDisabled(next)) {
-                    current = next;
-                    std::cout << "\0338"; // DECRC - jump back to the saved start, then reprint
-                    printOptions();
-                }
-            } else if (dir == 80) {  // down - wraps from the bottom to the top
-                int next = current;
-                for (int step = 0; step < n; step++) {
-                    next = (next + 1) % n;
-                    if (!isDisabled(next)) break;
-                }
-                if (!isDisabled(next)) {
-                    current = next;
-                    std::cout << "\0338";
-                    printOptions();
-                }
-            }
-        } else if (ch == 13) {  // Enter
-            std::cout << "\n";
-            return current;
-        } else if (ch == 27) {  // ESC
-            return -1;
-        } else if (ch == 'H') {  // Shift+H - manual refresh if the screen ever looks glitched
-            clearScreen();
-            printOptions();
-        }
-#else
-        std::string line;
-        if (!std::getline(std::cin, line)) return -1;
-        if (line.empty()) {
-            if (!isDisabled(current)) return current;
-            continue;
-        }
-        try {
-            int idx = std::stoi(line) - 1;
-            if (idx >= 0 && idx < n && !isDisabled(idx)) return idx;
-        } catch (...) {}
-#endif
-    }
+    std::vector<int> optionRow(n);
+    for (int i = 0; i < n; i++) optionRow[i] = blockStart + i;
+
+    return menuInputLoop(n, isDisabled, printOptions, current, optionRow, nullptr, 0);
 }
 
 void UIHelper::typeWrite(const std::string& text, int msPerChar) {
+    // Timing runs off a wall-clock deadline rather than sleeping per character.
+    //
+    // platSleep() draws at least one vsynced frame, so the old per-character
+    // sleep couldn't take less than a frame (~16ms) no matter what was asked
+    // for - the default 10ms/char actually ran ~60% slower than authored. Here
+    // the deadline advances by exactly msPerChar per character and frames are
+    // drawn only while there's time to spare, so several characters can land
+    // in one frame and the text streams at the speed it was written for.
+    Uint32 deadline = SDL_GetTicks();
+    auto waitOne = [&]() {
+        if (msPerChar <= 0) return;
+        deadline += (Uint32)msPerChar;
+        while ((Sint32)(deadline - SDL_GetTicks()) > 0) Platform::frame();
+    };
+
     size_t i = 0;
     while (i < text.size()) {
         unsigned char c = (unsigned char)text[i];
@@ -464,7 +452,6 @@ void UIHelper::typeWrite(const std::string& text, int msPerChar) {
             while (j < text.size() && !std::isalpha((unsigned char)text[j])) j++;
             if (j < text.size()) j++; // include the terminating letter
             for (size_t k = i; k < j; k++) std::cout << text[k];
-            std::cout.flush();
             i = j;
         } else if (c >= 0xC0) {
             // UTF-8 multi-byte lead byte - print entire codepoint atomically.
@@ -473,16 +460,14 @@ void UIHelper::typeWrite(const std::string& text, int msPerChar) {
                    (unsigned char)text[j] >= 0x80 &&
                    (unsigned char)text[j] <  0xC0) j++;
             for (size_t k = i; k < j; k++) std::cout << text[k];
-            std::cout.flush();
-            if (msPerChar > 0) platSleep(msPerChar);
+            waitOne();
             i = j;
         } else {
             std::cout << (char)c;
-            std::cout.flush();
             // Only delay on visible characters (not spaces, newlines, tabs).
-            if (c != ' ' && c != '\n' && c != '\r' && c != '\t' && msPerChar > 0)
-                platSleep(msPerChar);
+            if (c != ' ' && c != '\n' && c != '\r' && c != '\t') waitOne();
             i++;
         }
     }
+    Platform::frame(); // make sure the finished line is on screen
 }
