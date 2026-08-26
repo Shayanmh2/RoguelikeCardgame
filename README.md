@@ -44,7 +44,7 @@ runnable straight out of the build directory.
 ## How it's put together
 
 The game logic is renderer-agnostic. `Game.cpp` and everything under it reach the outside
-world through exactly four seams — `std::cout`, `UIHelper`, `EnemyArt` and `Audio` — so
+world through exactly four seams | `std::cout`, `UIHelper`, `EnemyArt` and `Audio` | so
 moving off the terminal meant reimplementing those four rather than rewriting the rules.
 
 - **`Console`** redirects `std::cout` into a virtual terminal: a cell grid with a parser
