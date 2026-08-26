@@ -58,8 +58,8 @@ moving off the terminal meant reimplementing those four rather than rewriting th
 
 ## Third-party
 
-- [SDL2](https://libsdl.org), SDL2_ttf, SDL2_mixer — zlib license
-- [stb_image](https://github.com/nothings/stb) — public domain / MIT
+- [SDL2](https://libsdl.org), SDL2_ttf, SDL2_mixer | zlib license
+- [stb_image](https://github.com/nothings/stb) | public domain / MIT
 - DejaVu Sans Mono see `assets/DejaVuSansMono-LICENSE.txt`
 
 The terminal-only version this grew out of is preserved at the `v0.89---Terminal-Last` tag.
