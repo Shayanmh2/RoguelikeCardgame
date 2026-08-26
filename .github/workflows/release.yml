@@ -1,5 +1,6 @@
 name: Release
 
+# Fires on a version tag, e.g. `git tag v2.0-sdl2 && git push origin v2.0-sdl2`.
 on:
   push:
     tags:
@@ -10,29 +11,81 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+            # Multi-config generator: the binary lands in a per-config subdir.
+            exe: build/Release/cardgame_sdl2.exe
+            assets_dir: build/Release
+          - os: macos-latest
+            name: macos
+            exe: build/cardgame_sdl2
+            assets_dir: build
+          - os: ubuntu-latest
+            name: linux
+            exe: build/cardgame_sdl2
+            assets_dir: build
 
     steps:
       - uses: actions/checkout@v4
 
+      # SDL2 is built from source via FetchContent, so Linux needs the X11,
+      # OpenGL and audio development headers present or the SDL configure step
+      # silently produces a build with no video/audio backend.
+      - name: Install Linux build dependencies
+        if: matrix.name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev \
+            libxfixes-dev libxss-dev libxkbcommon-dev libwayland-dev \
+            libgl1-mesa-dev libegl1-mesa-dev libasound2-dev libpulse-dev
+
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        # CMAKE_POLICY_VERSION_MINIMUM must be an ENVIRONMENT variable, not a
+        # -D cache flag: passed as -D the value gets truncated to "3" and CMake
+        # rejects it. Several of SDL's vendored dependencies still declare a
+        # cmake_minimum_required below what modern CMake accepts without it.
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build --config Release
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: cmake --build build --config Release --parallel
 
+      # CMakeLists already copies assets/, config/ and sounds/ next to the
+      # binary as a post-build step, so packaging just collects that folder.
       - name: Package
+        shell: bash
         run: |
-          New-Item -ItemType Directory -Path release
-          Copy-Item cardgame.exe release\
-          Copy-Item -Recurse config  release\config
-          Copy-Item -Recurse sounds  release\sounds
-          Copy-Item -Recurse assets  release\assets
-          Compress-Archive -Path release\* -DestinationPath RoguelikeCardgame.zip
-        shell: pwsh
+          set -eu
+          staging="RoguelikeCardgame-${{ matrix.name }}"
+          mkdir -p "$staging"
+          cp "${{ matrix.exe }}" "$staging/"
+          cp -r "${{ matrix.assets_dir }}/assets" "$staging/assets"
+          cp -r "${{ matrix.assets_dir }}/config" "$staging/config"
+          cp -r "${{ matrix.assets_dir }}/sounds" "$staging/sounds"
+          # DejaVu Sans Mono is redistributable but its license must ship with it.
+          test -f "$staging/assets/DejaVuSansMono-LICENSE.txt"
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            7z a -tzip "$staging.zip" "$staging"
+          else
+            chmod +x "$staging/cardgame_sdl2"
+            tar czf "$staging.tar.gz" "$staging"
+          fi
 
-      - name: Create GitHub Release
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          files: RoguelikeCardgame.zip
+          files: |
+            RoguelikeCardgame-${{ matrix.name }}.zip
+            RoguelikeCardgame-${{ matrix.name }}.tar.gz
           generate_release_notes: true
+          fail_on_unmatched_files: false

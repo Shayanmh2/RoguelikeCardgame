@@ -1,9 +1,20 @@
+// SDL2 battle scene.
+//
+// The terminal build drew these sprites as half-block text cells inline in the
+// output stream, using moveCursorUp() to redraw the same rows. Here the scene
+// is a real region above the console text: sheets load as GPU textures, the
+// scene keeps persistent state (poses, tints, auras), and Platform::frame()
+// draws it every frame. The print* entry points below set that state and then
+// hold it for the same durations the terminal version paused for, so combat
+// keeps the exact rhythm it was authored with.
 #include "EnemyArt.h"
-#include "Colors.h"
+#include "Audio.h"
+#include "Console.h"
+#include "Platform.h"
 #include "UIHelper.h"
-#include <iostream>
+
 #include <algorithm>
-#include <cstdio>
+#include <string>
 #include <vector>
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -11,185 +22,381 @@
 #include "stb_image.h"
 
 namespace EnemyArt {
+namespace {
 
-// PNG sheets in assets/sprites/, frames left to right, sliced by frame
-// width. Alpha < 128 = transparent. A missing sheet loads as empty frames
-// that render nothing.
-static std::vector<Art> loadSheet(const char* path, int frameW) {
-    std::vector<Art> frames;
-    int w = 0, h = 0, comp = 0;
-    unsigned char* data = stbi_load(path, &w, &h, &comp, 4);
-    if (!data) return frames;
-    if (frameW <= 0 || w < frameW) { stbi_image_free(data); return frames; }
-    int count = w / frameW;
-    for (int fidx = 0; fidx < count; fidx++) {
-        Art art;
-        art.trueColorGrid.assign(h, std::vector<RGB>(frameW, RGB{0, 0, 0}));
-        art.trueColorOpaque.assign(h, std::vector<bool>(frameW, false));
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < frameW; x++) {
-                const unsigned char* p = data + 4 * ((size_t)y * w + (size_t)fidx * frameW + x);
-                if (p[3] < 128) continue;
-                art.trueColorGrid[y][x] = { p[0], p[1], p[2] };
-                art.trueColorOpaque[y][x] = true;
-            }
-        }
-        frames.push_back(std::move(art));
+// --- color transforms -------------------------------------------------
+// Every tint in the terminal build was "multiply each channel, then add a
+// constant". Both halves map onto SDL draw calls exactly: the multiply is a
+// color mod on a normal blit, the add is an additive blit of the sprite's
+// white silhouette. So these are the original numbers, not approximations.
+struct Tint {
+    float mulR = 1, mulG = 1, mulB = 1;
+    int addR = 0, addG = 0, addB = 0;
+    bool identity() const {
+        return mulR == 1 && mulG == 1 && mulB == 1 && addR == 0 && addG == 0 && addB == 0;
     }
-    stbi_image_free(data);
-    return frames;
+};
+
+// Damage flash: white, blended rather than flat-added so the sprite's shading
+// survives. Red is reserved for buffs. (hitFlash: c*0.45 + 140)
+const Tint HIT_FLASH  { 0.45f, 0.45f, 0.45f, 140, 140, 140 };
+const Tint TINT_POISON{ 0.45f, 0.45f, 0.45f,  38, 110,  38 };
+const Tint TINT_BURN  { 0.45f, 0.45f, 0.45f, 132,  71,  22 };
+const Tint TINT_STUN  { 0.45f, 0.45f, 0.45f, 134, 118,  33 };
+const Tint TINT_WEAK  { 0.45f, 0.45f, 0.45f,  49,  66, 129 };
+const Tint DEATH_DARK { 0.35f, 0.35f, 0.35f,   0,   0,   0 };
+
+const Tint TINT_STRENGTH{ 1.00f, 0.70f, 0.70f, 90,  0,  0 };
+const Tint TINT_HEAL    { 0.78f, 1.00f, 0.78f,  0, 85,  0 };
+
+const Tint AURA_STRENGTH{ 1.00f, 0.85f, 0.85f, 55,  0,  0 };
+const Tint AURA_WEAK    { 0.85f, 0.85f, 1.00f,  0,  0, 65 };
+const Tint AURA_POISON  { 0.85f, 1.00f, 0.85f,  0, 55,  0 };
+const Tint AURA_BURN    { 1.00f, 1.00f, 0.75f, 60, 22,  0 };
+const Tint AURA_STUN    { 1.00f, 1.00f, 0.80f, 55, 48,  0 };
+
+Tint statusTint(CastGlow glow) {
+    switch (glow) {
+        case CastGlow::BURN: return TINT_BURN;
+        case CastGlow::STUN: return TINT_STUN;
+        case CastGlow::WEAK: return TINT_WEAK;
+        default:             return TINT_POISON;
+    }
 }
 
-static Art frameOr(const std::vector<Art>& sheet, size_t i) {
-    return i < sheet.size() ? sheet[i] : Art{};
+// --- sheets -----------------------------------------------------------
+struct Sheet {
+    SDL_Texture* tex = nullptr;        // the artwork
+    SDL_Texture* silhouette = nullptr; // same alpha, all-white RGB - carries the additive term
+    int frameW = 30, frameH = 32, count = 0;
+    bool ok() const { return tex != nullptr && count > 0; }
+};
+
+Sheet loadSheet(const std::string& path, int frameW) {
+    Sheet s;
+    s.frameW = frameW;
+    int w = 0, h = 0, comp = 0;
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &comp, 4);
+    if (!data) return s;
+    if (frameW <= 0 || w < frameW) { stbi_image_free(data); return s; }
+
+    s.frameH = h;
+    s.count = w / frameW;
+
+    SDL_Renderer* r = Platform::renderer();
+    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormatFrom(data, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32);
+    if (surf) {
+        s.tex = SDL_CreateTextureFromSurface(r, surf);
+        SDL_FreeSurface(surf);
+    }
+
+    // White copy: RGB forced to 255, alpha preserved. Additively blitting this
+    // with a color mod adds a flat constant only where the sprite is opaque,
+    // which is what the terminal build's "+140" style tints did per pixel.
+    std::vector<unsigned char> white((size_t)w * h * 4);
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        white[i * 4 + 0] = 255; white[i * 4 + 1] = 255; white[i * 4 + 2] = 255;
+        white[i * 4 + 3] = data[i * 4 + 3];
+    }
+    SDL_Surface* wsurf = SDL_CreateRGBSurfaceWithFormatFrom(white.data(), w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32);
+    if (wsurf) {
+        s.silhouette = SDL_CreateTextureFromSurface(r, wsurf);
+        SDL_FreeSurface(wsurf);
+    }
+    stbi_image_free(data);
+
+    if (s.tex) {
+        SDL_SetTextureScaleMode(s.tex, SDL_ScaleModeNearest);
+        SDL_SetTextureBlendMode(s.tex, SDL_BLENDMODE_BLEND);
+    }
+    if (s.silhouette) {
+        SDL_SetTextureScaleMode(s.silhouette, SDL_ScaleModeNearest);
+        SDL_SetTextureBlendMode(s.silhouette, SDL_BLENDMODE_ADD);
+    }
+    return s;
 }
 
 // Every enemy ships the same 7-frame sheet:
 //   idle A, idle B, attack windup, attack swing, attack impact, hit, death
 struct ArtSet {
-    Art idleA, idleB, atk1, atk2, atk3, hit, death;
-    bool animated;
-    bool loaded; // false if the sheet's file was missing/unreadable - lets
-                 // setEnemyVariant() skip it and fall through to the type's
-                 // generic sprite instead of rendering a blank enemy.
+    Sheet sheet;
+    bool loaded = false;
+    bool animated = false;
 };
 
-static ArtSet loadSet(const char* path) {
-    std::vector<Art> v = loadSheet(path, 30);
+enum : int { F_IDLE_A = 0, F_IDLE_B = 1, F_ATK1 = 2, F_ATK2 = 3, F_ATK3 = 4, F_HIT = 5, F_DEATH = 6 };
+
+// Assets resolve relative to the executable, not the working directory, so the
+// game runs the same whether it's launched from a shell or a file manager.
+std::string basePath() {
+    static std::string base = Audio::exeDir();
+    return base;
+}
+
+ArtSet loadSet(const char* rel) {
     ArtSet s;
-    s.loaded = !v.empty();
-    s.animated = v.size() >= 7;
-    s.idleA = frameOr(v, 0);
-    s.idleB = frameOr(v, 1);
-    s.atk1  = frameOr(v, 2);
-    s.atk2  = frameOr(v, 3);
-    s.atk3  = frameOr(v, 4);
-    s.hit   = frameOr(v, 5);
-    s.death = frameOr(v, 6);
+    s.sheet = loadSheet(basePath() + rel, 30);
+    s.loaded = s.sheet.ok();
+    s.animated = s.sheet.count >= 7;
     return s;
 }
 
-static const ArtSet MELEE_SET    = loadSet("assets/sprites/melee_goblin.png");
-static const ArtSet RANGED_SET   = loadSet("assets/sprites/ranged_archer.png");
-static const ArtSet TANK_SET     = loadSet("assets/sprites/tank_guardian.png");
-static const ArtSet CASTER_SET   = loadSet("assets/sprites/caster_wizard.png");
-static const ArtSet BEAST_SET    = loadSet("assets/sprites/beast.png"); // werewolf fallback
-static const ArtSet UNDEAD_SET   = loadSet("assets/sprites/undead_skeleton.png");
+// Sheets are loaded lazily on first use: they need a live SDL renderer, which
+// rules out the terminal build's file-scope static initialization.
+struct Library {
+    ArtSet MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD;
+    ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
+    ArtSet named[45];
+    Sheet player, slashFx, castFx;
+    Sheet bg[5], tutorialBg;
 
-// Per-name sheets. setEnemyVariant() matches the enemy name at encounter
-static const ArtSet MELEE_BANDIT     = loadSet("assets/sprites/melee_bandit.png");
-static const ArtSet MELEE_WARRIOR    = loadSet("assets/sprites/melee_warrior.png");
-static const ArtSet MELEE_RAIDER     = loadSet("assets/sprites/melee_raider.png");
-static const ArtSet MELEE_BERSERKER  = loadSet("assets/sprites/melee_berserker.png");
-static const ArtSet MELEE_GLADIATOR  = loadSet("assets/sprites/melee_gladiator.png");
-static const ArtSet MELEE_ENFORCER   = loadSet("assets/sprites/melee_enforcer.png");
-static const ArtSet MELEE_KNIGHT     = loadSet("assets/sprites/melee_knight.png");
-static const ArtSet BEAST_WOLF       = loadSet("assets/sprites/beast_wolf.png");
-static const ArtSet BEAST_SPIDER     = loadSet("assets/sprites/beast_spider.png");
-static const ArtSet BEAST_SERPENT    = loadSet("assets/sprites/beast_serpent.png");
-static const ArtSet BEAST_WYVERN     = loadSet("assets/sprites/beast_wyvern.png");
-static const ArtSet BEAST_BASILISK   = loadSet("assets/sprites/beast_basilisk.png");
-static const ArtSet BEAST_MANTICORE  = loadSet("assets/sprites/beast_manticore.png");
-static const ArtSet BEAST_COCKATRICE = loadSet("assets/sprites/beast_cockatrice.png");
-static const ArtSet UNDEAD_GHOUL     = loadSet("assets/sprites/undead_ghoul.png");
-static const ArtSet UNDEAD_WRAITH    = loadSet("assets/sprites/undead_wraith.png");
-static const ArtSet UNDEAD_SPECTER   = loadSet("assets/sprites/undead_specter.png");
-static const ArtSet UNDEAD_BANSHEE   = loadSet("assets/sprites/undead_banshee.png");
-static const ArtSet UNDEAD_REVENANT  = loadSet("assets/sprites/undead_revenant.png");
-static const ArtSet UNDEAD_LICH      = loadSet("assets/sprites/undead_lich.png");
-static const ArtSet TUT_SLIME        = loadSet("assets/sprites/tutorial_slime.png");
-static const ArtSet TANK_BARBARIAN   = loadSet("assets/sprites/tank_barbarian.png");
-static const ArtSet TANK_SENTINEL    = loadSet("assets/sprites/tank_sentinel.png");
-static const ArtSet TANK_WARDEN      = loadSet("assets/sprites/tank_warden.png");
-static const ArtSet TANK_PALADIN     = loadSet("assets/sprites/tank_paladin.png");
-static const ArtSet TANK_BASTION     = loadSet("assets/sprites/tank_bastion.png");
-static const ArtSet TANK_FORTRESS    = loadSet("assets/sprites/tank_fortress.png");
-static const ArtSet TANK_ORC         = loadSet("assets/sprites/tank_orc.png");
-static const ArtSet CASTER_ENCHANTER = loadSet("assets/sprites/caster_enchanter.png");
-// New/renamed enemies whose art doesn't exist yet - loadSet returns empty for a
-// missing file, so setEnemyVariant() falls back to the generic type sprite until
-// the real PNG is dropped in, at which point it's picked up with no code change.
-static const ArtSet CASTER_VAMPIRE   = loadSet("assets/sprites/caster_vampire.png");
-static const ArtSet CASTER_SAGE      = loadSet("assets/sprites/caster_sage.png");
-static const ArtSet CASTER_SORCERER  = loadSet("assets/sprites/caster_sorcerer.png");
-static const ArtSet CASTER_MYSTIC    = loadSet("assets/sprites/caster_mystic.png");
-static const ArtSet CASTER_ARCHON    = loadSet("assets/sprites/caster_archon.png");
-static const ArtSet CASTER_SPELLMASTER = loadSet("assets/sprites/caster_spellmaster.png");
-static const ArtSet RANGED_FALCON    = loadSet("assets/sprites/ranged_falcon.png");
-static const ArtSet RANGED_ASSASSIN  = loadSet("assets/sprites/ranged_assassin.png");
-static const ArtSet RANGED_OMNEYE    = loadSet("assets/sprites/ranged_omneye.png");
-static const ArtSet RANGED_DEADEYE   = loadSet("assets/sprites/ranged_deadeye.png");
-static const ArtSet BEAST_FLESHMASS  = loadSet("assets/sprites/beast_fleshmass.png");
+    Library() {
+        MELEE  = loadSet("assets/sprites/melee_goblin.png");
+        RANGED = loadSet("assets/sprites/ranged_archer.png");
+        TANK   = loadSet("assets/sprites/tank_guardian.png");
+        CASTER = loadSet("assets/sprites/caster_wizard.png");
+        BEAST  = loadSet("assets/sprites/beast.png");
+        UNDEAD = loadSet("assets/sprites/undead_skeleton.png");
 
-static const ArtSet* namedVariant = nullptr;
+        COLOSSUS     = loadSet("assets/sprites/boss_colossus.png");
+        WITCH        = loadSet("assets/sprites/boss_witch.png");
+        WARLORD      = loadSet("assets/sprites/boss_warlord.png");
+        HYDRA        = loadSet("assets/sprites/boss_hydra.png");
+        DRAGON       = loadSet("assets/sprites/boss_dragon.png");
+        SHADOWKNIGHT = loadSet("assets/sprites/boss_shadowknight.png");
 
-void setEnemyVariant(const std::string& enemyName) {
-    static const struct { const char* key; const ArtSet* set; } TABLE[] = {
-        {"Bandit",     &MELEE_BANDIT},    {"Warrior",  &MELEE_WARRIOR},
-        {"Raider",     &MELEE_RAIDER},    {"Knight",   &MELEE_KNIGHT},
-        {"Berserker",  &MELEE_BERSERKER}, {"Gladiator",&MELEE_GLADIATOR},
-        {"Enforcer",   &MELEE_ENFORCER},
-        {"Wolf",       &BEAST_WOLF},      {"Spider",   &BEAST_SPIDER},
-        {"Serpent",    &BEAST_SERPENT},   {"Wyvern",   &BEAST_WYVERN},
-        {"Basilisk",   &BEAST_BASILISK},  {"Manticore",&BEAST_MANTICORE},
-        {"Cockatrice", &BEAST_COCKATRICE},{"Fleshmass",&BEAST_FLESHMASS},
-        {"Skeleton",   &UNDEAD_SET},      {"Ghoul",     &UNDEAD_GHOUL},
-        {"Wraith",     &UNDEAD_WRAITH},   {"Specter",  &UNDEAD_SPECTER},
-        {"Banshee",    &UNDEAD_BANSHEE},  {"Revenant", &UNDEAD_REVENANT},
-        {"Lich",       &UNDEAD_LICH},
-        {"Barbarian",  &TANK_BARBARIAN},  {"Sentinel", &TANK_SENTINEL},
-        {"Warden",     &TANK_WARDEN},     {"Paladin",  &TANK_PALADIN},
-        {"Bastion",    &TANK_BASTION},    {"Fortress", &TANK_FORTRESS},
-        {"Orc",        &TANK_ORC},        {"Slime",    &TUT_SLIME},
-        {"Enchanter",  &CASTER_ENCHANTER},{"Vampire",  &CASTER_VAMPIRE},
-        {"Sage",       &CASTER_SAGE},     {"Sorcerer", &CASTER_SORCERER},
-        {"Mystic",     &CASTER_MYSTIC},   {"Archon",   &CASTER_ARCHON},
-        {"Spellmaster",&CASTER_SPELLMASTER},
-        {"Falcon",     &RANGED_FALCON},   {"Assassin", &RANGED_ASSASSIN},
-        {"Omneye",     &RANGED_OMNEYE},   {"Deadeye",  &RANGED_DEADEYE},
-    };
-    namedVariant = nullptr;
-    for (const auto& e : TABLE) {
-        if (enemyName.find(e.key) != std::string::npos) {
-            // Missing sheet - leave namedVariant unset so artSet() falls
-            // through to the type's generic sprite instead of a blank one.
-            if (e.set->loaded) namedVariant = e.set;
-            return;
-        }
+        player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
+        slashFx = loadSheet(basePath() + "assets/sprites/player_slash_fx.png", 30);
+        castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
+        const char* bgFiles[5] = {
+            "assets/sprites/bg_dungeon.png",        // 1-10
+            "assets/sprites/bg_dungeon_purple.png", // 11-20
+            "assets/sprites/bg_forest_night.png",   // 21-30
+            "assets/sprites/bg_lake_night.png",     // 31-40
+            "assets/sprites/bg_mountains_dusk.png", // 41-50
+        };
+        for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 94);
+        tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 94);
+    }
+};
+
+Library& lib() {
+    static Library L;
+    return L;
+}
+
+// Per-name sheets, matched against the enemy's name at encounter start. Same
+// table and same fallback rule as the terminal build: a name whose PNG is
+// missing falls through to its type's generic sprite.
+struct NamedEntry { const char* key; const char* file; };
+const NamedEntry NAMED_TABLE[] = {
+    {"Bandit","melee_bandit"}, {"Warrior","melee_warrior"}, {"Raider","melee_raider"},
+    {"Knight","melee_knight"}, {"Berserker","melee_berserker"}, {"Gladiator","melee_gladiator"},
+    {"Enforcer","melee_enforcer"},
+    {"Wolf","beast_wolf"}, {"Spider","beast_spider"}, {"Serpent","beast_serpent"},
+    {"Wyvern","beast_wyvern"}, {"Basilisk","beast_basilisk"}, {"Manticore","beast_manticore"},
+    {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass"},
+    {"Skeleton","undead_skeleton"}, {"Ghoul","undead_ghoul"}, {"Wraith","undead_wraith"},
+    {"Specter","undead_specter"}, {"Banshee","undead_banshee"}, {"Revenant","undead_revenant"},
+    {"Lich","undead_lich"},
+    {"Barbarian","tank_barbarian"}, {"Sentinel","tank_sentinel"}, {"Warden","tank_warden"},
+    {"Paladin","tank_paladin"}, {"Bastion","tank_bastion"}, {"Fortress","tank_fortress"},
+    {"Orc","tank_orc"}, {"Slime","tutorial_slime"},
+    {"Enchanter","caster_enchanter"}, {"Vampire","caster_vampire"}, {"Sage","caster_sage"},
+    {"Sorcerer","caster_sorcerer"}, {"Mystic","caster_mystic"}, {"Archon","caster_archon"},
+    {"Spellmaster","caster_spellmaster"},
+    {"Falcon","ranged_falcon"}, {"Assassin","ranged_assassin"}, {"Omneye","ranged_omneye"},
+    {"Deadeye","ranged_deadeye"},
+};
+const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
+
+const ArtSet* gNamedVariant = nullptr;
+
+const ArtSet& artSet(EnemyType type, BossType boss) {
+    Library& L = lib();
+    switch (boss) {
+        case BossType::STONE_COLOSSUS: return L.COLOSSUS;
+        case BossType::VILE_WITCH:     return L.WITCH;
+        case BossType::WARLORD:        return L.WARLORD;
+        case BossType::HYDRA:          return L.HYDRA;
+        case BossType::DRAGON:         return L.DRAGON;
+        case BossType::SHADOW_KNIGHT:  return L.SHADOWKNIGHT;
+        default: break;
+    }
+    if (gNamedVariant && gNamedVariant->loaded) return *gNamedVariant;
+    switch (type) {
+        case EnemyType::MELEE:  return L.MELEE;
+        case EnemyType::RANGED: return L.RANGED;
+        case EnemyType::TANK:   return L.TANK;
+        case EnemyType::CASTER: return L.CASTER;
+        case EnemyType::BEAST:  return L.BEAST;
+        case EnemyType::UNDEAD: return L.UNDEAD;
+        default:                return L.MELEE;
     }
 }
-static const ArtSet COLOSSUS_SET     = loadSet("assets/sprites/boss_colossus.png");
-static const ArtSet WITCH_SET        = loadSet("assets/sprites/boss_witch.png");
-static const ArtSet WARLORD_SET      = loadSet("assets/sprites/boss_warlord.png");
-static const ArtSet HYDRA_SET        = loadSet("assets/sprites/boss_hydra.png");
-static const ArtSet DRAGON_SET       = loadSet("assets/sprites/boss_dragon.png");
-static const ArtSet SHADOWKNIGHT_SET = loadSet("assets/sprites/boss_shadowknight.png");
 
-// The player knight sheet has its own layout:
-//   idle A, idle B, attack windup/sweep/thrust, block raise, block brace,
-//   cast (hand out, no orb), hit, death
-static const std::vector<Art> PLAYER_SHEET = loadSheet("assets/sprites/player.png", 30);
+// --- scene state ------------------------------------------------------
+// The battle screen needs roughly this many text rows: a 4-line encounter
+// header, the ~11-line combat status block (both HP bars, armor, energy),
+// any active status-effect lines, and the card menu. The scene only gets the
+// rows left over after that. Sizing the sprites first instead pushed the
+// status block off the top of the screen on shorter windows - which is why
+// the player's HP sometimes wasn't visible during a fight.
+constexpr int MIN_TEXT_ROWS = 27;
 
-static const Art KNIGHT_ART_A      = frameOr(PLAYER_SHEET, 0);
-static const Art KNIGHT_ART_B      = frameOr(PLAYER_SHEET, 1);
-static const Art KNIGHT_ART_ATK1   = frameOr(PLAYER_SHEET, 2);
-static const Art KNIGHT_ART_ATK2   = frameOr(PLAYER_SHEET, 3);
-static const Art KNIGHT_ART_STRIKE = frameOr(PLAYER_SHEET, 4);
-static const Art KNIGHT_ART_BLOCK1 = frameOr(PLAYER_SHEET, 5);
-static const Art KNIGHT_ART_BLOCK2 = frameOr(PLAYER_SHEET, 6);
-static const Art KNIGHT_ART_CAST   = frameOr(PLAYER_SHEET, 7);
-static const Art KNIGHT_ART_HIT    = frameOr(PLAYER_SHEET, 8);
-static const Art KNIGHT_ART_DEATH  = frameOr(PLAYER_SHEET, 9);
+// Whole screen pixels per sprite pixel - kept an integer so the pixel art
+// stays sharp, and fitted to the rows the text isn't using.
+int spriteScale() {
+    const int cell = std::max(1, Platform::cellH());
+    const int totalRows = (Platform::screenH() - 24) / cell;
+    const int sceneRowBudget = std::max(5, totalRows - MIN_TEXT_ROWS);
 
-// Cast effect overlays: one colored orb per element (poison/burn/stun/weak),
-// composited over the neutral cast frame's outstretched hand at draw time.
-static const std::vector<Art> PLAYER_CAST_FX = loadSheet("assets/sprites/player_cast_fx.png", 30);
+    // -1 for the padding row sceneRowsNeeded() adds under the sprites.
+    int byHeight = ((sceneRowBudget - 1) * cell) / 32;
+    int byWidth  = Platform::screenW() / 108; // leaves margins beside the 94px backdrop
+    return std::max(3, std::min(16, std::min(byHeight, byWidth)));
+}
+// The backdrop keeps the scene scale; the two characters are drawn one step
+// smaller so they sit in the environment rather than filling it. They're
+// bottom-aligned to the backdrop's floor line, same as the terminal scene.
+int charScale() { return std::max(3, spriteScale() - 1); }
 
-// Sword trail + impact spark overlays, composited over the attack frames.
-// 4 variants x 3 frames (windup/sweep/strike): normal, fire, poison, wind.
-static const std::vector<Art> PLAYER_SLASH_FX = loadSheet("assets/sprites/player_slash_fx.png", 30);
+int spriteW() { return 30 * charScale(); }
+int spriteH() { return 32 * charScale(); }
+int backdropW() { return 94 * spriteScale(); } // same bg:sprite ratio the terminal had
+int backdropH() { return 32 * spriteScale(); }
 
-static size_t slashVariant(DamageType elem) {
+EnemyType gType = EnemyType::MELEE;
+BossType  gBoss = BossType::NONE;
+
+int  gEnemyFrame = F_IDLE_A;
+int  gPlayerFrame = F_IDLE_A;
+Tint gEnemyTint, gPlayerTint;
+int  gEnemyNudge = 0;   // lunge toward the player
+int  gSlashFrame = -1;  // sword-trail overlay on the player, -1 = none
+int  gCastFrame = -1;   // cast-orb overlay on the player
+bool gGhost = false;
+bool gPortraitOnly = false;
+Sheet* gBgSheet = nullptr;
+
+AuraFlags gAuraKnight, gAuraEnemy;
+
+// Driven by the backdrop, which is the tallest thing in the scene.
+int sceneRowsNeeded() {
+    int cell = Platform::cellH();
+    return cell > 0 ? (backdropH() + cell - 1) / cell + 1 : 18;
+}
+
+void showScene() { Console::setSceneRows(sceneRowsNeeded()); }
+
+// Cycles through whichever auras are active, one every 2 seconds, so a side
+// carrying several statuses shows each in turn instead of blending to mud.
+bool pickAura(const AuraFlags& f, Tint& out) {
+    Tint active[5];
+    int n = 0;
+    if (f.strength) active[n++] = AURA_STRENGTH;
+    if (f.weak)     active[n++] = AURA_WEAK;
+    if (f.poison)   active[n++] = AURA_POISON;
+    if (f.burn)     active[n++] = AURA_BURN;
+    if (f.stun)     active[n++] = AURA_STUN;
+    if (n == 0) return false;
+    out = active[(SDL_GetTicks() / 2000) % (Uint32)n];
+    return true;
+}
+
+void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha = 255) {
+    if (!s.ok() || frame < 0 || frame >= s.count) return;
+    SDL_Renderer* r = Platform::renderer();
+    SDL_Rect src{ frame * s.frameW, 0, s.frameW, s.frameH };
+
+    Uint8 mr = (Uint8)std::min(255, (int)(tint.mulR * 255.0f + 0.5f));
+    Uint8 mg = (Uint8)std::min(255, (int)(tint.mulG * 255.0f + 0.5f));
+    Uint8 mb = (Uint8)std::min(255, (int)(tint.mulB * 255.0f + 0.5f));
+
+    SDL_SetTextureColorMod(s.tex, mr, mg, mb);
+    SDL_SetTextureAlphaMod(s.tex, alpha);
+    SDL_RenderCopy(r, s.tex, &src, &dst);
+    SDL_SetTextureColorMod(s.tex, 255, 255, 255);
+    SDL_SetTextureAlphaMod(s.tex, 255);
+
+    if (s.silhouette && (tint.addR || tint.addG || tint.addB)) {
+        SDL_SetTextureColorMod(s.silhouette, (Uint8)tint.addR, (Uint8)tint.addG, (Uint8)tint.addB);
+        SDL_SetTextureAlphaMod(s.silhouette, alpha);
+        SDL_RenderCopy(r, s.silhouette, &src, &dst);
+        SDL_SetTextureColorMod(s.silhouette, 255, 255, 255);
+        SDL_SetTextureAlphaMod(s.silhouette, 255);
+    }
+}
+
+// Installed with Platform once, then called every frame.
+void drawScene() {
+    if (Console::sceneRows() <= 0) return;
+
+    SDL_Renderer* r = Platform::renderer();
+    const int scale = charScale();
+    const int sprW = spriteW(), sprH = spriteH();
+    const int sceneW = backdropW(), sceneH = backdropH();
+    const int originX = (Platform::screenW() - sceneW) / 2;
+    const int originY = 12;
+    // Characters stand on the backdrop's floor line rather than its top edge.
+    const int floorY = originY + sceneH - sprH;
+
+    if (gBgSheet && gBgSheet->ok()) {
+        // Two-frame ambient shimmer, same 700ms cadence the terminal used.
+        int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
+        SDL_Rect dst{ originX, originY, sceneW, sceneH };
+        blit(*gBgSheet, f, dst, Tint{});
+    }
+
+    const ArtSet& es = artSet(gType, gBoss);
+
+    if (gPortraitOnly) {
+        SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
+        blit(es.sheet, gEnemyFrame, dst, gEnemyTint);
+        return;
+    }
+
+    // Knight on the left, enemy on the right, both bottom-aligned on the
+    // backdrop's floor line - the same composition as the terminal scene.
+    Tint pt = gPlayerTint;
+    if (pt.identity()) pickAura(gAuraKnight, pt);
+    SDL_Rect pdst{ originX + spriteScale() * 6, floorY, sprW, sprH };
+    int pframe = gPlayerFrame;
+    if (pframe == F_IDLE_A || pframe == F_IDLE_B)
+        pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+    blit(lib().player, pframe, pdst, pt);
+    if (gSlashFrame >= 0) blit(lib().slashFx, gSlashFrame, pdst, Tint{});
+    if (gCastFrame >= 0)  blit(lib().castFx, gCastFrame, pdst, Tint{});
+
+    Tint et = gEnemyTint;
+    if (et.identity()) pickAura(gAuraEnemy, et);
+    SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 - gEnemyNudge, floorY, sprW, sprH };
+    // While idle, breathe between the two idle frames instead of standing on a
+    // single one - the terminal build only flipped these on a menu idle tick.
+    int eframe = gEnemyFrame;
+    if (es.animated && (eframe == F_IDLE_A || eframe == F_IDLE_B))
+        eframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+    // Ghost/Illusion: faded and spectral while the enemy can't be touched.
+    blit(es.sheet, eframe, edst, et, gGhost ? 110 : 255);
+
+    (void)r;
+}
+
+// Holds the current pose for ms while the window keeps drawing.
+void hold(int ms) { Platform::delay(ms); }
+
+// Clears the one-shot pose overrides back to a neutral idle scene.
+void resetPose() {
+    gPlayerFrame = F_IDLE_A;
+    gEnemyFrame = F_IDLE_A;
+    gPlayerTint = Tint{};
+    gEnemyTint = Tint{};
+    gSlashFrame = -1;
+    gCastFrame = -1;
+    gEnemyNudge = 0;
+}
+
+size_t slashVariant(DamageType elem) {
     switch (elem) {
         case DamageType::FIRE:   return 1;
         case DamageType::POISON: return 2;
@@ -198,508 +405,242 @@ static size_t slashVariant(DamageType elem) {
     }
 }
 
-// Stamps the overlay's opaque pixels onto a copy of the base frame.
-static Art withOverlay(const Art& base, const Art& fx) {
-    Art out = base;
-    for (size_t r = 0; r < fx.trueColorGrid.size() && r < out.trueColorGrid.size(); r++) {
-        for (size_t c = 0; c < fx.trueColorGrid[r].size() && c < out.trueColorGrid[r].size(); c++) {
-            if (fx.trueColorOpaque[r][c]) {
-                out.trueColorGrid[r][c] = fx.trueColorGrid[r][c];
-                out.trueColorOpaque[r][c] = true;
-            }
-        }
-    }
-    return out;
+bool gSceneRendererInstalled = false;
+void ensureInstalled() {
+    if (gSceneRendererInstalled) return;
+    Platform::setSceneRenderer(&drawScene);
+    gSceneRendererInstalled = true;
+    if (!gBgSheet) gBgSheet = &lib().bg[0];
 }
 
-// Backdrops rotate with progression: one per 10 encounters, cycling.
-static const std::vector<Art> BG_SHEETS[] = {
-    loadSheet("assets/sprites/bg_dungeon.png", 94),         // 1-10
-    loadSheet("assets/sprites/bg_dungeon_purple.png", 94),  // 11-20
-    loadSheet("assets/sprites/bg_forest_night.png", 94),    // 21-30
-    loadSheet("assets/sprites/bg_lake_night.png", 94),      // 31-40
-    loadSheet("assets/sprites/bg_mountains_dusk.png", 94),  // 41-50
-};
-static const int BG_COUNT = (int)(sizeof(BG_SHEETS) / sizeof(BG_SHEETS[0]));
+} // anonymous namespace
 
-// Tutorial-only scene, outside the run's rotation.
-static const std::vector<Art> TUTORIAL_BG = loadSheet("assets/sprites/bg_forest_day.png", 94);
-
-static const std::vector<Art>* bgSheet = &BG_SHEETS[0];
-static bool bgPhase = false;
-
-static const Art& sceneBgArt() {
-    static const Art empty;
-    const auto& s = *bgSheet;
-    if (s.empty()) return empty;
-    return s[(bgPhase && s.size() > 1) ? 1 : 0];
-}
-
-void setBattleBackdrop(int encounterNumber) {
-    int idx = ((encounterNumber > 0 ? encounterNumber - 1 : 0) / 10) % BG_COUNT;
-    bgSheet = &BG_SHEETS[idx];
-}
-
-void setTutorialBackdrop() {
-    bgSheet = &TUTORIAL_BG;
-}
-
-static const ArtSet& artSet(EnemyType type, BossType boss) {
-    switch (boss) {
-        case BossType::STONE_COLOSSUS: return COLOSSUS_SET;
-        case BossType::VILE_WITCH:     return WITCH_SET;
-        case BossType::WARLORD:        return WARLORD_SET;
-        case BossType::HYDRA:          return HYDRA_SET;
-        case BossType::DRAGON:         return DRAGON_SET;
-        case BossType::SHADOW_KNIGHT:  return SHADOWKNIGHT_SET;
-        default: break;
-    }
-    if (namedVariant) return *namedVariant;
-    switch (type) {
-        case EnemyType::MELEE:  return MELEE_SET;
-        case EnemyType::RANGED: return RANGED_SET;
-        case EnemyType::TANK:   return TANK_SET;
-        case EnemyType::CASTER: return CASTER_SET;
-        case EnemyType::BEAST:  return BEAST_SET;
-        case EnemyType::UNDEAD: return UNDEAD_SET;
-        default:                return MELEE_SET;
-    }
-}
+// --- public interface -------------------------------------------------
 
 const Art& get(EnemyType type, BossType boss) {
-    return artSet(type, boss).idleA;
+    static Art a;
+    ensureInstalled();
+    a = Art{ &artSet(type, boss), F_IDLE_A };
+    return a;
 }
 
 const Art& getWalkFrame(EnemyType type, BossType boss) {
+    static Art a;
+    ensureInstalled();
     const ArtSet& s = artSet(type, boss);
-    if (!s.animated) return s.idleA;
     static int phase = 0;
     phase ^= 1;
-    return phase ? s.idleB : s.idleA;
+    a = Art{ &s, (s.animated && phase) ? F_IDLE_B : F_IDLE_A };
+    return a;
 }
 
 const Art& getHitArt(EnemyType type, BossType boss) {
+    static Art a;
+    ensureInstalled();
     const ArtSet& s = artSet(type, boss);
-    return s.animated ? s.hit : s.idleA;
+    a = Art{ &s, s.animated ? F_HIT : F_IDLE_A };
+    return a;
 }
 
 const Art& getDeathArt(EnemyType type, BossType boss) {
+    static Art a;
+    ensureInstalled();
     const ArtSet& s = artSet(type, boss);
-    return s.animated ? s.death : s.idleA;
+    a = Art{ &s, s.animated ? F_DEATH : F_IDLE_A };
+    return a;
 }
 
-// --- rendering ---
-
-static const RGB TRANSPARENT_BG = {13, 13, 15}; // matches the game's dark theme
-
-// Damage flash: white, but blended (not flat-added) so the sprite's shading
-// survives instead of washing out into a blob. Red stays reserved for buffs.
-static RGB hitFlash(RGB c) {
-    return { (unsigned char)(c.r * 0.45 + 140),
-             (unsigned char)(c.g * 0.45 + 140),
-             (unsigned char)(c.b * 0.45 + 140) };
-}
-
-// Ailment flashes: the afflicted sprite blends toward the status color.
-static RGB tintPoison(RGB c) {
-    return { (unsigned char)(c.r * 0.45 + 38), (unsigned char)(c.g * 0.45 + 110),
-             (unsigned char)(c.b * 0.45 + 38) };
-}
-static RGB tintBurn(RGB c) {
-    return { (unsigned char)(c.r * 0.45 + 132), (unsigned char)(c.g * 0.45 + 71),
-             (unsigned char)(c.b * 0.45 + 22) };
-}
-static RGB tintStun(RGB c) {
-    return { (unsigned char)(c.r * 0.45 + 134), (unsigned char)(c.g * 0.45 + 118),
-             (unsigned char)(c.b * 0.45 + 33) };
-}
-static RGB tintWeak(RGB c) {
-    return { (unsigned char)(c.r * 0.45 + 49), (unsigned char)(c.g * 0.45 + 66),
-             (unsigned char)(c.b * 0.45 + 129) };
-}
-
-static RGB (*statusTint(CastGlow glow))(RGB) {
-    switch (glow) {
-        case CastGlow::BURN: return tintBurn;
-        case CastGlow::STUN: return tintStun;
-        case CastGlow::WEAK: return tintWeak;
-        default:             return tintPoison;
-    }
-}
-
-static RGB darken(RGB c, double factor) {
-    return { (unsigned char)(c.r * factor), (unsigned char)(c.g * factor), (unsigned char)(c.b * factor) };
-}
-
-// One-shot buff flashes (strong tint).
-static RGB tintStrength(RGB c) {
-    return { (unsigned char)std::min(255, c.r + 90),
-             (unsigned char)(c.g * 0.70), (unsigned char)(c.b * 0.70) };
-}
-
-static RGB tintHeal(RGB c) {
-    return { (unsigned char)(c.r * 0.78),
-             (unsigned char)std::min(255, c.g + 85),
-             (unsigned char)(c.b * 0.78) };
-}
-
-// Persistent status auras (softer, active while the status lasts).
-static RGB auraStrength(RGB c) {
-    return { (unsigned char)std::min(255, c.r + 55),
-             (unsigned char)(c.g * 0.85), (unsigned char)(c.b * 0.85) };
-}
-
-static RGB auraWeak(RGB c) {
-    return { (unsigned char)(c.r * 0.85), (unsigned char)(c.g * 0.85),
-             (unsigned char)std::min(255, c.b + 65) };
-}
-
-static RGB auraPoison(RGB c) {
-    return { (unsigned char)(c.r * 0.85), (unsigned char)std::min(255, c.g + 55),
-             (unsigned char)(c.b * 0.85) };
-}
-
-static RGB auraBurn(RGB c) {
-    return { (unsigned char)std::min(255, c.r + 60),
-             (unsigned char)std::min(255, c.g + 22), (unsigned char)(c.b * 0.75) };
-}
-
-static RGB auraStun(RGB c) {
-    return { (unsigned char)std::min(255, c.r + 55),
-             (unsigned char)std::min(255, c.g + 48), (unsigned char)(c.b * 0.80) };
-}
-
-static AuraFlags auraKnight;
-static AuraFlags auraEnemy;
-
-// Advances only on idle redraws (animateBattleIdleAt), each ~450ms apart -
-// close enough to wall-clock without pulling in <chrono> for a cosmetic cycle.
-static int auraElapsedMs = 0;
-static const int AURA_TICK_MS  = 450;
-static const int AURA_CYCLE_MS = 2000;
-
-void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
-    auraKnight = knight;
-    auraEnemy = enemy;
-}
-
-static bool enemyGhost = false;
-void setEnemyGhost(bool on) { enemyGhost = on; }
-
-// Fades a pixel toward a translucent blue-gray for a spectral, half-there look.
-static RGB ghostFade(RGB c) {
-    return { (unsigned char)(c.r * 0.40 + 34),
-             (unsigned char)(c.g * 0.40 + 44),
-             (unsigned char)(c.b * 0.40 + 66) };
-}
-
-// Collects every tint the side currently carries and rotates through them
-// every AURA_CYCLE_MS. A side with one active status just holds that color.
-static RGB (*pickAuraTint(const AuraFlags& f))(RGB) {
-    RGB (*tints[5])(RGB);
-    int n = 0;
-    if (f.strength) tints[n++] = auraStrength;
-    if (f.weak)     tints[n++] = auraWeak;
-    if (f.poison)   tints[n++] = auraPoison;
-    if (f.burn)     tints[n++] = auraBurn;
-    if (f.stun)     tints[n++] = auraStun;
-    if (n == 0) return nullptr;
-    int idx = (auraElapsedMs / AURA_CYCLE_MS) % n;
-    return tints[idx];
-}
-
-static size_t artRows(const Art& a) {
-    return a.trueColorGrid.size();
-}
-
-static size_t artRowWidth(const Art& a, size_t r) {
-    return r < artRows(a) ? a.trueColorGrid[r].size() : 0;
-}
-
-static RGB artPixel(const Art& a, size_t r, size_t c) {
-    if (r >= artRows(a)) return TRANSPARENT_BG;
-    const auto& row = a.trueColorGrid[r];
-    const auto& op = a.trueColorOpaque[r];
-    if (c >= row.size() || !op[c]) return TRANSPARENT_BG;
-    return row[c];
-}
-
-static bool artOpaque(const Art& a, size_t r, size_t c) {
-    if (r >= artRows(a)) return false;
-    const auto& op = a.trueColorOpaque[r];
-    return c < op.size() && op[c];
-}
-
-
-static size_t appendRowPair(std::string& out, const Art& art, size_t row, RGB (*transform)(RGB)) {
-    size_t width = std::max(artRowWidth(art, row), artRowWidth(art, row + 1));
-    char code[32];
-    int lastFg = -1, lastBg = -1;
-    for (size_t col = 0; col < width; col++) {
-        RGB t = artPixel(art, row, col);
-        RGB b = artPixel(art, row + 1, col);
-        if (transform) { t = transform(t); b = transform(b); }
-        int fg = (t.r << 16) | (t.g << 8) | t.b;
-        int bg = (b.r << 16) | (b.g << 8) | b.b;
-        if (fg != lastFg) {
-            snprintf(code, sizeof(code), "\033[38;2;%d;%d;%dm", (int)t.r, (int)t.g, (int)t.b);
-            out.append(code);
-            lastFg = fg;
-        }
-        if (bg != lastBg) {
-            snprintf(code, sizeof(code), "\033[48;2;%d;%d;%dm", (int)b.r, (int)b.g, (int)b.b);
-            out.append(code);
-            lastBg = bg;
-        }
-        out.append("\xE2\x96\x80"); // U+2580 UPPER HALF BLOCK
-    }
-    return width;
-}
-
-static void renderGrid(const Art& art, int indent, RGB (*transform)(RGB)) {
-    std::string pad(indent > 0 ? indent : 0, ' ');
-    std::string out;
-    out.reserve(4096);
-    size_t rows = artRows(art);
-    for (size_t row = 0; row < rows; row += 2) {
-        out.append(pad);
-        appendRowPair(out, art, row, transform);
-        out.append(Color::RESET);
-        out.push_back('\n');
-    }
-    std::cout.write(out.data(), (std::streamsize)out.size());
-}
-
-// --- battle scene ---
-
-static const int BATTLE_LEFT_INDENT = 2;
-static const int BATTLE_RIGHT_COL   = 64;
-
-// Alternates the knight's two idle frames.
-static const Art& knightFrame() {
-    static int phase = 0;
-    phase ^= 1;
-    return phase ? KNIGHT_ART_B : KNIGHT_ART_A;
-}
-
-// Composites the scene: left sprite over right sprite over backdrop, all
-// bottom-aligned to the floor line. Explicit transforms (flashes) override
-// the persistent status auras. rightCol can be pulled in for a lunge.
-static void renderBattle(const Art& left, const Art& right,
-                         RGB (*lt)(RGB), RGB (*rt)(RGB),
-                         int rightCol = BATTLE_RIGHT_COL) {
-    const Art& bg = sceneBgArt();
-    size_t sceneW = std::max(artRowWidth(bg, 0), (size_t)(BATTLE_RIGHT_COL + 30));
-    size_t rows = std::max(std::max(artRows(left), artRows(right)), artRows(bg));
-    size_t loff = rows - artRows(left);
-    size_t roff = rows - artRows(right);
-    size_t boff = rows - artRows(bg);
-
-    RGB (*leftFx)(RGB)  = lt ? lt : pickAuraTint(auraKnight);
-    // A ghosted enemy fades out, overriding its idle aura tint (explicit flash
-    // transforms still win, so hit/status flashes read clearly for a beat).
-    RGB (*rightFx)(RGB) = rt ? rt : (enemyGhost ? ghostFade : pickAuraTint(auraEnemy));
-
-    auto pixAt = [&](size_t r, size_t c) -> RGB {
-        if (c >= (size_t)BATTLE_LEFT_INDENT && r >= loff) {
-            size_t lc = c - (size_t)BATTLE_LEFT_INDENT;
-            if (artOpaque(left, r - loff, lc)) {
-                RGB p = artPixel(left, r - loff, lc);
-                return leftFx ? leftFx(p) : p;
-            }
-        }
-        if (c >= (size_t)rightCol && r >= roff) {
-            size_t rc = c - (size_t)rightCol;
-            if (artOpaque(right, r - roff, rc)) {
-                RGB p = artPixel(right, r - roff, rc);
-                return rightFx ? rightFx(p) : p;
-            }
-        }
-        if (r >= boff && artOpaque(bg, r - boff, c)) return artPixel(bg, r - boff, c);
-        return TRANSPARENT_BG;
-    };
-
-    std::string out;
-    out.reserve(16384);
-    char code[32];
-    for (size_t row = 0; row < rows; row += 2) {
-        int lastFg = -1, lastBg = -1;
-        for (size_t col = 0; col < sceneW; col++) {
-            RGB t = pixAt(row, col);
-            RGB b = pixAt(row + 1, col);
-            int fg = (t.r << 16) | (t.g << 8) | t.b;
-            int bgc = (b.r << 16) | (b.g << 8) | b.b;
-            if (fg != lastFg) {
-                snprintf(code, sizeof(code), "\033[38;2;%d;%d;%dm", (int)t.r, (int)t.g, (int)t.b);
-                out.append(code);
-                lastFg = fg;
-            }
-            if (bgc != lastBg) {
-                snprintf(code, sizeof(code), "\033[48;2;%d;%d;%dm", (int)b.r, (int)b.g, (int)b.b);
-                out.append(code);
-                lastBg = bgc;
-            }
-            out.append("\xE2\x96\x80");
-        }
-        out.append(Color::RESET);
-        out.push_back('\n');
-    }
-    std::cout.write(out.data(), (std::streamsize)out.size());
-}
-
-static size_t battlePairRows(const Art& right) {
-    size_t rows = std::max(std::max(artRows(KNIGHT_ART_A), artRows(right)), artRows(sceneBgArt()));
-    return (rows + 1) / 2;
-}
-
-void print(const Art& art, int indent) {
-    renderGrid(art, indent, nullptr);
-    std::cout << "\n";
-}
-
-// Moves the cursor back over the just-printed block so the next frame
-// overwrites it in place.
-static void moveCursorUp(size_t n) {
-    if (n > 0) std::cout << "\033[" << n << "A";
-}
-
-
-static int g_battleSceneRow = 0;
-
-
-static int pinAt() {
-    std::cout.flush(); // SetConsoleCursorPosition acts immediately
-    int cur = UIHelper::getCursorRow();
-    UIHelper::setCursorRow(g_battleSceneRow);
-    return cur;
-}
-
-static void unpin(int cur) {
-    std::cout.flush();
-    UIHelper::setCursorRow(cur);
+// Single portrait, used by the View Enemy screen.
+void print(const Art& art, int /*indent*/) {
+    ensureInstalled();
+    const ArtSet* s = static_cast<const ArtSet*>(art.set);
+    if (!s) return;
+    gPortraitOnly = true;
+    gEnemyFrame = art.frame;
+    gEnemyTint = Tint{};
+    showScene();
 }
 
 void printBattle(EnemyType type, BossType boss) {
-    std::cout.flush();
-    g_battleSceneRow = UIHelper::getCursorRow();
-    renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
-    std::cout << "\n";
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    resetPose();
+    showScene();
 }
 
 void animateBattleIdleAt(EnemyType type, BossType boss) {
-    bgPhase = !bgPhase; // ambient flicker (torches, fireflies, shimmer)
-    auraElapsedMs += AURA_TICK_MS;
-    int cur = pinAt();
-    renderBattle(knightFrame(), getWalkFrame(type, boss), nullptr, nullptr);
-    unpin(cur);
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    const ArtSet& s = artSet(type, boss);
+    if (s.animated) gEnemyFrame = (gEnemyFrame == F_IDLE_A) ? F_IDLE_B : F_IDLE_A;
+    showScene();
 }
 
 void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
-    int cur = pinAt();
-    // With armor up the knight holds his shield brace instead of standing idle.
-    const Art& knight = knightGuard ? KNIGHT_ART_BLOCK2 : KNIGHT_ART_A;
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
     const ArtSet& s = artSet(type, boss);
+
+    // With armor up the knight holds his shield brace instead of standing idle.
+    gPlayerFrame = knightGuard ? 6 /*block brace*/ : F_IDLE_A;
     if (s.animated) {
-        renderBattle(knight, s.atk1, nullptr, nullptr);
-        UIHelper::pause(90);
-        moveCursorUp(battlePairRows(s.atk1));
-        renderBattle(knight, s.atk2, nullptr, nullptr);
-        UIHelper::pause(90);
-        moveCursorUp(battlePairRows(s.atk2));
-        renderBattle(knight, s.atk3, nullptr, nullptr);
-        UIHelper::pause(150);
+        gEnemyFrame = F_ATK1; hold(90);
+        gEnemyFrame = F_ATK2; gEnemyNudge = spriteScale() * 2; hold(90);
+        gEnemyFrame = F_ATK3; gEnemyNudge = spriteScale() * 4; hold(150);
     } else {
         // No frames: nudge the enemy toward the knight for a beat.
-        renderBattle(knight, s.idleA, nullptr, nullptr, BATTLE_RIGHT_COL - 3);
-        UIHelper::pause(120);
-        moveCursorUp(battlePairRows(s.idleA));
-        renderBattle(knight, s.idleA, nullptr, nullptr);
+        gEnemyNudge = spriteScale() * 3; hold(120);
     }
-    unpin(cur);
+    gEnemyNudge = 0;
+    gEnemyFrame = F_IDLE_A;
 }
 
 void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
-    int cur = pinAt();
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+
     // Knight swings; the enemy flashes with its hit face on the final frame.
-    // The trail/spark overlay tracks the attack's element.
-    size_t v = slashVariant(trailElem) * 3;
-    const Art& idleEnemy = get(type, boss);
-    renderBattle(withOverlay(KNIGHT_ART_ATK1, frameOr(PLAYER_SLASH_FX, v + 0)), idleEnemy, nullptr, nullptr);
-    UIHelper::pause(70);
-    moveCursorUp(battlePairRows(idleEnemy));
-    renderBattle(withOverlay(KNIGHT_ART_ATK2, frameOr(PLAYER_SLASH_FX, v + 1)), idleEnemy, nullptr, nullptr);
-    UIHelper::pause(70);
-    moveCursorUp(battlePairRows(idleEnemy));
-    renderBattle(withOverlay(KNIGHT_ART_STRIKE, frameOr(PLAYER_SLASH_FX, v + 2)), getHitArt(type, boss),
-                 nullptr, hitFlash);
-    UIHelper::pause(150);
-    unpin(cur);
+    // The sword trail / impact spark tracks the attack's element.
+    const int v = (int)slashVariant(trailElem) * 3;
+    const ArtSet& s = artSet(type, boss);
+
+    gPlayerFrame = 2; gSlashFrame = v + 0; hold(70);
+    gPlayerFrame = 3; gSlashFrame = v + 1; hold(70);
+    gPlayerFrame = 4; gSlashFrame = v + 2;
+    if (s.animated) gEnemyFrame = F_HIT;
+    gEnemyTint = HIT_FLASH;
+    hold(150);
+
+    gSlashFrame = -1;
+    gPlayerFrame = F_IDLE_A;
+    gEnemyFrame = F_IDLE_A;
+    gEnemyTint = Tint{};
 }
 
 void printBattleBlock(EnemyType type, BossType boss) {
-    int cur = pinAt();
-    const Art& idleEnemy = get(type, boss);
-    renderBattle(KNIGHT_ART_BLOCK1, idleEnemy, nullptr, nullptr);
-    UIHelper::pause(90);
-    moveCursorUp(battlePairRows(idleEnemy));
-    renderBattle(KNIGHT_ART_BLOCK2, idleEnemy, nullptr, nullptr);
-    UIHelper::pause(260);
-    unpin(cur);
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    gPlayerFrame = 5; hold(90);
+    gPlayerFrame = 6; hold(260);
+    gPlayerFrame = F_IDLE_A;
 }
 
 void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
-    int cur = pinAt();
-    size_t fxIdx = 0; // fx sheet order: poison, burn, stun, weak
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    int fxIdx = 0; // fx sheet order: poison, burn, stun, weak
     switch (glow) {
         case CastGlow::POISON: fxIdx = 0; break;
         case CastGlow::BURN:   fxIdx = 1; break;
         case CastGlow::STUN:   fxIdx = 2; break;
         case CastGlow::WEAK:   fxIdx = 3; break;
     }
-    Art cast = withOverlay(KNIGHT_ART_CAST, frameOr(PLAYER_CAST_FX, fxIdx));
-    renderBattle(cast, get(type, boss), nullptr, nullptr);
-    UIHelper::pause(320);
-    unpin(cur);
+    gPlayerFrame = 7; gCastFrame = fxIdx;
+    hold(320);
+    gCastFrame = -1;
+    gPlayerFrame = F_IDLE_A;
 }
 
 void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool onEnemy) {
-    int cur = pinAt();
-    RGB (*tint)(RGB) = statusTint(glow);
-    renderBattle(KNIGHT_ART_A, get(type, boss),
-                 onEnemy ? nullptr : tint, onEnemy ? tint : nullptr);
-    UIHelper::pause(1000);
-    unpin(cur);
-}
-
-void printBattleDeath(EnemyType type, BossType boss) {
-    int cur = pinAt();
-    renderBattle(KNIGHT_ART_A, getDeathArt(type, boss),
-                 nullptr, [](RGB c) { return darken(c, 0.35); });
-    UIHelper::pause(300);
-    unpin(cur);
-}
-
-void printBattleKnightHit(EnemyType type, BossType boss) {
-    int cur = pinAt();
-    renderBattle(KNIGHT_ART_HIT, get(type, boss),
-                 hitFlash, nullptr);
-    UIHelper::pause(100);
-    unpin(cur);
-}
-
-void printBattleKnightDeath(EnemyType type, BossType boss) {
-    renderBattle(KNIGHT_ART_DEATH, get(type, boss),
-                 [](RGB c) { return darken(c, 0.35); }, nullptr);
-    UIHelper::pause(400);
-    std::cout << "\n";
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    Tint t = statusTint(glow);
+    if (onEnemy) gEnemyTint = t; else gPlayerTint = t;
+    hold(1000);
+    gEnemyTint = Tint{};
+    gPlayerTint = Tint{};
 }
 
 void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow) {
-    int cur = pinAt();
-    RGB (*tint)(RGB) = (glow == SelfGlow::STRENGTH) ? tintStrength : tintHeal;
-    renderBattle(KNIGHT_ART_A, get(type, boss), tint, nullptr);
-    UIHelper::pause(280);
-    unpin(cur);
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    gPlayerTint = (glow == SelfGlow::STRENGTH) ? TINT_STRENGTH : TINT_HEAL;
+    hold(280);
+    gPlayerTint = Tint{};
 }
 
+void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
+    gAuraKnight = knight;
+    gAuraEnemy = enemy;
 }
+
+void setEnemyGhost(bool on) { gGhost = on; }
+
+void setBattleBackdrop(int encounterNumber) {
+    ensureInstalled();
+    int idx = ((encounterNumber - 1) / 10) % 5;
+    if (idx < 0) idx = 0;
+    gBgSheet = &lib().bg[idx];
+}
+
+void setTutorialBackdrop() {
+    ensureInstalled();
+    gBgSheet = &lib().tutorialBg;
+}
+
+void setEnemyVariant(const std::string& enemyName) {
+    ensureInstalled();
+    gNamedVariant = nullptr;
+    static ArtSet cache[NAMED_COUNT];
+    static bool tried[NAMED_COUNT] = { false };
+    for (int i = 0; i < NAMED_COUNT; i++) {
+        if (enemyName.find(NAMED_TABLE[i].key) == std::string::npos) continue;
+        if (!tried[i]) {
+            cache[i] = loadSet((std::string("assets/sprites/") + NAMED_TABLE[i].file + ".png").c_str());
+            tried[i] = true;
+        }
+        // A missing sheet leaves gNamedVariant unset so artSet() falls through
+        // to the type's generic sprite instead of drawing nothing.
+        if (cache[i].loaded) gNamedVariant = &cache[i];
+        return;
+    }
+}
+
+void printBattleDeath(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+    if (s.animated) gEnemyFrame = F_DEATH;
+    gEnemyTint = DEATH_DARK;
+    hold(300);
+}
+
+void printBattleKnightHit(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    gPlayerFrame = 8;
+    gPlayerTint = HIT_FLASH;
+    hold(100);
+    gPlayerTint = Tint{};
+    gPlayerFrame = F_IDLE_A;
+}
+
+void printBattleKnightDeath(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    gPlayerFrame = 9;
+    gPlayerTint = DEATH_DARK;
+    hold(300);
+}
+
+} // namespace EnemyArt

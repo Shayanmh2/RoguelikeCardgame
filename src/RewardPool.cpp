@@ -20,8 +20,9 @@ void RewardPool::initializeCardPool() {
         return;
     }
 
-    std::cout << "Loading cards from " << configPath << "\n";
-
+    // The card load is silent on success - it printed a path banner over the
+    // title screen with nothing actionable in it. The missing-file warning
+    // above still shows, since that one the player can act on.
     auto commonData = ConfigLoader::loadCommonCards(configPath);
     auto rareData = ConfigLoader::loadRareCards(configPath);
 
@@ -72,7 +73,8 @@ void RewardPool::initializeCardPool() {
                                   toPhysType(data.physType2), data.legendary));
     }
 
-    std::cout << "Loaded " << commonCards.size() << " common cards and " << rareCards.size() << " rare cards.\n";
+    // (No "loaded N cards" line - it was terminal-startup noise that just sat
+    // on top of the title screen with nothing useful to say.)
 }
 
 
