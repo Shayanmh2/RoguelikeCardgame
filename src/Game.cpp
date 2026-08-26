@@ -9,6 +9,8 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <stdexcept> // catch(std::out_of_range) below; reaches us transitively today
+                     // on all three toolchains, but Deck.cpp proved that is luck.
 
 Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
 

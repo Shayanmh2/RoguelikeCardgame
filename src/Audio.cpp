@@ -1,7 +1,10 @@
 #include "Audio.h"
+#include <SDL.h>       // SDL_InitSubSystem / SDL_setenv for the driver fallback below
 #include <SDL_mixer.h>
 #include <unordered_map>
 #include <filesystem>
+#include <iostream>
+#include <cstdint>
 
 #if defined(_WIN32)
     #include <windows.h>
@@ -41,7 +44,50 @@ std::string Audio::exeDir() {
 }
 
 void Audio::init() {
-    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) audioReady = true;
+    // Every sound this game ships is an mp3. This static build has minimp3
+    // compiled in, so decoding measurably works without Mix_Init - but that is a
+    // property of how SDL2_mixer happens to be configured here, not a guarantee.
+    // A build that loads its codecs dynamically needs this call, so ask for the
+    // formats explicitly and report if one is genuinely unavailable.
+    const int want = MIX_INIT_MP3 | MIX_INIT_OGG;
+    const int got  = Mix_Init(want);
+    if ((got & MIX_INIT_MP3) == 0)
+        std::cerr << "Audio: mp3 decoder unavailable (" << Mix_GetError()
+                  << ") - the game will be silent.\n";
+
+    if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) {
+        audioReady = true;
+        return;
+    }
+    std::cerr << "Audio: Mix_OpenAudio failed on the default driver ("
+              << SDL_GetCurrentAudioDriver() << "): " << Mix_GetError() << "\n";
+
+    // SDL picks WASAPI first on Windows, and it does fail on real machines -
+    // exclusive-mode devices, odd virtual endpoints, a session with no audio
+    // endpoint attached. The device is usually still reachable through an older
+    // backend, so rather than run silent, walk the alternatives.
+    //
+    // Switching backend means tearing the audio subsystem down and bringing it
+    // back up: the driver is read from the environment at subsystem init. An
+    // explicit SDL_AUDIODRIVER set by the user is left alone - if someone has
+    // pinned a backend, second-guessing them is not our business.
+    if (SDL_getenv("SDL_AUDIODRIVER") != nullptr) return;
+
+    for (const char* drv : { "directsound", "winmm", "wasapi", "dsp" }) {
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        SDL_setenv("SDL_AUDIODRIVER", drv, 1);
+        if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) continue;
+        if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) {
+            audioReady = true;
+            std::cerr << "Audio: recovered on the " << drv << " driver.\n";
+            return;
+        }
+    }
+
+    // Leave the environment as we found it so nothing downstream inherits a
+    // backend that just failed.
+    SDL_setenv("SDL_AUDIODRIVER", "", 1);
+    std::cerr << "Audio: no working audio driver; the game will be silent.\n";
 }
 
 void Audio::shutdown() {
@@ -51,6 +97,7 @@ void Audio::shutdown() {
     for (auto& [name, chunk] : sfxCache) Mix_FreeChunk(chunk);
     sfxCache.clear();
     Mix_CloseAudio();
+    Mix_Quit(); // pairs with Mix_Init
     audioReady = false;
 }
 
@@ -75,6 +122,10 @@ void Audio::playBGM(int segment) {
     if (currentMusic) {
         Mix_PlayMusic(currentMusic, -1); // loop forever, same as the terminal game's BGM
         currentBgmPath = path;
+    } else {
+        // The file is on disk (resolveTrack just stat'd it), so this is a decode
+        // problem, not a missing asset. Worth saying out loud either way.
+        std::cerr << "Audio: could not load " << path << ": " << Mix_GetError() << "\n";
     }
 }
 
@@ -98,6 +149,8 @@ void Audio::playSFX(const std::string& name) {
         else if (std::filesystem::exists(dir + name + ".wav")) path = dir + name + ".wav";
         else { sfxCache[name] = nullptr; return; } // remember "missing" so we don't stat the disk again
         chunk = Mix_LoadWAV(path.c_str()); // despite the name, Mix_LoadWAV decodes mp3/wav/ogg alike
+        if (!chunk)
+            std::cerr << "Audio: could not load " << path << ": " << Mix_GetError() << "\n";
         sfxCache[name] = chunk;
     }
     if (chunk) Mix_PlayChannel(-1, chunk, 0);
