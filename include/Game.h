@@ -48,7 +48,9 @@ private:
     bool enemyInvulnerable = false;  // Mystic Illusion / Specter+Wraith Ghost: enemy takes 0 direct damage for the player's turn
     bool enemyParryStance = false;   // Revenant parry: deflects + ripostes the player's next attack
     int  nextHandPenalty = 0;        // Enchanter Tempt / Sorcerer Ice Blast: draw this many fewer cards next hand
-    int  curseTurnsLeft = 0;         // Basilisk Curse: player turns left before an automatic loss (0 = no curse active)
+    int  curseTurnsLeft = 0;         // Petrify countdown, shared by the Basilisk (5 turns) and the
+                                     // Cockatrice (3): player turns left before an automatic loss.
+                                     // One slot, so the two can never stack a second countdown.
     bool assassinAmbushArmed = false;// Assassin: one free mid-turn strike on a random card the player plays this turn
     bool lichAddAlive = false;       // Lich Raise Undead: a summoned skeleton bodyguards the Lich until cut down
     int  lichAddHp = 0;

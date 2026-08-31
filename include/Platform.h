@@ -51,6 +51,11 @@ void     flushKeys();
 bool takeClick(int& x, int& y);
 void mousePos(int& x, int& y);
 
+// The colour the window is cleared to each frame. EnemyArt derives it from
+// the current zone backdrop so the area around the scene is a dark note of
+// that art rather than a flat black gutter.
+void setGroundColor(SDL_Color c);
+
 // The battle scene draws above the console text; EnemyArt installs this.
 void setSceneRenderer(const std::function<void()>& fn);
 

@@ -208,7 +208,7 @@ static std::string enemyFlavorText(const std::string& enemyName) {
     else if (has("Sentinel"))  return "Corrupted long ago, it still thinks it's guarding something worth guarding.";
     else if (has("Enchanter")) return "A charm-caster who'd rather empty your hand than fight for it.";
     else if (has("Wraith"))    return "A grudge with no body left to carry it, drifting the witch's halls.";
-    else if (has("Cockatrice"))return "Half bird, half serpent, all of it eager to turn you to stone.";
+    else if (has("Serpent"))   return "Something long and patient, coiling where the torchlight gives out.";
     else if (has("Omneye"))    return "A single vast eye the witch keeps chained to watch her domain.";
     // The Wicked Forest
     else if (has("Raider"))    return "Ambushes from the treeline, gone before the storm-thunder fades.";
@@ -222,7 +222,7 @@ static std::string enemyFlavorText(const std::string& enemyName) {
     else if (has("Vampire"))   return "Elegant, patient, and never quite as far away as she seems.";
     // The Dark Lake
     else if (has("Specter"))   return "A shape the fog keeps almost showing you, and never quite does.";
-    else if (has("Serpent"))   return "Something long and patient, coiling just beneath the black water.";
+    else if (has("Cockatrice"))return "Half bird, half serpent, all of it eager to turn you to stone.";
     else if (has("Deadeye"))   return "A marksman who's had nothing to do out here but perfect one shot.";
     else if (has("Warrior"))   return "Shipwrecked here years ago and never found a way back to shore.";
     else if (has("Bastion"))   return "A drowned wall of a man, still holding a line no one else remembers.";
@@ -350,11 +350,14 @@ void Game::displayEnemyInfo() const {
         else if (nameHas("Wyvern"))    line(Color::RED, "Flying Gnash", justDmg(atk + 2), "a piercing dive.");
         else if (nameHas("Omneye"))    line(Color::RED, "Eye-Beam", pctDmg(70, atk + 2), "a piercing beam; else a 30% weakening gaze.");
         else if (nameHas("Assassin"))  line(Color::RED, "Ambush", "45%, " + justDmg(atk), "strikes mid-turn on a random card you play (armor-piercing).");
+        else if (nameHas("Falcon"))    line(Color::CYAN, "Gouge", pctDmg(65, atk + 1), "a wind-borne dive that rakes straight past your armor.");
         // BEAST
         else if (nameHas("Wolf"))      line(Color::RED, "Bite", pctDmg(70, atk), "a lunging bite, or braces.");
         else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", pctTag(50, "Weaken 2"), "else attacks for " + justDmg(atk) + ".");
         else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", pctTag(50, "Weaken 3"), "else attacks for " + justDmg(atk) + ".");
         else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", pct(40), "lose the run if it isn't dead in 5 turns! Else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Cockatrice"))line(Color::MAGENTA, "Petrifying Bite", pctDmg(35, atk), "bites, then 3 turns to kill it or you turn to stone!");
+        else if (nameHas("Manticore")) line(Color::RED, "Twin Maw", justDmg(atk) + " x2", "both heads bite in the same lunge.");
         else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", justDmg(atk), "a landed lash limits you to 1 card next turn.");
         // UNDEAD
         else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", justDmg(atk), "bites, heals itself +8, poisons you 3.");
@@ -641,7 +644,7 @@ void Game::playCardFromHand(int index) {
                     int before = lichAddHp;
                     lichAddHp = std::max(0, lichAddHp - std::max(0, bonusDamage));
                     int lost = before - lichAddHp;
-                    if (lost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType());
+                    EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), lost > 0);
                     Audio::playSFX(lichAddHp <= 0 ? "dead" : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << lost << " damage to the summoned skeleton!"
                               << Color::RESET << " (Skeleton HP: " << lichAddHp << "/" << lichAddMaxHp << ")";
@@ -649,6 +652,7 @@ void Game::playCardFromHand(int index) {
                     std::cout << "\n";
                     if (lichAddHp <= 0) { lichAddAlive = false; std::cout << "  " << Color::MAGENTA << "The summoned skeleton crumbles to dust!" << Color::RESET << "\n"; }
                 } else if (enemyInvulnerable) {
+                    EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), false);
                     std::cout << "  " << Color::DIM << "Your attack passes through the phased form. No damage!" << Color::RESET << "\n";
                 } else {
                     int defenseValue = pierce ? 0 : enemy.getBaseDefense();
@@ -656,7 +660,7 @@ void Game::playCardFromHand(int index) {
                     int hpBefore = enemy.getHealth();
                     enemy.takeDamage(damageDealt);
                     int hpLost = hpBefore - enemy.getHealth();
-                    if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType());
+                    EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), hpLost > 0);
                     int armorBlocked = damageDealt - hpLost;
                     Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << hpLost << " damage to enemy!"
@@ -775,7 +779,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
         int hpBefore = enemy.getHealth();
         enemy.takeDamage(counterDmg);
         int hpLost = hpBefore - enemy.getHealth();
-        if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
+        EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
         Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -799,7 +803,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
-            if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
+            EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
@@ -1103,6 +1107,15 @@ void Game::enemyTurn() {
         themed("Omneye fires a searing eye-beam!"); doAttack(atk + 2, true); return;
     }
 
+    if (nameHas("Falcon")) {
+        // Gouge rides the dive. Enemy attacks carry no elemental tag in this game,
+        // so the wind shows up where it would actually matter: the gust opens your
+        // guard and the talons get in past armor.
+        if (taunted || roll < 65) { themed("The falcon stoops and GOUGES on a howling gust!"); doAttack(atk + 1, true); }
+        else doAttack(atk, false);
+        return;
+    }
+
     // BEAST
     if (nameHas("Wolf"))    { if (roll < 70) { themed("Wolf lunges with a BITE!"); doAttack(atk, false); } else doDefend(std::max(1, def - 1)); return; }
     if (nameHas("Spider"))  { if (!taunted && roll < 50) { applyPlayerStatus(StatusType::WEAK, 2); std::cout << Color::WEAK_CLR << "Spider snares you in a WEB TRAP! Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); } else doAttack(atk, false); return; }
@@ -1115,6 +1128,31 @@ void Game::enemyTurn() {
                       << "  " << Color::RED << "Defeat it within 5 turns or turn to stone." << Color::RESET << "\n";
             UIHelper::pause(300);
         } else doAttack(atk, false);
+        return;
+    }
+    if (nameHas("Cockatrice")) {
+        // Petrifying Bite draws blood and starts the clock. It reuses the Basilisk
+        // curse slot, so a countdown can never be stacked twice, and the == 0 guard
+        // means one cockatrice only ever casts it once per fight.
+        if (!taunted && curseTurnsLeft == 0 && roll < 35) {
+            themed("Cockatrice sinks in a PETRIFYING BITE!");
+            doAttack(atk, false);
+            if (playerHealth > 0) {
+                curseTurnsLeft = 3;
+                Audio::playSFX("special");
+                std::cout << "  " << Color::BOLD << Color::MAGENTA << "Stone creeps out from the wound!" << Color::RESET << "\n"
+                          << "  " << Color::RED << "Defeat it within 3 turns or turn to stone." << Color::RESET << "\n";
+                UIHelper::pause(300);
+            }
+        } else doAttack(atk, false);
+        return;
+    }
+    if (nameHas("Manticore")) {
+        // Two heads, two bites. enemyStrikePlayer already closes on a 350ms beat,
+        // so the hits read as separate without an extra pause between them.
+        themed("Manticore lunges with a TWIN MAW - both heads at once!");
+        doAttack(atk, false);
+        if (playerHealth > 0 && enemy.isAlive()) doAttack(atk, false);
         return;
     }
     if (nameHas("Fleshmass")) {
@@ -1360,7 +1398,7 @@ void Game::endPlayerTurn() {
         if (curseAtStart > 0 && curseTurnsLeft > 0 && enemy.isAlive()) {
             curseTurnsLeft--;
             if (curseTurnsLeft == 0) {
-                UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::MAGENTA + "The Basilisk's curse takes hold. You turn to stone!" + Color::RESET + "\n");
+                UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::MAGENTA + "The " + enemy.getName() + "'s curse takes hold. You turn to stone!" + Color::RESET + "\n");
                 UIHelper::pause(500);
                 playerHealth = 0;
             }
@@ -1510,7 +1548,7 @@ void Game::handleInput() {
     if (curseTurnsLeft > 0)
         std::cout << Color::BOLD << Color::MAGENTA << "CURSED" << Color::RESET
                   << "  Turn to stone in " << Color::RED << curseTurnsLeft << Color::RESET
-                  << (curseTurnsLeft == 1 ? " turn" : " turns") << " unless the Basilisk falls!\n";
+                  << (curseTurnsLeft == 1 ? " turn" : " turns") << " unless the " << enemy.getName() << " falls!\n";
     if (playerAttackOnly)
         std::cout << Color::RED << "TAUNTED" << Color::RESET
                   << "  You may only play " << Color::CARD_ATTACK << "ATTACK" << Color::RESET << " cards this turn.\n";
@@ -1696,7 +1734,7 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
         int hpBefore = enemy.getHealth();
         enemy.takeDamage(counterDmg);
         int hpLost = hpBefore - enemy.getHealth();
-        if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
+        EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
         Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -1712,7 +1750,7 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
-            if (hpLost > 0) EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType());
+            EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
@@ -2293,10 +2331,14 @@ void Game::startEncounter() {
             {EnemyType::MELEE, "Bandit"},   {EnemyType::TANK, "Warden"},
             {EnemyType::CASTER, "Sage"},
             // 11-19, The Dark Dungeon, before the Vile Witch
+            // Serpent <-> Cockatrice traded with the Dark Lake: both petrify
+            // clocks (Basilisk 5 turns, Cockatrice 3) used to sit seven fights
+            // apart in this one zone and then never reappear. Both are BEAST,
+            // so the no-repeated-type rule is unaffected by the trade.
             {EnemyType::UNDEAD, "Ghoul"},   {EnemyType::BEAST, "Basilisk"},
             {EnemyType::RANGED, "Assassin"},{EnemyType::MELEE, "Knight"},
             {EnemyType::TANK, "Sentinel"},  {EnemyType::CASTER, "Enchanter"},
-            {EnemyType::UNDEAD, "Wraith"},  {EnemyType::BEAST, "Cockatrice"},
+            {EnemyType::UNDEAD, "Wraith"},  {EnemyType::BEAST, "Serpent"},
             {EnemyType::RANGED, "Omneye"},
             // 21-29, The Wicked Forest, before the Thunder Beast
             {EnemyType::MELEE, "Raider"},   {EnemyType::TANK, "Barbarian"},
@@ -2311,7 +2353,7 @@ void Game::startEncounter() {
             // no-repeated-type rule: the swaps had left Gladiator/Warrior both
             // MELEE and Spellmaster/Sorcerer both CASTER back to back.
             // Type run: UNDEAD BEAST MELEE TANK CASTER MELEE CASTER TANK RANGED
-            {EnemyType::UNDEAD, "Specter"}, {EnemyType::BEAST, "Serpent"},
+            {EnemyType::UNDEAD, "Specter"}, {EnemyType::BEAST, "Cockatrice"},
             {EnemyType::MELEE, "Gladiator"},{EnemyType::TANK, "Bastion"},
             {EnemyType::CASTER, "Spellmaster"}, {EnemyType::MELEE, "Warrior"},
             {EnemyType::CASTER, "Sorcerer"},{EnemyType::TANK, "Fortress"},

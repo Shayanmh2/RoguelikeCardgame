@@ -49,7 +49,10 @@ namespace EnemyArt {
     // Player damage lands: knight swings, enemy flashes with its hit face.
     // trailElem recolors the sword trail + impact spark by the attack's
     // elemental tag (FIRE/POISON/WIND); NONE/physical keeps the steel trail.
-    void printBattleHit(EnemyType type, BossType boss = BossType::NONE, DamageType trailElem = DamageType::NONE);
+    // connected=false still swings and draws the trail, but skips the enemy's
+    // flinch and hit-flash: the attack happened, it just did no damage.
+    void printBattleHit(EnemyType type, BossType boss = BossType::NONE, DamageType trailElem = DamageType::NONE,
+                        bool connected = true);
 
     // DEFEND card: knight raises and braces his shield.
     void printBattleBlock(EnemyType type, BossType boss = BossType::NONE);

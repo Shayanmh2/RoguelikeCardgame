@@ -24,6 +24,7 @@ int  gMouseX = 0, gMouseY = 0;
 bool gQuit = false;
 
 std::function<void()> gSceneRenderer;
+SDL_Color gGround{ 13, 13, 15, 255 };
 
 Uint32 gLastFrame = 0;
 
@@ -229,7 +230,7 @@ void frame() {
     SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
     Console::setViewport(24, 12, outW - 48, outH - 24);
 
-    SDL_SetRenderDrawColor(gRenderer, 13, 13, 15, 255); // matches the terminal theme
+    SDL_SetRenderDrawColor(gRenderer, gGround.r, gGround.g, gGround.b, 255);
     SDL_RenderClear(gRenderer);
 
     if (gSceneRenderer) gSceneRenderer();
@@ -299,6 +300,7 @@ bool takeClick(int& x, int& y) {
 
 void mousePos(int& x, int& y) { x = gMouseX; y = gMouseY; }
 
+void setGroundColor(SDL_Color c) { gGround = c; }
 void setSceneRenderer(const std::function<void()>& fn) { gSceneRenderer = fn; }
 
 bool quitRequested() { return gQuit; }

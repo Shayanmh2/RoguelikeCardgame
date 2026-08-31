@@ -69,6 +69,9 @@ struct Sheet {
     SDL_Texture* tex = nullptr;        // the artwork
     SDL_Texture* silhouette = nullptr; // same alpha, all-white RGB - carries the additive term
     int frameW = 30, frameH = 32, count = 0;
+    // Mean colour of this art's darker half, computed once at load. Backdrops
+    // use it to tint the window ground; everything else just ignores it.
+    SDL_Color darkAvg{ 13, 13, 15, 255 };
     bool ok() const { return tex != nullptr && count > 0; }
 };
 
@@ -103,6 +106,30 @@ Sheet loadSheet(const std::string& path, int frameW) {
         s.silhouette = SDL_CreateTextureFromSurface(r, wsurf);
         SDL_FreeSurface(wsurf);
     }
+    // Average the darker half of the opaque pixels. Taking the whole image
+    // would wash the tone out with sky and highlights; taking only the very
+    // darkest pixels lands on near-black and loses the hue entirely.
+    {
+        std::vector<unsigned char> lum;
+        lum.reserve((size_t)w * h);
+        for (size_t i = 0; i < (size_t)w * h; i++)
+            if (data[i * 4 + 3] > 8)
+                lum.push_back((unsigned char)((data[i*4+0]*77 + data[i*4+1]*150 + data[i*4+2]*29) >> 8));
+        if (!lum.empty()) {
+            std::vector<unsigned char> sorted = lum;
+            std::nth_element(sorted.begin(), sorted.begin() + sorted.size()/2, sorted.end());
+            const unsigned char cut = sorted[sorted.size()/2];
+            unsigned long long ar = 0, ag = 0, ab = 0, n = 0;
+            for (size_t i = 0; i < (size_t)w * h; i++) {
+                if (data[i * 4 + 3] <= 8) continue;
+                unsigned char l = (unsigned char)((data[i*4+0]*77 + data[i*4+1]*150 + data[i*4+2]*29) >> 8);
+                if (l > cut) continue;
+                ar += data[i*4+0]; ag += data[i*4+1]; ab += data[i*4+2]; n++;
+            }
+            if (n) s.darkAvg = SDL_Color{ (Uint8)(ar/n), (Uint8)(ag/n), (Uint8)(ab/n), 255 };
+        }
+    }
+
     stbi_image_free(data);
 
     if (s.tex) {
@@ -175,8 +202,12 @@ struct Library {
             "assets/sprites/bg_lake_night.png",     // 31-40
             "assets/sprites/bg_mountains_dusk.png", // 41-50
         };
-        for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 94);
-        tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 94);
+        // Backdrops are 256 columns wide, not 94: painted long enough to span
+        // the window so the scene has no bare sides. Character layout still
+        // uses the original 94-unit span (backdropW), so the fight stays
+        // centre-framed while the art runs edge to edge behind it.
+        for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 256);
+        tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
     }
 };
 
@@ -279,6 +310,20 @@ bool gGhost = false;
 bool gPortraitOnly = false;
 Sheet* gBgSheet = nullptr;
 
+// Rescale the backdrop's own dark tone to a chosen brightness, keeping its hue.
+// Sampling alone gives something so near black the tint is invisible, which
+// defeats the point; the brightness is set explicitly instead.
+SDL_Color groundFromBackdrop(const Sheet* bg, int targetLuma) {
+    if (!bg) return SDL_Color{ 13, 13, 15, 255 };
+    const SDL_Color& c = bg->darkAvg;
+    float cur = std::max(1.0f, (c.r * 77 + c.g * 150 + c.b * 29) / 256.0f);
+    float k   = (float)targetLuma / cur;
+    auto ch = [&](Uint8 v) { return (Uint8)std::min(255, (int)(v * k + 0.5f)); };
+    return SDL_Color{ ch(c.r), ch(c.g), ch(c.b), 255 };
+}
+
+void applyGround() { Platform::setGroundColor(groundFromBackdrop(gBgSheet, 26)); }
+
 AuraFlags gAuraKnight, gAuraEnemy;
 
 // Driven by the backdrop, which is the tallest thing in the scene.
@@ -344,8 +389,18 @@ void drawScene() {
     if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
         int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
-        SDL_Rect dst{ originX, originY, sceneW, sceneH };
-        blit(*gBgSheet, f, dst, Tint{});
+        // Backdrops are painted wide enough to span the window, so the frame
+        // is drawn across the full width at its own scale - centred, and
+        // cropped symmetrically if the window is narrower than the art.
+        const int screenW = Platform::screenW();
+        const int cols    = std::min(gBgSheet->frameW, (screenW + spriteScale() - 1) / spriteScale());
+        const int srcX    = f * gBgSheet->frameW + (gBgSheet->frameW - cols) / 2;
+        const int drawW   = cols * spriteScale();
+        SDL_Rect bsrc{ srcX, 0, cols, gBgSheet->frameH };
+        SDL_Rect bdst{ (screenW - drawW) / 2, originY, drawW, sceneH };
+        SDL_SetTextureColorMod(gBgSheet->tex, 255, 255, 255);
+        SDL_SetTextureAlphaMod(gBgSheet->tex, 255);
+        SDL_RenderCopy(r, gBgSheet->tex, &bsrc, &bdst);
     }
 
     const ArtSet& es = artSet(gType, gBoss);
@@ -360,7 +415,10 @@ void drawScene() {
     // backdrop's floor line - the same composition as the terminal scene.
     Tint pt = gPlayerTint;
     if (pt.identity()) pickAura(gAuraKnight, pt);
-    SDL_Rect pdst{ originX + spriteScale() * 6, floorY, sprW, sprH };
+    // Pushed apart by an extra 8 units each: the backdrop reaches the window
+    // edges now, so the pair no longer has to huddle inside a 94-wide island.
+    const int spread = spriteScale() * 8;
+    SDL_Rect pdst{ originX + spriteScale() * 6 - spread, floorY, sprW, sprH };
     int pframe = gPlayerFrame;
     if (pframe == F_IDLE_A || pframe == F_IDLE_B)
         pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
@@ -370,7 +428,7 @@ void drawScene() {
 
     Tint et = gEnemyTint;
     if (et.identity()) pickAura(gAuraEnemy, et);
-    SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 - gEnemyNudge, floorY, sprW, sprH };
+    SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 + spread - gEnemyNudge, floorY, sprW, sprH };
     // While idle, breathe between the two idle frames instead of standing on a
     // single one - the terminal build only flipped these on a menu idle tick.
     int eframe = gEnemyFrame;
@@ -410,7 +468,7 @@ void ensureInstalled() {
     if (gSceneRendererInstalled) return;
     Platform::setSceneRenderer(&drawScene);
     gSceneRendererInstalled = true;
-    if (!gBgSheet) gBgSheet = &lib().bg[0];
+    if (!gBgSheet) { gBgSheet = &lib().bg[0]; applyGround(); }
 }
 
 } // anonymous namespace
@@ -499,7 +557,7 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
     gEnemyFrame = F_IDLE_A;
 }
 
-void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
+void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool connected) {
     ensureInstalled();
     gPortraitOnly = false;
     gType = type; gBoss = boss;
@@ -513,8 +571,13 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem) {
     gPlayerFrame = 2; gSlashFrame = v + 0; hold(70);
     gPlayerFrame = 3; gSlashFrame = v + 1; hold(70);
     gPlayerFrame = 4; gSlashFrame = v + 2;
-    if (s.animated) gEnemyFrame = F_HIT;
-    gEnemyTint = HIT_FLASH;
+    // The swing always plays - the knight committed to it. Only the enemy's
+    // reaction is conditional: armor or defense soaking the blow entirely leaves
+    // nothing to flinch at, so it holds its pose while the blade goes by.
+    if (connected) {
+        if (s.animated) gEnemyFrame = F_HIT;
+        gEnemyTint = HIT_FLASH;
+    }
     hold(150);
 
     gSlashFrame = -1;
@@ -585,11 +648,13 @@ void setBattleBackdrop(int encounterNumber) {
     int idx = ((encounterNumber - 1) / 10) % 5;
     if (idx < 0) idx = 0;
     gBgSheet = &lib().bg[idx];
+    applyGround();
 }
 
 void setTutorialBackdrop() {
     ensureInstalled();
     gBgSheet = &lib().tutorialBg;
+    applyGround();
 }
 
 void setEnemyVariant(const std::string& enemyName) {
