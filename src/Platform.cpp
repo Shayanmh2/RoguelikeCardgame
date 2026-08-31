@@ -24,7 +24,34 @@ int  gMouseX = 0, gMouseY = 0;
 bool gQuit = false;
 
 std::function<void()> gSceneRenderer;
+std::function<void()> gOverlayRenderer;
 SDL_Color gGround{ 13, 13, 15, 255 };
+
+// Font sizing state. The point size is not fixed: a short window has too few
+// rows for both the combat text and a scene worth looking at, so the font is
+// refitted whenever the window height changes.
+std::string gFontPath, gFontBoldPath;
+int gFontPxIdeal = 19;      // the DPI-correct size; never exceeded
+int gFontPx = 0;            // what is currently loaded
+int gLastFitH = -1;         // output height the current fit was computed for
+
+Uint32 gShakeStart = 0, gShakeMs = 0;
+float  gShakeMag = 0.0f;
+int    gShakeX = 0, gShakeY = 0;
+
+// Recomputed once per frame so every consumer in that frame agrees on the
+// offset. Amplitude falls off quadratically, which reads as an impact settling
+// rather than a vibration stopping dead.
+void stepShake() {
+    if (gShakeMs == 0) { gShakeX = gShakeY = 0; return; }
+    Uint32 t = SDL_GetTicks() - gShakeStart;
+    if (t >= gShakeMs) { gShakeMs = 0; gShakeX = gShakeY = 0; return; }
+    float k = 1.0f - (float)t / (float)gShakeMs;
+    k *= k;
+    float m = gShakeMag * k;
+    gShakeX = (int)(((rand() % 2001) / 1000.0f - 1.0f) * m);
+    gShakeY = (int)(((rand() % 2001) / 1000.0f - 1.0f) * m * 0.62f);
+}
 
 Uint32 gLastFrame = 0;
 
@@ -96,6 +123,47 @@ void exitIfQuit() {
     TTF_Quit();
     SDL_Quit();
     std::exit(0);
+}
+
+// Rows the battle screen wants: EnemyArt reserves MIN_TEXT_ROWS (27) for the
+// header, status block and card menu, and the scene lives on what is left. Ask
+// for enough that the scene gets a dozen rows rather than its 3x floor.
+constexpr int TARGET_ROWS = 39;
+
+bool openFontsAt(int px) {
+    if (px == gFontPx && gFont) return true;
+    TTF_Font* f = TTF_OpenFont(gFontPath.c_str(), px);
+    if (!f) return false;
+    TTF_Font* b = TTF_OpenFont(gFontBoldPath.c_str(), px);
+    TTF_SetFontHinting(f, TTF_HINTING_LIGHT);
+    if (b) TTF_SetFontHinting(b, TTF_HINTING_LIGHT);
+
+    TTF_Font* oldR = gFont;
+    TTF_Font* oldB = gFontBold;
+    gFont = f; gFontBold = b ? b : f;
+    if (oldB && oldB != oldR) TTF_CloseFont(oldB);
+    if (oldR) TTF_CloseFont(oldR);
+
+    TTF_SizeUTF8(gFont, "M", &gCellW, &gCellH);
+    if (gCellW <= 0) gCellW = 9;
+    gCellH = TTF_FontLineSkip(gFont);
+    if (gCellH <= 0) gCellH = 20;
+    gFontPx = px;
+    Console::setFont(gFont, gFontBold, gCellW, gCellH);
+    return true;
+}
+
+// Only runs when the window height actually changes - reopening a TTF every
+// frame would be wasteful, and the feedback loop (size -> rows -> size) would
+// oscillate by a pixel forever.
+void refitFont(int outH) {
+    if (outH == gLastFitH || gFontPath.empty()) return;
+    gLastFitH = outH;
+    int wantCell = std::max(8, (outH - 24) / TARGET_ROWS);
+    int px = (gCellH > 0) ? (int)((float)wantCell * gFontPx / (float)gCellH + 0.5f)
+                          : gFontPxIdeal;
+    px = std::max(11, std::min(gFontPxIdeal, px));
+    openFontsAt(px);
 }
 
 } // anonymous namespace
@@ -180,22 +248,16 @@ bool init(const char* title) {
 
     for (const char* p : regularCandidates) {
         if (!p) continue;
-        gFont = TTF_OpenFont(p, FONT_PX);
-        if (gFont) break;
+        TTF_Font* probe = TTF_OpenFont(p, FONT_PX);
+        if (probe) { TTF_CloseFont(probe); gFontPath = p; break; }
     }
-    if (!gFont) { std::cerr << "Could not open a monospace font\n"; return false; }
-    TTF_SetFontHinting(gFont, TTF_HINTING_LIGHT);
+    if (gFontPath.empty()) { std::cerr << "Could not open a monospace font" << std::endl; return false; }
+    gFontBoldPath = base + "assets/DejaVuSansMono-Bold.ttf";
+    { TTF_Font* pb = TTF_OpenFont(gFontBoldPath.c_str(), FONT_PX);
+      if (pb) TTF_CloseFont(pb); else gFontBoldPath = gFontPath; }
 
-    std::string bundledBold = base + "assets/DejaVuSansMono-Bold.ttf";
-    gFontBold = TTF_OpenFont(bundledBold.c_str(), FONT_PX);
-    if (!gFontBold) gFontBold = gFont;
-    else TTF_SetFontHinting(gFontBold, TTF_HINTING_LIGHT);
-
-    // Monospace: every glyph advances the same, so one measurement sets the grid.
-    TTF_SizeUTF8(gFont, "M", &gCellW, &gCellH);
-    if (gCellW <= 0) gCellW = 9;
-    gCellH = TTF_FontLineSkip(gFont);
-    if (gCellH <= 0) gCellH = 20;
+    gFontPxIdeal = FONT_PX;
+    if (!openFontsAt(FONT_PX)) { std::cerr << "Could not open a monospace font" << std::endl; return false; }
 
     Console::init(gFont, gFontBold, gCellW, gCellH);
     Console::installStdoutRedirect();
@@ -228,13 +290,16 @@ void frame() {
     // Re-derive the text area every frame so resizing and fullscreen just work.
     int outW = DEFAULT_W, outH = DEFAULT_H;
     SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
-    Console::setViewport(24, 12, outW - 48, outH - 24);
+    refitFont(outH);
+    stepShake();
+    Console::setViewport(24 + gShakeX, 12 + gShakeY, outW - 48, outH - 24);
 
     SDL_SetRenderDrawColor(gRenderer, gGround.r, gGround.g, gGround.b, 255);
     SDL_RenderClear(gRenderer);
 
     if (gSceneRenderer) gSceneRenderer();
     Console::render(gRenderer);
+    if (gOverlayRenderer) gOverlayRenderer();
 
     SDL_RenderPresent(gRenderer);
 
@@ -302,6 +367,17 @@ void mousePos(int& x, int& y) { x = gMouseX; y = gMouseY; }
 
 void setGroundColor(SDL_Color c) { gGround = c; }
 void setSceneRenderer(const std::function<void()>& fn) { gSceneRenderer = fn; }
+void setOverlayRenderer(const std::function<void()>& fn) { gOverlayRenderer = fn; }
+
+void shake(int ms, float strength) {
+    // Re-triggering mid-shake restarts rather than stacking: two hits in quick
+    // succession should read as two knocks, not one long rattle.
+    gShakeStart = SDL_GetTicks();
+    gShakeMs    = (Uint32)std::max(1, ms);
+    gShakeMag   = strength;
+}
+
+void shakeOffset(int& dx, int& dy) { dx = gShakeX; dy = gShakeY; }
 
 bool quitRequested() { return gQuit; }
 

@@ -220,10 +220,36 @@ protected:
 };
 ConsoleBuf* gBuf = nullptr;
 
+// Raw bytes, escapes and all, so replaying a line reproduces its colour.
+bool gCapture = false;
+std::string gCapLine;
+std::vector<std::string> gHistory;
+// A full run is ~44 encounters; at roughly 40 logged lines each this holds the
+// whole thing with room to spare, and it is only strings.
+constexpr size_t HISTORY_MAX = 4000;
+
+void captureByte(unsigned char ch) {
+    if (!gCapture) return;
+    if (ch == 10) {                       // newline ends a line
+        // Skip blank-after-strip lines: the log is dense enough without them.
+        bool any = false;
+        for (size_t i = 0; i < gCapLine.size(); i++)
+            if ((unsigned char)gCapLine[i] > 32) { any = true; break; }
+        if (any) {
+            gHistory.push_back(gCapLine);
+            if (gHistory.size() > HISTORY_MAX)
+                gHistory.erase(gHistory.begin(), gHistory.begin() + (gHistory.size() - HISTORY_MAX));
+        }
+        gCapLine.clear();
+    } else if (ch != 13) {
+        gCapLine.push_back((char)ch);
+    }
+}
+
 } // anonymous namespace
 
 void write(const char* bytes, size_t n) {
-    for (size_t i = 0; i < n; i++) feed((unsigned char)bytes[i]);
+    for (size_t i = 0; i < n; i++) { captureByte((unsigned char)bytes[i]); feed((unsigned char)bytes[i]); }
 }
 void write(const std::string& s) { write(s.data(), s.size()); }
 
@@ -250,6 +276,27 @@ int  sceneRows() { return gSceneRows; }
 void init(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH) {
     gFont = regular; gFontBold = bold; gCellW = cellW; gCellH = cellH;
 }
+void setHistoryCapture(bool on) {
+    if (!on && !gCapLine.empty()) { captureByte(10); }   // flush a partial line
+    gCapture = on;
+}
+const std::vector<std::string>& history() { return gHistory; }
+
+// Append a line regardless of capture state - used for the encounter markers
+// that divide the log, which are written while capture is off.
+void pushHistory(const std::string& line) {
+    gHistory.push_back(line);
+    if (gHistory.size() > HISTORY_MAX)
+        gHistory.erase(gHistory.begin(), gHistory.begin() + (gHistory.size() - HISTORY_MAX));
+}
+void clearHistory() { gHistory.clear(); gCapLine.clear(); }
+
+void setFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH) {
+    for (auto& kv : gGlyphs) if (kv.second) SDL_DestroyTexture(kv.second);
+    gGlyphs.clear();
+    gFont = regular; gFontBold = bold; gCellW = cellW; gCellH = cellH;
+}
+
 
 void setViewport(int x, int y, int w, int h) { gViewport = SDL_Rect{ x, y, w, h }; }
 

@@ -59,6 +59,19 @@ void setGroundColor(SDL_Color c);
 // The battle scene draws above the console text; EnemyArt installs this.
 void setSceneRenderer(const std::function<void()>& fn);
 
+// Drawn AFTER the console text, so unlike the scene renderer this can put
+// things on top of it - damage numbers, impact sparks, transient effects.
+// Without it nothing can occupy the space above the text at all.
+void setOverlayRenderer(const std::function<void()>& fn);
+
+// Jolts the whole frame - text and sprites together - decaying to nothing over
+// `ms`. `strength` is the peak displacement in pixels.
+void shake(int ms, float strength);
+
+// Current shake displacement. The scene renderer adds this to its own origin so
+// sprites move in lockstep with the text rather than sliding against it.
+void shakeOffset(int& dx, int& dy);
+
 // Set when the window is closed - the game exits at the next blocking call.
 bool quitRequested();
 

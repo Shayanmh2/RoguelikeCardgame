@@ -3,6 +3,8 @@
 #include "Colors.h"
 #include "UIHelper.h"
 #include "EnemyArt.h"
+#include "Console.h"
+#include "Platform.h"
 #include <algorithm>
 #include <iostream>
 #include <random>
@@ -240,6 +242,44 @@ static std::string enemyFlavorText(const std::string& enemyName) {
     else if (has("Fortress"))  return "Less a soldier than a wall that decided to start moving.";
     else if (has("Archon"))    return "Something that used to be holy, fallen far enough to land on this peak.";
     return "";
+}
+
+// Scrollable replay of what has happened this fight. Console::history() stores
+// the raw bytes, escapes included, so replaying a line reproduces the colour it
+// was printed in - the log reads exactly as it did when it scrolled past.
+void Game::displayActionLog() const {
+    const auto& lines = Console::history();
+    if (lines.empty()) return;
+
+    // Capture has to be off in here or the viewer would log itself, and every
+    // redraw would append another copy of the log to the log.
+    Console::setHistoryCapture(false);
+
+    int top = std::max(0, (int)lines.size() - 1);   // start at the most recent
+    while (true) {
+        UIHelper::clearScreen();
+        const int page = std::max(4, Console::rows() - 6);
+        top = std::min(top, std::max(0, (int)lines.size() - page));
+        top = std::max(0, top);
+
+        std::cout << Color::BOLD << "ACTION HISTORY" << Color::RESET
+                  << Color::DIM << "   this run"
+                  << "   (" << lines.size() << " lines)" << Color::RESET << "\n";
+        std::cout << Color::DIM
+                  << "-------------------------------------------------------------"
+                  << Color::RESET << "\n";
+        for (int i = top; i < (int)lines.size() && i < top + page; i++)
+            std::cout << lines[i] << "\n";
+        std::cout << Color::DIM << "\n"
+                  << "[up/down to scroll   any other key to return]"
+                  << Color::RESET << "\n";
+
+        Platform::KeyEvent k = Platform::waitKey();
+        if      (k.key == Platform::Key::UP)   top -= 3;
+        else if (k.key == Platform::Key::DOWN) top += 3;
+        else break;
+    }
+    Console::setHistoryCapture(true);
 }
 
 void Game::displayEnemyInfo() const {
@@ -480,7 +520,12 @@ void Game::applyCardEffect(const Card& card) {
         case CardEffect::HEAL: {
             EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::HEAL);
             int before = playerHealth;
-            playerHealth = std::min(maxPlayerHealth, playerHealth + val);
+            {
+                int before = playerHealth;
+                playerHealth = std::min(maxPlayerHealth, playerHealth + val);
+                if (playerHealth > before)
+                    EnemyArt::popNumber(playerHealth - before, false, EnemyArt::PopKind::HEAL);
+            }
             std::cout << "  " << Color::HEAL << "Recovered " << (playerHealth - before) << " HP!" << Color::RESET
                       << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
             break;
@@ -645,6 +690,7 @@ void Game::playCardFromHand(int index) {
                     lichAddHp = std::max(0, lichAddHp - std::max(0, bonusDamage));
                     int lost = before - lichAddHp;
                     EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), lost > 0);
+                    EnemyArt::popNumber(lost, true, EnemyArt::PopKind::DAMAGE);
                     Audio::playSFX(lichAddHp <= 0 ? "dead" : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << lost << " damage to the summoned skeleton!"
                               << Color::RESET << " (Skeleton HP: " << lichAddHp << "/" << lichAddMaxHp << ")";
@@ -661,6 +707,10 @@ void Game::playCardFromHand(int index) {
                     enemy.takeDamage(damageDealt);
                     int hpLost = hpBefore - enemy.getHealth();
                     EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), hpLost > 0);
+                    EnemyArt::popNumber(hpLost > 0 ? hpLost : (damageDealt - hpLost), true,
+                                        hpLost <= 0    ? EnemyArt::PopKind::BLOCKED
+                                        : hitsWeakness ? EnemyArt::PopKind::WEAK_HIT
+                                                       : EnemyArt::PopKind::DAMAGE);
                     int armorBlocked = damageDealt - hpLost;
                     Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << hpLost << " damage to enemy!"
@@ -780,6 +830,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
         enemy.takeDamage(counterDmg);
         int hpLost = hpBefore - enemy.getHealth();
         EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
+        EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
         Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -804,6 +855,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
             EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
+            EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
@@ -826,7 +878,10 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
     if (playerArmor < 0) playerArmor = 0;
     playerHealth -= actualDamage;
     if (playerHealth < 0) playerHealth = 0;
-    if (actualDamage > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+    if (actualDamage > 0) {
+        EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+        EnemyArt::popNumber(actualDamage, false, EnemyArt::PopKind::DAMAGE);
+    }
     Audio::playSFX("hit");
     std::cout << Color::DAMAGE << "Enemy attacks for " << actualDamage << " damage!" << Color::RESET;
     if (weakMult < 1.0)
@@ -1502,6 +1557,10 @@ void Game::handleInput() {
 
     lastActionWasCardPlay = false;
 
+    // The whole battle screen is redrawn every turn. Logging that redraw would
+    // bury the actual events under repeated headers and card lists, so capture
+    // stays off until the player has chosen and things start happening.
+    Console::setHistoryCapture(false);
     UIHelper::clearScreen();
 
     refreshBattleAuras();
@@ -1637,6 +1696,7 @@ void Game::handleInput() {
     options.push_back("End Turn");    disabled.push_back(false);
     options.push_back("View Enemy");  disabled.push_back(false);
     options.push_back("Status");      disabled.push_back(false);
+    options.push_back("View Log");    disabled.push_back(Console::history().empty());
 
     std::cout << "\n";
     int choice = UIHelper::menuSelectRight(leftLines, optionIndices, options, 50, 0, disabled,
@@ -1646,26 +1706,35 @@ void Game::handleInput() {
         });
     if (choice < 0) return;
 
+    // Capture wraps only the branches where something actually happens. It used
+    // to be switched on here and left on, so the rest site, the forge and every
+    // reward menu poured their card lists into the log.
     if (choice < handCount) {
+        Console::setHistoryCapture(true);
         playCardFromHand(choice + 1);
-        if (checkGameOver()) return;
+        if (checkGameOver()) { Console::setHistoryCapture(false); return; }
         UIHelper::pause(600);  // let the card result stay visible before redraw
         if (playerEnergy <= 0 && playerTurnActive) {
             std::cout << "\n" << Color::DIM << "[No energy left - ending your turn automatically]" << Color::RESET << "\n";
             UIHelper::pause(400);
             endPlayerTurn();
         }
+        Console::setHistoryCapture(false);
     } else if (choice == handCount) {
+        Console::setHistoryCapture(true);
         endPlayerTurn();
         checkGameOver();
+        Console::setHistoryCapture(false);
     } else if (choice == handCount + 1) {
         UIHelper::clearScreen();
         displayEnemyInfo();
         UIHelper::waitForKey();
-    } else {
+    } else if (choice == handCount + 2) {
         UIHelper::clearScreen();
         displayStatus();
         UIHelper::waitForKey();
+    } else {
+        displayActionLog();
     }
 }
 
@@ -1735,6 +1804,7 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
         enemy.takeDamage(counterDmg);
         int hpLost = hpBefore - enemy.getHealth();
         EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
+        EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
         Audio::playSFX(!enemy.isAlive() ? "dead" : "attack");
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -1751,6 +1821,7 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
             EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
+            EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
@@ -1769,7 +1840,10 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
     if (raw) {
         playerHealth = std::max(0, playerHealth - damage);
         bool saved = trySecondWind();
-        if (damage > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+        if (damage > 0) {
+            EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+            EnemyArt::popNumber(damage, false, EnemyArt::PopKind::DAMAGE);
+        }
         Audio::playSFX("hit");
         std::cout << Color::BOLD << Color::DAMAGE << "  BOSS slams for " << damage
                   << " (ignores armor)!" << Color::RESET
@@ -1784,7 +1858,10 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
         playerArmor = std::max(0, playerArmor - damage);
         playerHealth = std::max(0, playerHealth - actual);
         bool saved = trySecondWind();
-        if (actual > 0) EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+        if (actual > 0) {
+            EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
+            EnemyArt::popNumber(actual, false, EnemyArt::PopKind::DAMAGE);
+        }
         Audio::playSFX("hit");
         std::cout << Color::BOLD << Color::DAMAGE << "  BOSS strikes for " << actual
                   << " damage!" << Color::RESET
@@ -2287,6 +2364,7 @@ namespace {
 }
 
 void Game::startEncounter() {
+
     if (currentRun.getCycle() == 0) {
         if (currentRun.isBossEncounter()) {
             int bossIdx = currentRun.getBossIndex(); // 0..5
@@ -2385,6 +2463,15 @@ void Game::startEncounter() {
 
     EnemyArt::setEnemyVariant(enemy.getName());
     prepareShadowKnightMoves(); // no-op unless this fight is the Shadow Knight
+
+    // Divider in the run-long log, so scrolling back through a whole run stays
+    // navigable. Written directly because capture is off outside a turn.
+    Console::pushHistory("");
+    Console::pushHistory(std::string(Color::BOLD)
+        + (currentRun.isBossEncounter() ? Color::MAGENTA : Color::CYAN)
+        + "=== " + (currentRun.isBossEncounter() ? "BOSS" : "Encounter "
+            + std::to_string(currentRun.getCurrentEncounter()))
+        + ": " + enemy.getName() + " ===" + Color::RESET);
 
     // Fresh fight: clear every per-enemy signature mechanic from the last one.
     playerAttackOnly = false;
@@ -3458,6 +3545,7 @@ void Game::finishRun() {
 
         runStats.resetRunStats();
         currentRun = Run();
+        Console::clearHistory();   // a new run starts a fresh log
         currentRun.startRun();
 
         upgrades.displayUpgradeInfo();

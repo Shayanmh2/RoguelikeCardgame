@@ -42,6 +42,19 @@ int  sceneRows();
 
 // --- rendering ---
 void init(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
+
+// Swap to a different point size. Clears the glyph cache, whose keys carry
+// no size - stale textures would otherwise be drawn at the new cell size.
+void setFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
+
+// Action history. gLines only holds the current screen - it is wiped by every
+// clear() - so a persistent log needs its own store. Capture is opt-in because
+// the battle screen is fully redrawn each turn, and logging that redraw would
+// bury the actual events under repeated headers and card lists.
+void setHistoryCapture(bool on);
+const std::vector<std::string>& history();
+void pushHistory(const std::string& line);
+void clearHistory();
 void setViewport(int x, int y, int w, int h);
 void render(SDL_Renderer* renderer);
 void shutdown();

@@ -134,6 +134,7 @@ public:
     void run();
     void displayStatus() const;
     void handleInput();
+    void displayActionLog() const;   // scrollable replay of this fight
 };
 
 #endif

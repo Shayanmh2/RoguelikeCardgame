@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <cmath>
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_PNG
@@ -373,6 +374,121 @@ void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha
     }
 }
 
+// --- floating numbers and impact sparks -------------------------------
+//
+// Drawn in the overlay pass, which runs after Console::render(), so these are
+// the first things in the game able to sit on top of the text.
+//
+// Digits are a hand-built 3x5 bitmap rather than the console font. Scaling
+// DejaVu up would give soft, anti-aliased numbers floating over hard pixel
+// sprites; a bitmap font scales by the same integer factor as the art and
+// reads as part of it.
+const unsigned char DIGIT_GLYPH[13][5] = {
+    {0b111,0b101,0b101,0b101,0b111}, // 0
+    {0b010,0b110,0b010,0b010,0b111}, // 1
+    {0b111,0b001,0b111,0b100,0b111}, // 2
+    {0b111,0b001,0b111,0b001,0b111}, // 3
+    {0b101,0b101,0b111,0b001,0b001}, // 4
+    {0b111,0b100,0b111,0b001,0b111}, // 5
+    {0b111,0b100,0b111,0b101,0b111}, // 6
+    {0b111,0b001,0b001,0b001,0b001}, // 7
+    {0b111,0b101,0b111,0b101,0b111}, // 8
+    {0b111,0b101,0b111,0b001,0b111}, // 9
+    {0b000,0b101,0b010,0b101,0b000}, // 10: x
+    {0b000,0b010,0b111,0b010,0b000}, // 11: +
+    {0b000,0b000,0b111,0b000,0b000}, // 12: -
+};
+
+struct Popup {
+    float  x = 0, y = 0;
+    std::string text;
+    SDL_Color col{255,255,255,255};
+    Uint32 born = 0;
+    int    ms = 900;
+    int    scale = 4;
+};
+struct Spark {
+    float x = 0, y = 0, vx = 0, vy = 0;
+    Uint32 born = 0;
+    int    ms = 340;
+    int    size = 3;
+};
+std::vector<Popup> gPopups;
+std::vector<Spark> gSparks;
+
+// Where the two fighters were drawn this frame. The overlay needs them and
+// runs outside drawScene(), so drawScene records them on the way past.
+SDL_Rect gPlayerRect{ 0,0,0,0 };
+SDL_Rect gEnemyRect { 0,0,0,0 };
+
+void drawGlyphColumnText(SDL_Renderer* r, const std::string& t, int x, int y,
+                         int scale, SDL_Color col, Uint8 alpha) {
+    auto cell = [&](int cx, int cy, SDL_Color c) {
+        SDL_SetRenderDrawColor(r, c.r, c.g, c.b, alpha);
+        SDL_Rect q{ cx, cy, scale, scale };
+        SDL_RenderFillRect(r, &q);
+    };
+    // dark pass first, offset in four directions: a 1px outline is what keeps
+    // a number legible over both a bright sprite and a dark backdrop.
+    const SDL_Color dark{ 8, 8, 10, 255 };
+    for (int pass = 0; pass < 2; pass++) {
+        int px = x;
+        for (char ch : t) {
+            int g = -1;
+            if (ch >= '0' && ch <= '9') g = ch - '0';
+            else if (ch == 'x') g = 10;
+            else if (ch == '+') g = 11;
+            else if (ch == '-') g = 12;
+            if (g >= 0) {
+                for (int ry = 0; ry < 5; ry++)
+                    for (int rx = 0; rx < 3; rx++)
+                        if (DIGIT_GLYPH[g][ry] & (1 << (2 - rx))) {
+                            if (pass == 0) {
+                                cell(px + rx*scale - scale, y + ry*scale, dark);
+                                cell(px + rx*scale + scale, y + ry*scale, dark);
+                                cell(px + rx*scale, y + ry*scale - scale, dark);
+                                cell(px + rx*scale, y + ry*scale + scale, dark);
+                            } else {
+                                cell(px + rx*scale, y + ry*scale, col);
+                            }
+                        }
+            }
+            px += 4 * scale;   // 3 wide + 1 spacing
+        }
+    }
+}
+
+void drawOverlay() {
+    SDL_Renderer* r = Platform::renderer();
+    const Uint32 now = SDL_GetTicks();
+
+    for (size_t i = 0; i < gSparks.size();) {
+        Spark& s = gSparks[i];
+        float t = (float)(now - s.born) / (float)s.ms;
+        if (t >= 1.0f) { gSparks.erase(gSparks.begin() + i); continue; }
+        float px = s.x + s.vx * t;
+        float py = s.y + s.vy * t + 34.0f * t * t;   // a little gravity
+        Uint8 a = (Uint8)(255 * (1.0f - t));
+        int sz = std::max(1, (int)(s.size * (1.0f - t) + 1));
+        SDL_SetRenderDrawColor(r, 255, 232, 158, a);
+        SDL_Rect q{ (int)px, (int)py, sz, sz };
+        SDL_RenderFillRect(r, &q);
+        i++;
+    }
+
+    for (size_t i = 0; i < gPopups.size();) {
+        Popup& p = gPopups[i];
+        float t = (float)(now - p.born) / (float)p.ms;
+        if (t >= 1.0f) { gPopups.erase(gPopups.begin() + i); continue; }
+        // rise fast then ease out, hold opacity for the first half
+        float rise = (1.0f - (1.0f - t) * (1.0f - t)) * 9.0f * p.scale;
+        Uint8 a = (t < 0.5f) ? 255 : (Uint8)(255 * (1.0f - (t - 0.5f) / 0.5f));
+        drawGlyphColumnText(r, p.text, (int)p.x, (int)(p.y - rise), p.scale, p.col, a);
+        i++;
+    }
+}
+
+
 // Installed with Platform once, then called every frame.
 void drawScene() {
     if (Console::sceneRows() <= 0) return;
@@ -381,23 +497,44 @@ void drawScene() {
     const int scale = charScale();
     const int sprW = spriteW(), sprH = spriteH();
     const int sceneW = backdropW(), sceneH = backdropH();
-    const int originX = (Platform::screenW() - sceneW) / 2;
-    const int originY = 12;
+    // Move with the console's shake so sprites and text never slide apart.
+    int shX = 0, shY = 0;
+    Platform::shakeOffset(shX, shY);
+    const int originX = (Platform::screenW() - sceneW) / 2 + shX;
+    const int originY = 12 + shY;
     // Characters stand on the backdrop's floor line rather than its top edge.
     const int floorY = originY + sceneH - sprH;
 
     if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
         int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
-        // Backdrops are painted wide enough to span the window, so the frame
-        // is drawn across the full width at its own scale - centred, and
-        // cropped symmetrically if the window is narrower than the art.
+        // The backdrop always spans the whole window.
+        //
+        // Preferred case: enough columns exist to cover the width at the scene's
+        // own scale, so a centred crop is drawn 1:1 and the pixels stay square.
+        //
+        // Short windows are the awkward case. Rows are the scarce resource, so a
+        // shallow window shrinks spriteScale, and 256 columns at scale 3 covers
+        // only 768px of a 1600px window - which left the art as a small island
+        // with bare sides. There the full width of art is stretched to fit
+        // instead. Cropping vertically to compensate would keep pixels square
+        // but cut the top off the frame, which is where the dungeon's torches
+        // live, so a modest horizontal stretch on a distant backdrop is the
+        // better trade.
         const int screenW = Platform::screenW();
-        const int cols    = std::min(gBgSheet->frameW, (screenW + spriteScale() - 1) / spriteScale());
-        const int srcX    = f * gBgSheet->frameW + (gBgSheet->frameW - cols) / 2;
-        const int drawW   = cols * spriteScale();
+        const int fullW   = gBgSheet->frameW * spriteScale();
+        int cols, srcX, drawW;
+        if (fullW >= screenW) {
+            cols  = (screenW + spriteScale() - 1) / spriteScale();
+            srcX  = f * gBgSheet->frameW + (gBgSheet->frameW - cols) / 2;
+            drawW = cols * spriteScale();
+        } else {
+            cols  = gBgSheet->frameW;
+            srcX  = f * gBgSheet->frameW;
+            drawW = screenW;
+        }
         SDL_Rect bsrc{ srcX, 0, cols, gBgSheet->frameH };
-        SDL_Rect bdst{ (screenW - drawW) / 2, originY, drawW, sceneH };
+        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, originY, drawW, sceneH };
         SDL_SetTextureColorMod(gBgSheet->tex, 255, 255, 255);
         SDL_SetTextureAlphaMod(gBgSheet->tex, 255);
         SDL_RenderCopy(r, gBgSheet->tex, &bsrc, &bdst);
@@ -422,6 +559,7 @@ void drawScene() {
     int pframe = gPlayerFrame;
     if (pframe == F_IDLE_A || pframe == F_IDLE_B)
         pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+    gPlayerRect = pdst;
     blit(lib().player, pframe, pdst, pt);
     if (gSlashFrame >= 0) blit(lib().slashFx, gSlashFrame, pdst, Tint{});
     if (gCastFrame >= 0)  blit(lib().castFx, gCastFrame, pdst, Tint{});
@@ -435,6 +573,7 @@ void drawScene() {
     if (es.animated && (eframe == F_IDLE_A || eframe == F_IDLE_B))
         eframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
     // Ghost/Illusion: faded and spectral while the enemy can't be touched.
+    gEnemyRect = edst;
     blit(es.sheet, eframe, edst, et, gGhost ? 110 : 255);
 
     (void)r;
@@ -467,11 +606,59 @@ bool gSceneRendererInstalled = false;
 void ensureInstalled() {
     if (gSceneRendererInstalled) return;
     Platform::setSceneRenderer(&drawScene);
+    Platform::setOverlayRenderer(&drawOverlay);
     gSceneRendererInstalled = true;
     if (!gBgSheet) { gBgSheet = &lib().bg[0]; applyGround(); }
 }
 
 } // anonymous namespace
+
+void popNumber(int amount, bool onEnemy, PopKind kind) {
+    ensureInstalled();
+    const SDL_Rect& box = onEnemy ? gEnemyRect : gPlayerRect;
+    if (box.w <= 0) return;
+
+    std::string txt;
+    SDL_Color col;
+    switch (kind) {
+        case PopKind::HEAL:     txt = "+" + std::to_string(amount); col = SDL_Color{134,209,107,255}; break;
+        case PopKind::BLOCKED:  txt = std::to_string(amount);       col = SDL_Color{150,150,168,255}; break;
+        case PopKind::WEAK_HIT: txt = std::to_string(amount);       col = SDL_Color{240,180,41,255};  break;
+        default:                txt = std::to_string(amount);       col = SDL_Color{255,95,86,255};   break;
+    }
+
+    Popup p;
+    // A step smaller than the sprites read at - big enough to punch, small
+    // enough not to cover the thing it is telling you about.
+    p.scale = std::max(2, charScale() - 3);
+    int w = (int)txt.size() * 4 * p.scale;
+    // jitter so a double hit does not stack two numbers in the same pixels
+    p.x = (float)(box.x + box.w/2 - w/2 + (int)(gPopups.size() % 3) * 6 - 6);
+    p.y = (float)(box.y + box.h/5);
+    p.text = txt; p.col = col; p.born = SDL_GetTicks();
+    gPopups.push_back(p);
+    if (gPopups.size() > 12) gPopups.erase(gPopups.begin());
+}
+
+void popSparks(bool onEnemy) {
+    ensureInstalled();
+    const SDL_Rect& box = onEnemy ? gEnemyRect : gPlayerRect;
+    if (box.w <= 0) return;
+    // Contact point: the side the blow arrives from.
+    float cx = (float)(onEnemy ? box.x + box.w/4 : box.x + box.w*3/4);
+    float cy = (float)(box.y + box.h/2);
+    for (int i = 0; i < 11; i++) {
+        Spark s;
+        float ang = (float)i * 6.2831853f / 11.0f + 0.35f;
+        float spd = (float)(charScale() * (5 + (i % 3) * 3));
+        s.x = cx; s.y = cy;
+        s.vx = std::cos(ang) * spd;
+        s.vy = std::sin(ang) * spd * 0.7f;
+        s.size = std::max(2, charScale() / 2);
+        s.born = SDL_GetTicks();
+        gSparks.push_back(s);
+    }
+}
 
 // --- public interface -------------------------------------------------
 
@@ -571,6 +758,9 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool co
     gPlayerFrame = 2; gSlashFrame = v + 0; hold(70);
     gPlayerFrame = 3; gSlashFrame = v + 1; hold(70);
     gPlayerFrame = 4; gSlashFrame = v + 2;
+    // Only a landed blow shakes the screen - a whiff already reads as a whiff
+    // because the enemy holds its pose.
+    if (connected) { Platform::shake(180, 9.0f); popSparks(true); }
     // The swing always plays - the knight committed to it. Only the enemy's
     // reaction is conditional: armor or defense soaking the blow entirely leaves
     // nothing to flinch at, so it holds its pose while the blade goes by.
@@ -693,6 +883,10 @@ void printBattleKnightHit(EnemyType type, BossType boss) {
     showScene();
     gPlayerFrame = 8;
     gPlayerTint = HIT_FLASH;
+    // Taking a hit shakes harder than landing one - it should feel worse to be
+    // on the receiving end.
+    Platform::shake(200, 11.0f);
+    popSparks(false);
     hold(100);
     gPlayerTint = Tint{};
     gPlayerFrame = F_IDLE_A;

@@ -88,6 +88,14 @@ namespace EnemyArt {
     // Wraith while invulnerable). Set before drawing the scene, cleared after.
     void setEnemyGhost(bool on);
 
+    // Floating combat numbers and impact sparks. These draw in the overlay
+    // pass - above the console text - which is the only layer that can put
+    // anything on top of the log. They are fire-and-forget: the effect owns its
+    // own lifetime and the caller never has to tick or clear it.
+    enum class PopKind { DAMAGE, HEAL, BLOCKED, WEAK_HIT };
+    void popNumber(int amount, bool onEnemy, PopKind kind = PopKind::DAMAGE);
+    void popSparks(bool onEnemy);
+
     // Picks the backdrop for this encounter (a new environment every 10
     // encounters, cycling after the last).
     void setBattleBackdrop(int encounterNumber);
