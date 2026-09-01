@@ -20,7 +20,6 @@ public:
     
     int getCurrentEncounter() const;
     int getEncountersWon() const;
-    bool isRunActive() const;
     
     // Get scaled enemy stats for current encounter
     int getEnemyHealth() const;
@@ -33,9 +32,6 @@ public:
     int  getBossNumber() const;     // 1-based count of bosses up to and including this one, across cycles
     int  getRegularIndex() const;   // 0..43: which of the 44 unique regular enemies this is (non-boss only)
 
-    std::string getDifficultyTier() const;
-    std::string getEncounterDifficulty() const;
-    std::string getEncounterTier() const;
     void displayRunStats() const;
 };
 

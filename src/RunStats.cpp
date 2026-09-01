@@ -10,10 +10,6 @@ void RunStats::addCardToRun() {
     totalCardsCollected++;
 }
 
-int RunStats::getCardsThisRun() const {
-    return cardsAddedThisRun;
-}
-
 void RunStats::resetRunStats() {
     cardsAddedThisRun = 0;
 }
@@ -32,14 +28,6 @@ int RunStats::getTotalEncountersWon() const {
 
 int RunStats::getTotalCardsCollected() const {
     return totalCardsCollected;
-}
-
-int RunStats::getTotalRunsCompleted() const {
-    return totalRunsCompleted;
-}
-
-int RunStats::getBestRunEncounters() const {
-    return bestRunEncounters;
 }
 
 void RunStats::displayCumulativeStats() const {

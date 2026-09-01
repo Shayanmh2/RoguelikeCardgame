@@ -62,15 +62,13 @@ void Audio::init() {
     std::cerr << "Audio: Mix_OpenAudio failed on the default driver ("
               << SDL_GetCurrentAudioDriver() << "): " << Mix_GetError() << "\n";
 
-    // SDL picks WASAPI first on Windows, and it does fail on real machines -
-    // exclusive-mode devices, odd virtual endpoints, a session with no audio
-    // endpoint attached. The device is usually still reachable through an older
-    // backend, so rather than run silent, walk the alternatives.
+    // SDL picks WASAPI first on Windows and it does fail on real machines:
+    // exclusive-mode devices, odd virtual endpoints, no endpoint attached.
+    // Older backends usually still reach the device, so walk them rather than
+    // run silent. Each attempt tears the subsystem down and back up, since the
+    // driver is read from the environment at init.
     //
-    // Switching backend means tearing the audio subsystem down and bringing it
-    // back up: the driver is read from the environment at subsystem init. An
-    // explicit SDL_AUDIODRIVER set by the user is left alone - if someone has
-    // pinned a backend, second-guessing them is not our business.
+    // If the user pinned SDL_AUDIODRIVER themselves, leave it.
     if (SDL_getenv("SDL_AUDIODRIVER") != nullptr) return;
 
     for (const char* drv : { "directsound", "winmm", "wasapi", "dsp" }) {

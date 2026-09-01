@@ -16,7 +16,6 @@ public:
     
     // Current run tracking
     void addCardToRun();
-    int getCardsThisRun() const;
     void resetRunStats();
     
     // Run completion
@@ -25,8 +24,6 @@ public:
     // Persistent stats
     int getTotalEncountersWon() const;
     int getTotalCardsCollected() const;
-    int getTotalRunsCompleted() const;
-    int getBestRunEncounters() const;
     
     void displayCumulativeStats() const;
     void displayRunSummary(int encountersWon) const;

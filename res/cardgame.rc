@@ -1,0 +1,8 @@
+// Windows executable icon. Explorer, the taskbar's pinned entry and the
+// Alt-Tab list all read this compiled-in resource rather than anything the
+// program does at runtime; SDL_SetWindowIcon in Platform.cpp covers the live
+// window, and is the only icon at all on Linux.
+//
+// 1 is the conventional id: Windows shows the numerically lowest ICON
+// resource as the application icon.
+1 ICON "../assets/icon.ico"

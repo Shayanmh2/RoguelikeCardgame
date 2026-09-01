@@ -50,10 +50,6 @@ int Run::getEncountersWon() const {
     return encountersWon;
 }
 
-bool Run::isRunActive() const {
-    return runActive;
-}
-
 int Run::getEnemyHealth() const {
     int tier = (currentEncounter - 1) / 5;
     int tierMultiplier = 1 + (tier * 15);  // Each tier adds 15% more health
@@ -94,30 +90,6 @@ int Run::getRegularIndex() const {
     for (int i = 0; i < BOSS_COUNT; ++i)
         if (BOSS_POSITIONS[i] < pos) ++bossesBefore;
     return pos - 1 - bossesBefore; // 0..43 within the cycle
-}
-
-std::string Run::getDifficultyTier() const {
-    // One name per 10-encounter boss-gated segment (1-10/11-20/.../41-50), so
-    // the label now tracks the boss schedule instead of outpacing it - INSANE
-    // no longer shows up until the endless cycles past the Shadow Knight.
-    int tier = (currentEncounter - 1) / 10;
-    switch (tier) {
-        case 0: return "EASY";
-        case 1: return "NORMAL";
-        case 2: return "HARD";
-        case 3: return "NIGHTMARE";
-        case 4: return "IMPOSSIBLE";
-        default: return "INSANE";
-    }
-}
-
-std::string Run::getEncounterDifficulty() const {
-    return getDifficultyTier();
-}
-
-std::string Run::getEncounterTier() const {
-    int tier = (currentEncounter - 1) / 5;
-    return "Tier " + std::to_string(tier + 1);
 }
 
 void Run::displayRunStats() const {

@@ -176,7 +176,7 @@ struct Library {
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
     ArtSet named[45];
     Sheet player, slashFx, castFx;
-    Sheet bg[5], tutorialBg;
+    Sheet bg[5], tutorialBg, titleBg;
 
     Library() {
         MELEE  = loadSet("assets/sprites/melee_goblin.png");
@@ -197,6 +197,9 @@ struct Library {
         slashFx = loadSheet(basePath() + "assets/sprites/player_slash_fx.png", 30);
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
         const char* bgFiles[5] = {
+            // TODO: both dungeon backdrops are flat brick with a torch every 16
+            // columns. Zones 3-5 got depth passes and these did not, so the first
+            // twenty fights are the dullest looking ones in the game.
             "assets/sprites/bg_dungeon.png",        // 1-10
             "assets/sprites/bg_dungeon_purple.png", // 11-20
             "assets/sprites/bg_forest_night.png",   // 21-30
@@ -209,6 +212,7 @@ struct Library {
         // centre-framed while the art runs edge to edge behind it.
         for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 256);
         tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
+        titleBg    = loadSheet(basePath() + "assets/sprites/bg_title.png", 256);
     }
 };
 
@@ -243,6 +247,8 @@ const NamedEntry NAMED_TABLE[] = {
 const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
 
 const ArtSet* gNamedVariant = nullptr;
+// The summoned add, if the fight has one standing.
+const ArtSet* gCompanion = nullptr;
 
 const ArtSet& artSet(EnemyType type, BossType boss) {
     Library& L = lib();
@@ -489,8 +495,46 @@ void drawOverlay() {
 }
 
 
+// Title screen backdrop. Drawn from the SCENE hook, which runs before the
+// console text: the earlier version rode the modal hook and therefore painted
+// straight over the menu.
+bool gTitleMode = false;
+
+void drawTitleScene() {
+    const Sheet& s = lib().titleBg;
+    if (!s.ok()) return;
+    SDL_Renderer* r = Platform::renderer();
+    const int W = Platform::screenW(), H = Platform::screenH();
+    const int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, s.count);
+
+    // Cover the window and crop the overflow, rather than stretching to fit.
+    // Stretching a 16:9 image onto an arbitrary window is what made this look
+    // wrong; cropping keeps the pixels square.
+    const float sx = (float)W / (float)s.frameW;
+    const float sy = (float)H / (float)s.frameH;
+    const float sc = std::max(sx, sy);
+    const int drawW = (int)(s.frameW * sc + 0.5f);
+    const int drawH = (int)(s.frameH * sc + 0.5f);
+
+    SDL_Rect src{ f * s.frameW, 0, s.frameW, s.frameH };
+    SDL_Rect dst{ (W - drawW) / 2, (H - drawH) / 2, drawW, drawH };
+    SDL_SetTextureColorMod(s.tex, 255, 255, 255);
+    SDL_SetTextureAlphaMod(s.tex, 255);
+    SDL_RenderCopy(r, s.tex, &src, &dst);
+
+    // Graded scrim over the top third so the title keeps its contrast. A flat
+    // rectangle left a visible horizontal seam across the sky.
+    const int band = H / 2;
+    for (int y = 0; y < band; y++) {
+        float t = 1.0f - (float)y / (float)band;
+        SDL_SetRenderDrawColor(r, 6, 6, 10, (Uint8)(150 * t * t));
+        SDL_RenderDrawLine(r, 0, y, W, y);
+    }
+}
+
 // Installed with Platform once, then called every frame.
 void drawScene() {
+    if (gTitleMode) { drawTitleScene(); return; }
     if (Console::sceneRows() <= 0) return;
 
     SDL_Renderer* r = Platform::renderer();
@@ -501,26 +545,22 @@ void drawScene() {
     int shX = 0, shY = 0;
     Platform::shakeOffset(shX, shY);
     const int originX = (Platform::screenW() - sceneW) / 2 + shX;
-    const int originY = 12 + shY;
+    const int originY = Console::sceneOriginY() + shY;
     // Characters stand on the backdrop's floor line rather than its top edge.
     const int floorY = originY + sceneH - sprH;
 
     if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
         int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
-        // The backdrop always spans the whole window.
+        // The backdrop always spans the whole window. Normally there are enough
+        // columns to cover it at the scene's own scale, so a centred crop draws
+        // 1:1 and the pixels stay square.
         //
-        // Preferred case: enough columns exist to cover the width at the scene's
-        // own scale, so a centred crop is drawn 1:1 and the pixels stay square.
-        //
-        // Short windows are the awkward case. Rows are the scarce resource, so a
-        // shallow window shrinks spriteScale, and 256 columns at scale 3 covers
-        // only 768px of a 1600px window - which left the art as a small island
-        // with bare sides. There the full width of art is stretched to fit
-        // instead. Cropping vertically to compensate would keep pixels square
-        // but cut the top off the frame, which is where the dungeon's torches
-        // live, so a modest horizontal stretch on a distant backdrop is the
-        // better trade.
+        // Short windows are the awkward case: rows are scarce, so a shallow one
+        // shrinks spriteScale, and 256 columns at scale 3 covers 768px of a
+        // 1600px window - the art became an island with bare sides. Stretch the
+        // full width instead. Cropping vertically keeps pixels square but cuts
+        // off the top of the frame, where the dungeon torches live.
         const int screenW = Platform::screenW();
         const int fullW   = gBgSheet->frameW * spriteScale();
         int cols, srcX, drawW;
@@ -544,7 +584,13 @@ void drawScene() {
 
     if (gPortraitOnly) {
         SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
-        blit(es.sheet, gEnemyFrame, dst, gEnemyTint);
+        // Breathe on the same 600ms cadence the battle scene uses. View Enemy
+        // was picking one idle frame and holding it, so the portrait sat there
+        // as a still image while everything else in the game moved.
+        int pframe2 = gEnemyFrame;
+        if (es.animated && (pframe2 == F_IDLE_A || pframe2 == F_IDLE_B))
+            pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+        blit(es.sheet, pframe2, dst, gEnemyTint);
         return;
     }
 
@@ -576,6 +622,22 @@ void drawScene() {
     gEnemyRect = edst;
     blit(es.sheet, eframe, edst, et, gGhost ? 110 : 255);
 
+    // The add stands inside the enemy, toward the middle of the field, at one
+    // scale step down. Integer scaling only: a fractional step drops the
+    // one-pixel features these sprites are mostly made of.
+    if (gCompanion && gCompanion->loaded) {
+        const int cs = std::max(2, charScale() - 1);
+        const int cwid = 30 * cs, chgt = 32 * cs;
+        SDL_Rect cdst{ edst.x - cwid + spriteScale() * 2,
+                       floorY + (sprH - chgt), cwid, chgt };
+        int cframe = F_IDLE_A;
+        if (gCompanion->animated)
+            cframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+        // A shade cooler than the enemy: raised, not native to the fight.
+        Tint ct; ct.mulR = 0.78f; ct.mulG = 0.82f; ct.mulB = 0.95f;
+        blit(gCompanion->sheet, cframe, cdst, ct);
+    }
+
     (void)r;
 }
 
@@ -593,6 +655,9 @@ void resetPose() {
     gEnemyNudge = 0;
 }
 
+// TODO: the slash sheets are still mostly empty - 0, 7 and 12 opaque pixels
+// across the three frames. The swing reads from the knight's pose and the
+// impact spark, not from any actual trail. Needs redrawing.
 size_t slashVariant(DamageType elem) {
     switch (elem) {
         case DamageType::FIRE:   return 1;
@@ -612,6 +677,10 @@ void ensureInstalled() {
 }
 
 } // anonymous namespace
+
+// Switches the scene hook over to the title art. Public because the title
+// screen owns the transition, not the battle code.
+void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 
 void popNumber(int amount, bool onEnemy, PopKind kind) {
     ensureInstalled();
@@ -662,13 +731,6 @@ void popSparks(bool onEnemy) {
 
 // --- public interface -------------------------------------------------
 
-const Art& get(EnemyType type, BossType boss) {
-    static Art a;
-    ensureInstalled();
-    a = Art{ &artSet(type, boss), F_IDLE_A };
-    return a;
-}
-
 const Art& getWalkFrame(EnemyType type, BossType boss) {
     static Art a;
     ensureInstalled();
@@ -676,22 +738,6 @@ const Art& getWalkFrame(EnemyType type, BossType boss) {
     static int phase = 0;
     phase ^= 1;
     a = Art{ &s, (s.animated && phase) ? F_IDLE_B : F_IDLE_A };
-    return a;
-}
-
-const Art& getHitArt(EnemyType type, BossType boss) {
-    static Art a;
-    ensureInstalled();
-    const ArtSet& s = artSet(type, boss);
-    a = Art{ &s, s.animated ? F_HIT : F_IDLE_A };
-    return a;
-}
-
-const Art& getDeathArt(EnemyType type, BossType boss) {
-    static Art a;
-    ensureInstalled();
-    const ArtSet& s = artSet(type, boss);
-    a = Art{ &s, s.animated ? F_DEATH : F_IDLE_A };
     return a;
 }
 
@@ -833,6 +879,14 @@ void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
 
 void setEnemyGhost(bool on) { gGhost = on; }
 
+// Force the lazy Library to build now. It decodes roughly twenty PNGs and
+// creates two GPU textures for each, and it used to happen on the first
+// printBattle call, which put all of it inside the opening beat of the first
+// fight. Called from the title screen instead, where a pause is expected.
+void preload() { (void)lib(); ensureInstalled(); }
+
+
+
 void setBattleBackdrop(int encounterNumber) {
     ensureInstalled();
     int idx = ((encounterNumber - 1) / 10) % 5;
@@ -847,9 +901,29 @@ void setTutorialBackdrop() {
     applyGround();
 }
 
+// Companion sheets get their own small cache, keyed the same way the named
+// variants are, so a repeated summon never reloads the PNG.
+void setCompanion(const std::string& spriteKey) {
+    ensureInstalled();
+    gCompanion = nullptr;
+    if (spriteKey.empty()) return;
+    static ArtSet cache[NAMED_COUNT];
+    static bool tried[NAMED_COUNT] = { false };
+    for (int i = 0; i < NAMED_COUNT; i++) {
+        if (spriteKey != NAMED_TABLE[i].key) continue;
+        if (!tried[i]) {
+            cache[i] = loadSet((std::string("assets/sprites/") + NAMED_TABLE[i].file + ".png").c_str());
+            tried[i] = true;
+        }
+        if (cache[i].loaded) gCompanion = &cache[i];
+        return;
+    }
+}
+
 void setEnemyVariant(const std::string& enemyName) {
     ensureInstalled();
     gNamedVariant = nullptr;
+    gCompanion = nullptr;   // a new fight never inherits the last one's add
     static ArtSet cache[NAMED_COUNT];
     static bool tried[NAMED_COUNT] = { false };
     for (int i = 0; i < NAMED_COUNT; i++) {

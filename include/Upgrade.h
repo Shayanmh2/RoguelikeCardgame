@@ -24,7 +24,6 @@ public:
     std::string getName() const;
     std::string getDescription() const;
     UpgradeType getType() const;
-    int getUnlockRequirement() const;
     
     void display() const;
 };

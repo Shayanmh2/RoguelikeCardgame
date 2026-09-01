@@ -16,10 +16,6 @@ UpgradeType Upgrade::getType() const {
     return type;
 }
 
-int Upgrade::getUnlockRequirement() const {
-    return unlockRequirement;
-}
-
 void Upgrade::display() const {
     std::cout << "[" << name << "]\n"
               << "  " << description << "\n";
