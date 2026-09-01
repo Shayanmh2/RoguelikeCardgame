@@ -51,6 +51,8 @@ add_executable(cardgame_sdl2 WIN32
     src/Console.cpp
     src/UIHelper.cpp
     src/EnemyArt.cpp
+    src/CardBar.cpp
+    src/Hud.cpp
     src/Audio.cpp
     # Game logic, unchanged from the terminal build.
     src/Game.cpp
@@ -65,6 +67,12 @@ add_executable(cardgame_sdl2 WIN32
     src/Upgrade.cpp
     src/UpgradeSystem.cpp
 )
+# The executable icon. Explorer and the taskbar read a compiled-in resource,
+# not anything the program sets at runtime, so this has to be linked in.
+if(WIN32)
+    target_sources(cardgame_sdl2 PRIVATE res/cardgame.rc)
+endif()
+
 target_include_directories(cardgame_sdl2 PRIVATE include)
 target_link_libraries(cardgame_sdl2 PRIVATE
     SDL2::SDL2-static SDL2::SDL2main
