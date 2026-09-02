@@ -28,10 +28,8 @@ void write(const std::string& s);
 
 // --- screen control, mirroring the escapes UIHelper/Game.cpp emit ---
 void clear();
-int  cursorRow();
-void setCursorRow(int row);
 
-// Number of text rows/cols currently available in the console region.
+// Rows/cols left for text after the reserved bands take their share.
 int rows();
 int cols();
 
@@ -40,6 +38,45 @@ int cols();
 void setSceneRows(int r);
 int  sceneRows();
 
+// The bottom counterpart of setSceneRows: rows withheld from the text so the
+// card hand can be drawn there as real widgets. Reset by clear().
+void setHandRows(int r);
+int  handRows();
+int  totalRows();
+SDL_Rect handRegion();
+
+// Band between the scene and the text, where the combat panel is drawn.
+void setHudRows(int r);
+SDL_Rect hudRegion();
+int sceneOriginY();
+SDL_Rect textRegion();
+
+// Text at a pixel position, for widgets drawn in the reserved bands.
+void drawTextPx(SDL_Renderer* r, int x, int y, const std::string& text,
+                SDL_Color color, bool bold);
+
+// Draws text that already carries ANSI colour, keeping it. Returns the x the
+// run ended at, so callers can lay the next thing out after it.
+int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
+               SDL_Color base, bool bold);
+
+// Widget-sized face. Its own point size, not a scale-up; see Console.cpp.
+void setBigFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
+void drawTextBigPx(SDL_Renderer* r, int x, int y, const std::string& text,
+                   SDL_Color color, bool bold);
+int  bigCellW();
+
+int  bigCellH();
+
+// Title-sized face, larger again.
+void setDisplayFont(TTF_Font* f, int cellW, int cellH);
+void drawTextDispPx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color);
+int  dispCellW();
+
+// The palette the ANSI codes resolve to - Campbell for 0-15, xterm cube above.
+// Widgets use it so a card name is the same colour the terminal build printed.
+SDL_Color xterm256Public(int n);
+
 // --- rendering ---
 void init(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
 
@@ -47,10 +84,9 @@ void init(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
 // no size - stale textures would otherwise be drawn at the new cell size.
 void setFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
 
-// Action history. gLines only holds the current screen - it is wiped by every
-// clear() - so a persistent log needs its own store. Capture is opt-in because
-// the battle screen is fully redrawn each turn, and logging that redraw would
-// bury the actual events under repeated headers and card lists.
+// Action history, kept separately because clear() wipes the screen buffer.
+// Capture is opt-in: the battle screen redraws in full every turn, and
+// logging that would bury the events under repeated headers and card lists.
 void setHistoryCapture(bool on);
 const std::vector<std::string>& history();
 void pushHistory(const std::string& line);
@@ -64,10 +100,5 @@ void installStdoutRedirect();
 
 // Visible length of a string, ignoring ANSI escapes (UIHelper::visibleLen).
 int visibleLen(const std::string& s);
-
-// Maps a logical-pixel y back to the buffer row drawn there, accounting for
-// the current scroll offset. Menus use this to hit-test clicks against the
-// rows they printed. Returns -1 outside the text area.
-int rowAtY(int y);
 
 } // namespace Console

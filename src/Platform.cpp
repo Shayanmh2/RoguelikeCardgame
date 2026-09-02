@@ -2,6 +2,8 @@
 #include "Console.h"
 #include "Audio.h"
 
+#include "stb_image.h"
+
 #include <algorithm>
 #include <cstdlib>
 #include <deque>
@@ -19,12 +21,16 @@ int gCellW = 9, gCellH = 20;
 
 std::deque<KeyEvent> gKeys;
 bool gHasClick = false;
+int  gWheel = 0;              // accumulated wheel notches, consumed by takeWheel
 int  gClickX = 0, gClickY = 0;
 int  gMouseX = 0, gMouseY = 0;
 bool gQuit = false;
 
 std::function<void()> gSceneRenderer;
 std::function<void()> gOverlayRenderer;
+std::function<void()> gHandRenderer;
+std::function<void()> gHudRenderer;
+std::function<void()> gModalRenderer;
 SDL_Color gGround{ 13, 13, 15, 255 };
 
 // Font sizing state. The point size is not fixed: a short window has too few
@@ -34,6 +40,9 @@ std::string gFontPath, gFontBoldPath;
 int gFontPxIdeal = 19;      // the DPI-correct size; never exceeded
 int gFontPx = 0;            // what is currently loaded
 int gLastFitH = -1;         // output height the current fit was computed for
+TTF_Font* gFontBig = nullptr;
+TTF_Font* gFontBigBold = nullptr;
+TTF_Font* gFontDisp = nullptr;
 
 Uint32 gShakeStart = 0, gShakeMs = 0;
 float  gShakeMag = 0.0f;
@@ -103,6 +112,12 @@ void pumpEvents() {
                 gMouseX = ev.motion.x;
                 gMouseY = ev.motion.y;
                 break;
+            case SDL_MOUSEWHEEL:
+                // Accumulated rather than latched: a fast flick delivers
+                // several events between frames and all of them should count.
+                gWheel += (ev.wheel.direction == SDL_MOUSEWHEEL_FLIPPED)
+                              ? -ev.wheel.y : ev.wheel.y;
+                break;
             default: break;
         }
     }
@@ -150,6 +165,45 @@ bool openFontsAt(int px) {
     if (gCellH <= 0) gCellH = 20;
     gFontPx = px;
     Console::setFont(gFont, gFontBold, gCellW, gCellH);
+
+    // Widget face, ~1.9x the grid. Card titles are sized against the card, not
+    // the text grid, so they need their own point size rather than a scale-up.
+    const int bigPx = (int)(px * 1.35f + 0.5f);
+    TTF_Font* bf  = TTF_OpenFont(gFontPath.c_str(), bigPx);
+    TTF_Font* bfb = TTF_OpenFont(gFontBoldPath.c_str(), bigPx);
+    if (bf) {
+        TTF_SetFontHinting(bf, TTF_HINTING_LIGHT);
+        if (bfb) TTF_SetFontHinting(bfb, TTF_HINTING_LIGHT);
+        TTF_Font* oldBig = gFontBig; TTF_Font* oldBigBold = gFontBigBold;
+        gFontBig = bf; gFontBigBold = bfb ? bfb : bf;
+        int bw = 0, bh = 0;
+        TTF_SizeUTF8(gFontBig, "M", &bw, &bh);
+        Console::setBigFont(gFontBig, gFontBigBold, bw > 0 ? bw : bigPx/2,
+                            TTF_FontLineSkip(gFontBig));
+
+        // Title face, shared by the title screen and the headline overlay.
+        // Sized off the grid font, then capped so the longest thing it draws
+        // still fits the window width. The grid font tracks window HEIGHT, so
+        // without the cap a tall narrow window picks a title too wide for it,
+        // and the callers drop to the widget face - a jarring cliff rather
+        // than a title one step smaller. 18 characters is "ROGUELIKE
+        // CARDGAME"; the advance of this face is about 0.6 of its point size.
+        const int byHeight = (int)(px * 4.6f + 0.5f);
+        const int byWidth  = (screenW() - 60) * 10 / (18 * 6);
+        const int dispPx = std::max(px, std::min(byHeight, byWidth));
+        TTF_Font* df = TTF_OpenFont(gFontBoldPath.c_str(), dispPx);
+        if (df) {
+            TTF_SetFontHinting(df, TTF_HINTING_LIGHT);
+            TTF_Font* oldDisp = gFontDisp;
+            gFontDisp = df;
+            int dw = 0, dh = 0;
+            TTF_SizeUTF8(gFontDisp, "M", &dw, &dh);
+            Console::setDisplayFont(gFontDisp, dw > 0 ? dw : dispPx/2, TTF_FontLineSkip(gFontDisp));
+            if (oldDisp) TTF_CloseFont(oldDisp);
+        }
+        if (oldBigBold && oldBigBold != oldBig) TTF_CloseFont(oldBigBold);
+        if (oldBig) TTF_CloseFont(oldBig);
+    }
     return true;
 }
 
@@ -169,15 +223,12 @@ void refitFont(int outH) {
 } // anonymous namespace
 
 bool init(const char* title) {
-    // Must be set before SDL_Init. Without it the process is DPI-unaware, so
-    // on any display running at 125%/150% scaling Windows renders the window
-    // at a smaller virtual size and bitmap-stretches the result - which blurs
-    // every glyph no matter how crisply we draw it. Declaring per-monitor v2
-    // awareness gets us real physical pixels instead.
+    // Before SDL_Init, or the process is DPI-unaware and Windows bitmap-
+    // stretches the window on any display at 125%/150% - blurring every glyph
+    // however crisply we drew it. Per-monitor v2 gets real physical pixels.
     //
-    // Deliberately NOT setting SDL_WINDOWS_DPI_SCALING: that one switches SDL's
-    // coordinate system to DPI-scaled points, which would desync mouse events
-    // from renderer output size. Left off, everything stays in pixels.
+    // Not SDL_WINDOWS_DPI_SCALING though: that switches SDL to DPI-scaled
+    // points and desyncs mouse events from renderer output size.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
@@ -197,6 +248,22 @@ bool init(const char* title) {
                                DEFAULT_W, DEFAULT_H,
                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
     if (!gWindow) { std::cerr << "CreateWindow: " << SDL_GetError() << "\n"; return false; }
+
+    // The window's own icon: the title bar, the running taskbar button, and on
+    // Linux the whole story, since there is no compiled-in resource there.
+    // A missing file is not worth failing startup over.
+    {
+        int iw = 0, ih = 0, comp = 0;
+        const std::string iconPath = Audio::exeDir() + "assets/icon.png";
+        unsigned char* px = stbi_load(iconPath.c_str(), &iw, &ih, &comp, 4);
+        if (px) {
+            SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(
+                px, iw, ih, 32, iw * 4, SDL_PIXELFORMAT_RGBA32);
+            // SDL copies the pixels, so both can go straight back.
+            if (icon) { SDL_SetWindowIcon(gWindow, icon); SDL_FreeSurface(icon); }
+            stbi_image_free(px);
+        }
+    }
 
     gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!gRenderer) gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_SOFTWARE);
@@ -259,6 +326,14 @@ bool init(const char* title) {
     gFontPxIdeal = FONT_PX;
     if (!openFontsAt(FONT_PX)) { std::cerr << "Could not open a monospace font" << std::endl; return false; }
 
+    // Establish the real viewport before anything prints. frame() refreshes it
+    // every tick, but the title screen is written before the first frame, and
+    // centring against the stale 1600x900 default put it left of centre.
+    {
+        int outW = DEFAULT_W, outH = DEFAULT_H;
+        SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
+        Console::setViewport(24, 22, outW - 48, outH - 40);
+    }
     Console::init(gFont, gFontBold, gCellW, gCellH);
     Console::installStdoutRedirect();
 
@@ -292,14 +367,20 @@ void frame() {
     SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
     refitFont(outH);
     stepShake();
-    Console::setViewport(24 + gShakeX, 12 + gShakeY, outW - 48, outH - 24);
+    Console::setViewport(24 + gShakeX, 22 + gShakeY, outW - 48, outH - 40);
 
     SDL_SetRenderDrawColor(gRenderer, gGround.r, gGround.g, gGround.b, 255);
     SDL_RenderClear(gRenderer);
 
     if (gSceneRenderer) gSceneRenderer();
+    // Panels draw BEFORE the text: they are backgrounds, and the log panel sits
+    // directly behind the combat log. Running this after Console::render filled
+    // straight over those lines.
+    if (gHudRenderer) gHudRenderer();
     Console::render(gRenderer);
     if (gOverlayRenderer) gOverlayRenderer();
+    if (gHandRenderer) gHandRenderer();
+    if (gModalRenderer) gModalRenderer();
 
     SDL_RenderPresent(gRenderer);
 
@@ -309,24 +390,15 @@ void frame() {
     gLastFrame = SDL_GetTicks();
 }
 
-// Combat pacing compensation.
+// Combat pacing. The terminal build got its rhythm partly for free: a battle
+// redraw cost tens of milliseconds through the Windows console. Those writes
+// are nearly free here, so the same pause() values play back quicker.
 //
-// The terminal build got a lot of its rhythm for free: every std::cout of a
-// battle redraw went through the Windows console, which costs tens of
-// milliseconds a screenful. Here the same writes land in a memory grid and cost
-// essentially nothing, so a turn built out of identical pause() values plays
-// back noticeably quicker - the pauses are honest, but the work between them
-// vanished.
+// pause() and EnemyArt::hold() both route through delay(), so scaling here
+// keeps every authored duration in proportion. typeWrite() runs off its own
+// clock and is left alone - typing speed should not move when this is retuned.
 //
-// Scaling here rather than at the call sites keeps every authored duration in
-// one place: UIHelper::pause() and EnemyArt::hold() both route through delay(),
-// so animation holds and read-the-text beats stay in the proportion they were
-// written in. typeWrite() and the menu idle tick run off their own clocks and
-// are deliberately untouched - per-character typing speed should not drift when
-// this is retuned.
-//
-// Raise to slow combat down, lower to speed it up. 1.0 is the terminal build's
-// nominal timing, which in practice plays faster than the terminal did.
+// Raise to slow combat down.
 static const float PACE_SCALE = 1.5f;
 
 void delay(int ms) {
@@ -363,11 +435,27 @@ bool takeClick(int& x, int& y) {
     return true;
 }
 
+int takeWheel() {
+    int w = gWheel;
+    gWheel = 0;
+    return w;
+}
+
 void mousePos(int& x, int& y) { x = gMouseX; y = gMouseY; }
 
 void setGroundColor(SDL_Color c) { gGround = c; }
 void setSceneRenderer(const std::function<void()>& fn) { gSceneRenderer = fn; }
 void setOverlayRenderer(const std::function<void()>& fn) { gOverlayRenderer = fn; }
+void setHandRenderer(const std::function<void()>& fn) { gHandRenderer = fn; }
+void setHudRenderer(const std::function<void()>& fn) { gHudRenderer = fn; }
+void setModalRenderer(const std::function<void()>& fn) { gModalRenderer = fn; }
+
+SDL_Color groundTone(int luma) {
+    float cur = std::max(1.0f, (gGround.r * 77 + gGround.g * 150 + gGround.b * 29) / 256.0f);
+    float k = (float)luma / cur;
+    auto ch = [&](Uint8 v) { return (Uint8)std::min(255, (int)(v * k + 0.5f)); };
+    return SDL_Color{ ch(gGround.r), ch(gGround.g), ch(gGround.b), 255 };
+}
 
 void shake(int ms, float strength) {
     // Re-triggering mid-shake restarts rather than stacking: two hits in quick
@@ -379,6 +467,5 @@ void shake(int ms, float strength) {
 
 void shakeOffset(int& dx, int& dy) { dx = gShakeX; dy = gShakeY; }
 
-bool quitRequested() { return gQuit; }
 
 } // namespace Platform
