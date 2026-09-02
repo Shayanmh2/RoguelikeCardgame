@@ -6,7 +6,7 @@
 
 // The SDL2 host for the game's blocking, synchronous control flow.
 //
-// Game.cpp calls UIHelper::pause() and UIHelper::menuSelect() and expects them
+// Game.cpp calls UIHelper::pause() and the card pickers and expects them
 // to block. Rather than restructure the game into a frame-driven state machine,
 // those blocking calls pump the SDL event/render loop from the inside via
 // frame() - so the window stays responsive, animations play, and the game code
@@ -51,18 +51,35 @@ void     flushKeys();
 bool takeClick(int& x, int& y);
 void mousePos(int& x, int& y);
 
+// Wheel notches since the last call, positive for scrolling up. Consumed on
+// read, the same way takeClick works.
+int takeWheel();
+
 // The colour the window is cleared to each frame. EnemyArt derives it from
 // the current zone backdrop so the area around the scene is a dark note of
 // that art rather than a flat black gutter.
 void setGroundColor(SDL_Color c);
 
-// The battle scene draws above the console text; EnemyArt installs this.
+// Draw layers, composited in this order every frame:
+//
+//   scene    battle sprites
+//   hud      the combat panel
+//   <console text>
+//   overlay  damage numbers, sparks
+//   hand     the cards
+//   modal    a full-screen panel and the dim behind it
+//
+// Only overlay and below can draw on top of the log text. Each is optional.
 void setSceneRenderer(const std::function<void()>& fn);
-
-// Drawn AFTER the console text, so unlike the scene renderer this can put
-// things on top of it - damage numbers, impact sparks, transient effects.
-// Without it nothing can occupy the space above the text at all.
+void setHudRenderer(const std::function<void()>& fn);
 void setOverlayRenderer(const std::function<void()>& fn);
+void setHandRenderer(const std::function<void()>& fn);
+void setModalRenderer(const std::function<void()>& fn);
+
+// The window ground colour rescaled to a chosen brightness, hue preserved.
+// Widgets take their surfaces from this so the whole interface re-tints with
+// the zone instead of sitting in a fixed grey.
+SDL_Color groundTone(int luma);
 
 // Jolts the whole frame - text and sprites together - decaying to nothing over
 // `ms`. `strength` is the peak displacement in pixels.
@@ -71,8 +88,5 @@ void shake(int ms, float strength);
 // Current shake displacement. The scene renderer adds this to its own origin so
 // sprites move in lockstep with the text rather than sliding against it.
 void shakeOffset(int& dx, int& dy);
-
-// Set when the window is closed - the game exits at the next blocking call.
-bool quitRequested();
 
 } // namespace Platform

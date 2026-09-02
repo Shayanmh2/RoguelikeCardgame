@@ -19,22 +19,13 @@ namespace EnemyArt {
         int frame = 0;
     };
 
-    // Boss != NONE takes priority over the base EnemyType.
-    const Art& get(EnemyType type, BossType boss = BossType::NONE);
-
-    // Idle frame - alternates per call.
+    // Idle frame, alternating per call. Boss != NONE wins over EnemyType.
     const Art& getWalkFrame(EnemyType type, BossType boss = BossType::NONE);
 
-    // Hit/death variants; fall back to the normal portrait.
-    const Art& getHitArt(EnemyType type, BossType boss = BossType::NONE);
-    const Art& getDeathArt(EnemyType type, BossType boss = BossType::NONE);
-
-    // Single portrait (View Enemy screen).
     void print(const Art& art, int indent = 6);
 
     // --- battle scene: knight on the left, enemy on the right ---
 
-    // Full scene, both idle frames.
     void printBattle(EnemyType type, BossType boss = BossType::NONE);
 
     // Redraws the scene in place (menu idle tick), at the row printBattle()
@@ -69,7 +60,6 @@ namespace EnemyArt {
     enum class SelfGlow { STRENGTH, HEAL };
     void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow);
 
-    // Which status auras are currently active on one side of the battle scene.
     struct AuraFlags {
         bool strength = false;
         bool weak     = false;
@@ -88,10 +78,14 @@ namespace EnemyArt {
     // Wraith while invulnerable). Set before drawing the scene, cleared after.
     void setEnemyGhost(bool on);
 
-    // Floating combat numbers and impact sparks. These draw in the overlay
-    // pass - above the console text - which is the only layer that can put
-    // anything on top of the log. They are fire-and-forget: the effect owns its
-    // own lifetime and the caller never has to tick or clear it.
+    // Build the sprite library up front so the first fight does not pay for it.
+    void preload();
+
+    // Title screen backdrop. Draws under the text.
+    void setTitleMode(bool on);
+
+    // Floating combat numbers and impact sparks. Fire-and-forget: each effect
+    // owns its lifetime, so nothing has to tick or clear them.
     enum class PopKind { DAMAGE, HEAL, BLOCKED, WEAK_HIT };
     void popNumber(int amount, bool onEnemy, PopKind kind = PopKind::DAMAGE);
     void popSparks(bool onEnemy);
@@ -100,7 +94,7 @@ namespace EnemyArt {
     // encounters, cycling after the last).
     void setBattleBackdrop(int encounterNumber);
 
-    // Day-forest scene used only by the tutorial fight.
+    // Tutorial fight only.
     void setTutorialBackdrop();
 
     // Picks a per-name sprite (beasts, undead, the wyvern) by matching the
@@ -108,12 +102,13 @@ namespace EnemyArt {
     // fall back to their type's sprite.
     void setEnemyVariant(const std::string& enemyName);
 
-    // Enemy defeated: enemy darkens into its death pose.
+    // A summoned add drawn beside the enemy, one scale step down. Empty key
+    // clears it.
+    void setCompanion(const std::string& spriteKey);
+
     void printBattleDeath(EnemyType type, BossType boss = BossType::NONE);
 
-    // Enemy's blow lands: knight recoils and flashes.
     void printBattleKnightHit(EnemyType type, BossType boss = BossType::NONE);
 
-    // Player defeated: knight slumps, darkened.
     void printBattleKnightDeath(EnemyType type, BossType boss = BossType::NONE);
 }

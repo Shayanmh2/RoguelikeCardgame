@@ -24,7 +24,7 @@
     },
     {
       "name": "Poison Dart",
-      "description": "Apply 3 Poison (3 dmg/turn for 3 turns).",
+      "description": "Apply 3 Poison. Deals 3 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 1,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Torch",
-      "description": "Apply 5 Burn (5 dmg/turn for 3 turns).",
+      "description": "Apply 5 Burn. Deals 5 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 1,
@@ -40,7 +40,7 @@
     },
     {
       "name": "Weaken",
-      "description": "Apply Weak for 3 turns (deals 1.5x less damage).",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 1.5x less damage.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 1,
@@ -105,7 +105,7 @@
     },
     {
       "name": "Uppercut",
-      "description": "Deal 10 damage: ignoring enemy defense.",
+      "description": "Deal 10 damage. Ignores the enemy's defense stat entirely, so it lands full against heavily armored foes.",
       "type": "ATTACK",
       "effect": "PIERCE",
       "physType": "SMASH",
@@ -114,7 +114,7 @@
     },
     {
       "name": "Shield Bash",
-      "description": "Gain 4 armor. Deal 3 damage.",
+      "description": "Gain 4 armor, then deal 3 damage that bypasses the enemy's armor.",
       "type": "DEFEND",
       "effect": "CHIP",
       "cost": 1,
@@ -136,7 +136,7 @@
     },
     {
       "name": "Combo Strike",
-      "description": "Deal 7 damage twice (14 total).",
+      "description": "Strike twice for 7 damage each, 14 total. Both hits are reduced by defense separately.",
       "type": "ATTACK",
       "effect": "DOUBLE_HIT",
       "cost": 3,
@@ -152,7 +152,7 @@
     },
     {
       "name": "Strengthen",
-      "description": "Gain x1.2 damage for 2 turns.",
+      "description": "Gain x1.2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage.",
       "type": "SPECIAL",
       "effect": "STRENGTH",
       "cost": 1,
@@ -160,7 +160,7 @@
     },
     {
       "name": "Taunt",
-      "description": "Taunt the enemy: they're much more likely to attack for their next 2 turns.",
+      "description": "Goad the enemy. For their next 2 turns they are far more likely to attack than to defend or cast.",
       "type": "SPECIAL",
       "effect": "TAUNT",
       "cost": 1,
@@ -177,7 +177,7 @@
     },
     {
       "name": "Fortify",
-      "description": "Gain 9 armor that persists for 3 turns (until broken).",
+      "description": "Gain 9 armor. It does not fade at the end of your turn: it lasts 3 turns or until an attack breaks it.",
       "type": "DEFEND",
       "effect": "FORTIFY",
       "cost": 2,
@@ -218,7 +218,7 @@
     },
     {
       "name": "Onslaught",
-      "description": "Deal 10 damage twice (20 total).",
+      "description": "Strike twice for 10 damage each, 20 total. Both hits are reduced by defense separately.",
       "type": "ATTACK",
       "effect": "DOUBLE_HIT",
       "cost": 3,
@@ -226,7 +226,7 @@
     },
     {
       "name": "Retaliate",
-      "description": "Gain 7 armor. 50% chance to Weaken the enemy.",
+      "description": "Gain 7 armor. 50% chance to Weaken the enemy for 2 turns.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "cost": 1,
@@ -234,7 +234,7 @@
     },
     {
       "name": "Status Guard",
-      "description": "Gain 10 armor. Blocks the next ailment (Poison/Burn/Weak/Stun) the enemy inflicts on you.",
+      "description": "Gain 10 armor and ward yourself. The next ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked outright.",
       "type": "DEFEND",
       "effect": "WARD",
       "cost": 2,
@@ -242,7 +242,7 @@
     },
     {
       "name": "Toxic Cloud",
-      "description": "Apply 8 Poison (8 dmg/turn for 3 turns).",
+      "description": "Apply 8 Poison. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
@@ -250,7 +250,7 @@
     },
     {
       "name": "Inferno",
-      "description": "Apply 8 Burn (8 dmg/turn for 3 turns).",
+      "description": "Apply 8 Burn. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
@@ -258,7 +258,7 @@
     },
     {
       "name": "Shatter",
-      "description": "Apply Weak for 3 turns (deals 1.75x less damage).",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 1.75x less damage.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 2,
@@ -266,7 +266,7 @@
     },
     {
       "name": "Stun Strike",
-      "description": "Stun enemy for 1 turn.",
+      "description": "Stun the enemy so they lose their next turn. Bosses often resist it.",
       "type": "SPECIAL",
       "effect": "STUN",
       "superRare": true,
@@ -292,7 +292,7 @@
     },
     {
       "name": "Dodge Reversal",
-      "description": "Counter: reverses the enemy's next attack or ailment back at them, doubled, +6. Fizzles if they do neither.",
+      "description": "Sidestep the enemy's next attack and reverse it back at them for double damage plus 6. Fizzles if they neither attack nor inflict an ailment.",
       "type": "SPECIAL",
       "effect": "COUNTER",
       "legendary": true,
@@ -301,7 +301,7 @@
     },
     {
       "name": "Iron Skin",
-      "description": "Gain 24 armor. 50% chance to Weaken the enemy.",
+      "description": "Gain 24 armor. 50% chance to Weaken the enemy for 2 turns.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "superRare": true,
@@ -310,7 +310,7 @@
     },
     {
       "name": "Bastion",
-      "description": "Gain 14 armor that persists for 3 turns (until broken).",
+      "description": "Gain 14 armor. It does not fade at the end of your turn: it lasts 3 turns or until an attack breaks it.",
       "type": "DEFEND",
       "effect": "FORTIFY",
       "superRare": true,
@@ -329,7 +329,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage. Gain x3 damage for 2 turns.",
+      "description": "Deal 13 damage, then gain x3 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -348,7 +348,7 @@
     },
     {
       "name": "Virulent Plague",
-      "description": "Apply 14 Poison (14 dmg/turn for 3 turns).",
+      "description": "Apply 14 Poison. Deals 14 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "POISON",
       "superRare": true,
@@ -357,7 +357,7 @@
     },
     {
       "name": "Hellfire",
-      "description": "Apply 12 Burn (12 dmg/turn for 3 turns).",
+      "description": "Apply 12 Burn. Deals 12 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
       "type": "SPECIAL",
       "effect": "BURN",
       "superRare": true,
@@ -366,7 +366,7 @@
     },
     {
       "name": "Sunder",
-      "description": "Apply Weak for 3 turns (deals 2x less damage).",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 2x less damage.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "superRare": true,
