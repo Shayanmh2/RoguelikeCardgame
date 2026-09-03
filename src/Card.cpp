@@ -123,6 +123,9 @@ void Card::upgrade() {
             description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total).";
         else if (effect == CardEffect::PIERCE)
             description = "Deal " + std::to_string(value) + " damage: ignoring enemy defense.";
+        else if (effect == CardEffect::TRUESTRIKE)
+            description = "Deal " + std::to_string(value) + " damage that nothing reduces. Ignores armor, "
+                          "defense, resistance, and any stance or phase the enemy is hiding behind.";
         else if (effect == CardEffect::STRENGTH) {
             double buff = superRare ? 3.0 : rare ? 2.0 : 1.2;
             std::ostringstream buffStr;
@@ -139,7 +142,8 @@ void Card::upgrade() {
         else if (effect == CardEffect::CHIP)
             description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
         else if (effect == CardEffect::WARD)
-            description = "Gain " + std::to_string(value) + " armor. Blocks the next ailment (Poison/Burn/Weak/Stun) the enemy inflicts on you.";
+            description = "Gain " + std::to_string(value) + " armor and ward yourself for 2 turns. "
+                          "Every ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked while it holds.";
         else
             description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {
@@ -152,8 +156,12 @@ void Card::upgrade() {
             description = "Apply " + std::to_string(value) + " Poison (" + std::to_string(value) + " dmg/turn for 3 turns).";
         else if (effect == CardEffect::BURN)
             description = "Apply " + std::to_string(value) + " Burn (" + std::to_string(value) + " dmg/turn for 3 turns).";
-        else if (effect == CardEffect::WEAK)
-            description = "Apply Weak for " + std::to_string(value) + " turns (deals 1.5x less damage).";
+        else if (effect == CardEffect::WEAK) {
+            // Duration is always 3; the multiplier is set by rarity, not by value.
+            const char* m = superRare ? "2" : rare ? "1.75" : "1.5";
+            description = std::string("Weaken the enemy for 3 turns: their attacks land for ")
+                        + m + "x less damage.";
+        }
         else if (effect == CardEffect::HEAL)
             description = "Heal " + std::to_string(value) + " HP.";
         else if (effect == CardEffect::STRENGTH) {

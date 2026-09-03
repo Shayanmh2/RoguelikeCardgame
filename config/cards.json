@@ -24,7 +24,7 @@
     },
     {
       "name": "Poison Dart",
-      "description": "Apply 3 Poison. Deals 3 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 3 Poison. Deals 3 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 1,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Torch",
-      "description": "Apply 5 Burn. Deals 5 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 5 Burn. Deals 5 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 1,
@@ -40,7 +40,7 @@
     },
     {
       "name": "Weaken",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 1.5x less damage.",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 1.5x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 1,
@@ -152,7 +152,7 @@
     },
     {
       "name": "Strengthen",
-      "description": "Gain x1.2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage.",
+      "description": "Gain x1.2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
       "type": "SPECIAL",
       "effect": "STRENGTH",
       "cost": 1,
@@ -160,7 +160,7 @@
     },
     {
       "name": "Taunt",
-      "description": "Goad the enemy. For their next 2 turns they are far more likely to attack than to defend or cast.",
+      "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast.",
       "type": "SPECIAL",
       "effect": "TAUNT",
       "cost": 1,
@@ -234,7 +234,7 @@
     },
     {
       "name": "Status Guard",
-      "description": "Gain 10 armor and ward yourself. The next ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked outright.",
+      "description": "Gain 10 armor and ward yourself for 2 turns. Every ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked while it holds.",
       "type": "DEFEND",
       "effect": "WARD",
       "cost": 2,
@@ -242,7 +242,7 @@
     },
     {
       "name": "Toxic Cloud",
-      "description": "Apply 8 Poison. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 8 Poison. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
@@ -250,7 +250,7 @@
     },
     {
       "name": "Inferno",
-      "description": "Apply 8 Burn. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 8 Burn. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
@@ -258,7 +258,7 @@
     },
     {
       "name": "Shatter",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 1.75x less damage.",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 1.75x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 2,
@@ -266,7 +266,7 @@
     },
     {
       "name": "Stun Strike",
-      "description": "Stun the enemy so they lose their next turn. Bosses often resist it.",
+      "description": "Stun the enemy so they lose their next turn. Never stacks - a second Stun while one is active does nothing. Bosses often resist it.",
       "type": "SPECIAL",
       "effect": "STUN",
       "superRare": true,
@@ -292,7 +292,7 @@
     },
     {
       "name": "Dodge Reversal",
-      "description": "Sidestep the enemy's next attack and reverse it back at them for double damage plus 6. Fizzles if they neither attack nor inflict an ailment.",
+      "description": "Sidestep whatever the enemy does to you next and turn it back on them. An attack returns for double damage plus 6. An ailment (Poison, Burn, Weak or Stun) is applied to them instead, doubled. Fizzles only if they do neither.",
       "type": "SPECIAL",
       "effect": "COUNTER",
       "legendary": true,
@@ -329,7 +329,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage, then gain x3 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage.",
+      "description": "Deal 13 damage, then gain x3 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power: a second cast adds turns and keeps the stronger multiplier.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -348,7 +348,7 @@
     },
     {
       "name": "Virulent Plague",
-      "description": "Apply 14 Poison. Deals 14 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 14 Poison. Deals 14 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "POISON",
       "superRare": true,
@@ -357,7 +357,7 @@
     },
     {
       "name": "Hellfire",
-      "description": "Apply 12 Burn. Deals 12 damage at the start of each of the enemy's turns for 3 turns, ignoring armor.",
+      "description": "Apply 12 Burn. Deals 12 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
       "type": "SPECIAL",
       "effect": "BURN",
       "superRare": true,
@@ -366,7 +366,7 @@
     },
     {
       "name": "Sunder",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 2x less damage.",
+      "description": "Weaken the enemy for 3 turns: their attacks land for 2x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "superRare": true,
@@ -380,6 +380,15 @@
       "effect": "HEAL",
       "superRare": true,
       "cost": 3,
+      "value": 40
+    },
+    {
+      "name": "Reckoning",
+      "description": "Deal 40 damage that nothing reduces. Ignores armor, defense, resistance, and any stance or phase the enemy is hiding behind.",
+      "type": "ATTACK",
+      "effect": "TRUESTRIKE",
+      "legendary": true,
+      "cost": 4,
       "value": 40
     }
   ]

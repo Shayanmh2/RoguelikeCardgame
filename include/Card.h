@@ -26,7 +26,8 @@ enum class CardEffect {
     CHIP,       // DEFEND: also deals a small flat amount of direct damage
     HEAL,       // SPECIAL: restores the card's value in HP
     WARD,       // DEFEND: also blocks the next incoming ailment (Poison/Burn/Weak/Stun)
-    TAUNT       // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
+    TAUNT,      // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
+    TRUESTRIKE  // ATTACK: lands in full - no defense, resistance, parry or phase applies
 };
 
 class Card {
