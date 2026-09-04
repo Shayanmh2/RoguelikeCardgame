@@ -133,13 +133,17 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    // Boss rewards are always Rare-or-better: 70% Rare / 25% Super Rare / 5% Legendary.
-    // This is the ONLY place Legendary (Dodge Reversal) can drop - regular rewards never roll it.
-    std::vector<Card> rarePool, superRarePool, legendaryPool;
+    // Boss rewards are Rare-or-better: 70% Rare / 30% Super Rare.
+    //
+    // Legendaries are deliberately absent. They used to hold a 5% slot here,
+    // which was fine while there was one of them; with three, a boss kill
+    // handed them out often enough that they stopped reading as special.
+    // They now come from the ??? encounter and from finishing a run.
+    std::vector<Card> rarePool, superRarePool;
     for (const auto& c : rareCards) {
-        if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
-        if (c.isLegendary()) legendaryPool.push_back(c);
-        else if (c.isSuperRare()) superRarePool.push_back(c);
+        if (c.isLegendary() || c.getCost() > maxCost
+            || owned.find(c.getName()) != owned.end()) continue;
+        if (c.isSuperRare()) superRarePool.push_back(c);
         else rarePool.push_back(c);
     }
 
@@ -147,15 +151,11 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     for (int i = 0; i < count; ++i) {
         int roll = rollDis(gen);
-        std::vector<Card>* pool;
-        if (roll <= 5) pool = &legendaryPool;
-        else if (roll <= 30) pool = &superRarePool;
-        else pool = &rarePool;
+        std::vector<Card>* pool = (roll <= 30) ? &superRarePool : &rarePool;
 
         if (pool->empty()) {
             if (!rarePool.empty()) pool = &rarePool;
             else if (!superRarePool.empty()) pool = &superRarePool;
-            else if (!legendaryPool.empty()) pool = &legendaryPool;
             else break;
         }
         std::uniform_int_distribution<> idxDis(0, (int)pool->size() - 1);

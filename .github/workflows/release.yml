@@ -76,6 +76,46 @@ jobs:
           test -f "$staging/assets/DejaVuSansMono-LICENSE.txt"
           if [ "${{ matrix.name }}" = "windows" ]; then
             7z a -tzip "$staging.zip" "$staging"
+          elif [ "${{ matrix.name }}" = "macos" ]; then
+            # Wrap it in a real .app. Assets sit beside the binary in
+            # Contents/MacOS because the game resolves them from the executable's
+            # own directory - putting them in Resources/ would need a code change.
+            app="$staging/Roguelike Cardgame.app"
+            mkdir -p "$app/Contents/MacOS"
+            mv "$staging/cardgame_sdl2" "$app/Contents/MacOS/"
+            mv "$staging/assets" "$staging/config" "$staging/sounds" "$app/Contents/MacOS/"
+            chmod +x "$app/Contents/MacOS/cardgame_sdl2"
+
+            # Written with grouped echoes rather than a heredoc: a heredoc
+            # terminator has to sit at column 0, which would close the YAML
+            # block scalar this whole script lives in and break the workflow.
+            {
+              echo '<?xml version="1.0" encoding="UTF-8"?>'
+              echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+              echo '<plist version="1.0">'
+              echo '<dict>'
+              echo '  <key>CFBundleName</key><string>Roguelike Cardgame</string>'
+              echo '  <key>CFBundleDisplayName</key><string>Roguelike Cardgame</string>'
+              echo '  <key>CFBundleExecutable</key><string>cardgame_sdl2</string>'
+              echo '  <key>CFBundleIdentifier</key><string>io.github.shayanmh2.roguelikecardgame</string>'
+              echo '  <key>CFBundlePackageType</key><string>APPL</string>'
+              echo '  <key>CFBundleShortVersionString</key><string>0.9.3</string>'
+              echo '  <key>CFBundleVersion</key><string>0.9.3</string>'
+              echo '  <key>LSMinimumSystemVersion</key><string>10.13</string>'
+              echo '  <key>NSHighResolutionCapable</key><true/>'
+              echo '</dict>'
+              echo '</plist>'
+            } > "$app/Contents/Info.plist"
+
+            # Ad-hoc signature. This does not satisfy notarisation, but an
+            # arm64 binary with no signature at all is killed outright by the
+            # kernel, and re-signing after we rearranged the bundle keeps it
+            # from being reported as damaged.
+            codesign --force --deep --sign - "$app" || echo "codesign failed (non-fatal)"
+
+            cp res/MACOS-README.txt "$staging/" 2>/dev/null || true
+            # tar, not zip: it preserves the executable bit and the bundle layout.
+            tar czf "$staging.tar.gz" "$staging"
           else
             chmod +x "$staging/cardgame_sdl2"
             tar czf "$staging.tar.gz" "$staging"

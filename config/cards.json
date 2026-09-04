@@ -151,14 +151,6 @@
       "value": 15
     },
     {
-      "name": "Strengthen",
-      "description": "Gain x1.2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
-      "type": "SPECIAL",
-      "effect": "STRENGTH",
-      "cost": 1,
-      "value": 1
-    },
-    {
       "name": "Taunt",
       "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast.",
       "type": "SPECIAL",
@@ -168,6 +160,14 @@
     }
   ],
   "rareCards": [
+    {
+      "name": "Strengthen",
+      "description": "Gain x2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
+      "type": "SPECIAL",
+      "effect": "STRENGTH",
+      "cost": 1,
+      "value": 1
+    },
     {
       "name": "Power Strike",
       "description": "Deal 19 damage.",
@@ -333,6 +333,7 @@
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
+      "legendary": true,
       "cost": 4,
       "value": 13
     },

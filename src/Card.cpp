@@ -57,7 +57,9 @@ bool Card::isLegendary() const {
 }
 
 static const std::vector<std::string>& starterCardNames() {
-    static const std::vector<std::string> names = {"Quick Jab", "Jab", "Bash", "Lunge", "Defend", "Brace", "Parry"};
+    // Name-keyed, so a rename here is not cosmetic: isStarter() drives the
+    // upgrade cap and the white name tint.
+    static const std::vector<std::string> names = {"Quick Jab", "Slash", "Bash", "Lunge", "Defend", "Brace", "Parry"};
     return names;
 }
 

@@ -246,7 +246,7 @@ static EquipTier armorTierAt(int tier) {
 void Game::init() {
     // One of each starter card; duplicates only ever come from later card rewards.
     playerDeck.addCard(Card("Quick Jab", "Deal 3 damage.", CardType::ATTACK, 0, 3));
-    playerDeck.addCard(Card("Jab", "Deal 4 damage.", CardType::ATTACK, 1, 4));
+    playerDeck.addCard(Card("Slash", "Deal 4 damage.", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage. Counts as a Smash attack, so it hits harder against enemies weak to Smash and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::SMASH));
     playerDeck.addCard(Card("Lunge", "Deal 6 damage. Counts as a Pierce attack, so it hits harder against enemies weak to Pierce and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::PIERCE));
     playerDeck.addCard(Card("Defend", "Gain 8 armor.", CardType::DEFEND, 1, 8));
@@ -1960,6 +1960,7 @@ void Game::handleInput() {
     // The text rows above still carry the full card detail; the widgets below
     // are what you actually pick from.
     // Hovering a card shows what it would take off the enemy.
+    CardBar::setEnergy(playerEnergy, maxEnergy);
     CardBar::setHoverCallback([this](int i) {
         Hud::setPreview((i >= 0 && i < playerDeck.handSize())
                         ? previewDamage(playerDeck.getCardFromHand(i)) : 0);
@@ -2562,9 +2563,9 @@ void Game::offerExtraPlay() {
     }
 
     std::vector<CardBar::Action> energyActs{
-        CardBar::Action{ "Extra Energy    +1 max energy per turn ("
+        CardBar::Action{ "Extra Energy", "+1 max energy per turn ("
                          + std::to_string(maxEnergy) + " to " + std::to_string(maxEnergy + 1) + ")", false },
-        CardBar::Action{ "Skip", false },
+        CardBar::Action{ "Skip", "leave it", false },
     };
     int choice = CardBar::pick("A hard-won boss kill leaves you invigorated.", {}, energyActs, 0);
 
@@ -2687,7 +2688,8 @@ static const int SECRET_EARLIEST       = 6;
 
 bool Game::rollSecretEncounter() {
     if (secretUsedThisRun || inSecretEncounter) return false;
-    if (currentRun.getCycle() != 0) return false;
+    // Any cycle: secretUsedThisRun is cleared when a new wave starts, so
+    // each pass through the fifty gets its own chance at it.
     if (currentRun.isBossEncounter()) return false;
     if (currentRun.getCurrentEncounter() < SECRET_EARLIEST) return false;
     static thread_local std::mt19937 gen(std::random_device{}());
@@ -2767,7 +2769,22 @@ void Game::handleSecretWin() {
     UIHelper::waitForKey("");
     UIHelper::showHeadline("", 0, 0, 0);
 
-    std::vector<Card> prize = rewardPool.generateSuperRareReward(playerDeck.getAllCardNames());
+    // One in four that the thing was carrying something legendary. This and
+    // finishing a run are the only ways to get one now.
+    std::vector<Card> prize;
+    {
+        static thread_local std::mt19937 lg(std::random_device{}());
+        std::uniform_int_distribution<> d(1, 100);
+        if (d(lg) <= 25) {
+            std::vector<Card> legs = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
+            if (!legs.empty()) {
+                std::uniform_int_distribution<> pick(0, (int)legs.size() - 1);
+                prize.push_back(legs[pick(lg)]);
+            }
+        }
+    }
+    if (prize.empty())
+        prize = rewardPool.generateSuperRareReward(playerDeck.getAllCardNames());
     if (!prize.empty()) {
         std::vector<CardBar::Card> w{ toWidget(prize[0], prize[0].getValue()) };
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Take it", false } };
@@ -2983,11 +3000,11 @@ void Game::restSite() {
     // forge screens it sits between. The descriptions ride on the labels since
     // there are no cards here to carry them.
     std::vector<CardBar::Action> siteActs{
-        CardBar::Action{ "Rest        heal to full  (" + std::to_string(playerHealth)
+        CardBar::Action{ "Rest", "heal to full  (" + std::to_string(playerHealth)
                          + "/" + std::to_string(maxPlayerHealth) + " HP)", false },
-        CardBar::Action{ "Forge       upgrade a card  (+3 value, -1 cost)", false },
-        CardBar::Action{ "View Deck   browse and discard", false },
-        CardBar::Action{ "Skip        press on without resting", false },
+        CardBar::Action{ "Forge",     "upgrade a card  (+3 value, -1 cost)", false },
+        CardBar::Action{ "View Deck", "browse and discard", false },
+        CardBar::Action{ "Skip",      "press on without resting", false },
     };
     int siteChoice = CardBar::pick("Rest site", {}, siteActs, 0);
     if (siteChoice < 0) siteChoice = 3;   // ESC leaves without resting
@@ -3293,8 +3310,10 @@ void Game::handleEncounterWin() {
         }
         UIHelper::showHeadline("", 0, 0, 0);
 
-        // First Shadow Knight kill ends the game
-        if (enemy.getBossType() == BossType::SHADOW_KNIGHT && currentRun.getCycle() == 0) {
+        // Every Shadow Knight kill, not only the first: each one closes a wave,
+        // hands out a legendary and asks whether to go round again. The ending
+        // story inside is what stays first-time-only.
+        if (enemy.getBossType() == BossType::SHADOW_KNIGHT) {
             UIHelper::showHeadline("", 0, 0, 0);
             handleGameVictory();
             return;
@@ -3336,11 +3355,17 @@ void Game::handleEncounterWin() {
 }
 
 void Game::handleGameVictory() {
+    // The ending is written for the first time through. Later waves get the
+    // legendary and the choice to continue, without replaying the story.
+    // Two waves, then the run is over. Only the first ending offers to go on.
+    const bool firstTime = currentRun.getCycle() == 0;
     UIHelper::waitForKey();
     UIHelper::clearScreen();
     UIHelper::padToCenter(2);
     UIHelper::printCenteredWrapped(std::string(Color::BOLD) + Color::MAGENTA
-        + "The Shadow Knight staggers... and your dark reflection scatters like smoke."
+        + (firstTime
+           ? "The Shadow Knight staggers... and your dark reflection scatters like smoke."
+           : "The shadow falls again. It is wearing a older face this time.")
         + Color::RESET, 68, true);
     UIHelper::pause(1100);
 
@@ -3349,10 +3374,13 @@ void Game::handleGameVictory() {
     UIHelper::clearScreen();
     UIHelper::showHeadline("VICTORY ETERNAL", 240, 200, 60);
     for (int i = 0, pad = Console::rows() * 44 / 100; i < pad; i++) std::cout << "\n";
-    UIHelper::printCenteredWrapped(
-        "All 50 encounters conquered. Every boss lies broken, even the shadow "
-        "that wore your own face and fought with your own cards. The realm is "
-        "free. Your legend is complete.", 64);
+    UIHelper::printCenteredWrapped(firstTime
+        ? "All 50 encounters conquered. Every boss lies broken, even the shadow "
+          "that wore your own face and fought with your own cards. The realm is "
+          "free. Your legend is complete."
+        : "One hundred encounters. You went back down into it knowing exactly "
+          "what was waiting, and it still was not enough to stop you. There is "
+          "nothing left down there that has not already lost to you.", 64);
     std::cout << "\n";
     UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
     UIHelper::waitForKey("");
@@ -3360,7 +3388,11 @@ void Game::handleGameVictory() {
 
     std::vector<Card> legendaries = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
     if (!legendaries.empty()) {
-        const Card& leg = legendaries.front();
+        // Random rather than front(): with three legendaries, always handing
+        // out the first in pool order meant the same card every run.
+        static thread_local std::mt19937 lg2(std::random_device{}());
+        std::uniform_int_distribution<> lpick(0, (int)legendaries.size() - 1);
+        const Card& leg = legendaries[lpick(lg2)];
         playerDeck.addCard(leg);
         runStats.addCardToRun();
         Audio::playSFX("upgrade");
@@ -3385,9 +3417,32 @@ void Game::handleGameVictory() {
         offerBossReward();
     }
 
-    deleteSave();
+    // The realm is saved; the run does not have to stop. Everything needed for
+    // a second pass already exists - Run::getCycle() drives the "Greater"
+    // prefix on every enemy, the boss schedule repeats on the same positions,
+    // and enemy scaling is a pure function of the encounter number, so 51-100
+    // is the same fifty fights at continued scaling with the deck intact.
     inEncounter = false;
     Hud::setActive(false);   // the panel belongs to the fight
+
+    // Offered after the first wave only. Clearing the second is the end of
+    // the run - there is no third.
+    bool onward = false;
+    if (firstTime) {
+        std::vector<CardBar::Action> onwardActs{
+            CardBar::Action{ "Continue", "encounters 51-100, everything scales on, deck intact", false },
+            CardBar::Action{ "End the run", "stop here with the victory", false },
+        };
+        onward = CardBar::pick("Continue to a higher difficulty?", {}, onwardActs, 0) == 0;
+    }
+    if (onward) {
+        currentRun.nextEncounter();
+        secretUsedThisRun = false;   // the ??? encounter gets another chance
+        notice("The road does not end. Something older is stirring past the peak.");
+        startEncounter();
+        return;
+    }
+    deleteSave();
     currentRun.loseRun(); // main loop routes to finishRun()
 }
 
@@ -3400,9 +3455,9 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
     // was easy to finish a run without realising you could keep it. All three
     // outcomes are on the screen now.
     std::vector<CardBar::Action> contActs{
-        CardBar::Action{ "Continue        enter the next encounter", false },
-        CardBar::Action{ "Save and quit   keep this run, resume it from the main menu", false },
-        CardBar::Action{ "End run         finish here without saving", false },
+        CardBar::Action{ "Continue",      "enter the next encounter", false },
+        CardBar::Action{ "Save and quit", "keep this run, resume it from the main menu", false },
+        CardBar::Action{ "End run",       "finish here without saving", false },
     };
     int choice = CardBar::pick(title, {}, contActs, 0);
     if (choice < 0) choice = 0;

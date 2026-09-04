@@ -31,7 +31,17 @@ struct Card {
 // one keyboard path to maintain.
 struct Action {
     std::string label;
+    // Optional second column: what the choice does. Kept separate rather
+    // than padded into the label so it can be dimmed and aligned.
+    std::string desc;
     bool        disabled = false;
+
+    // Two constructors so the dozen existing { "Skip", false } call sites stay
+    // valid alongside the new { "Rest", "heal to full", false } form.
+    Action(std::string l, bool d = false)
+        : label(std::move(l)), disabled(d) {}
+    Action(std::string l, std::string ds, bool d = false)
+        : label(std::move(l)), desc(std::move(ds)), disabled(d) {}
 };
 
 // Returns the chosen index: cards first, then actions. -1 is a cancel.
@@ -39,6 +49,14 @@ struct Action {
 // Called with the hand index under the cursor whenever it changes, and -1
 // when the highlight is on an action instead. Set before select().
 void setHoverCallback(const std::function<void(int)>& fn);
+
+// Energy left this turn, drawn as pips beside the hand. The panel readout
+// is in the opposite corner from where anyone is looking while choosing.
+void setEnergy(int current, int max);
+
+// Energy left this turn, drawn as pips beside the hand. The panel readout
+// is in the opposite corner from where anyone is looking while choosing.
+void setEnergy(int current, int max);
 
 int select(const std::vector<Card>& cards,
            const std::vector<Action>& actions,

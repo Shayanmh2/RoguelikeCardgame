@@ -318,6 +318,14 @@ int  gEnemyNudge = 0;   // lunge toward the player
 int  gSlashFrame = -1;  // sword-trail overlay on the player, -1 = none
 int  gCastFrame = -1;   // cast-orb overlay on the player
 bool gGhost = false;
+// Second-wave enemies, tinted gilded-amber. Colour-mod can only pull
+// channels down, so this is blue drained hard and green a little: red
+// stays full and the sprite reads as gold-touched.
+//
+// Violet and crimson were both tried first and flattened distinct enemies
+// toward one hue - the goblin lost its green entirely and stopped looking
+// like a goblin. Amber keeps every sprite recognisable.
+bool gGreater = false;
 bool gPortraitOnly = false;
 Sheet* gBgSheet = nullptr;
 
@@ -594,7 +602,9 @@ void drawScene() {
         int pframe2 = gEnemyFrame;
         if (es.animated && (pframe2 == F_IDLE_A || pframe2 == F_IDLE_B))
             pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
-        blit(es.sheet, pframe2, dst, gEnemyTint);
+        Tint pt2 = gEnemyTint;
+        if (gGreater) { pt2.mulG *= 0.80f; pt2.mulB *= 0.55f; }
+        blit(es.sheet, pframe2, dst, pt2);
         return;
     }
 
@@ -616,6 +626,7 @@ void drawScene() {
 
     Tint et = gEnemyTint;
     if (et.identity()) pickAura(gAuraEnemy, et);
+    if (gGreater) { et.mulG *= 0.80f; et.mulB *= 0.55f; }
     SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 + spread - gEnemyNudge, floorY, sprW, sprH };
     // While idle, breathe between the two idle frames instead of standing on a
     // single one - the terminal build only flipped these on a menu idle tick.
@@ -934,6 +945,10 @@ void setEnemyVariant(const std::string& enemyName) {
     ensureInstalled();
     gNamedVariant = nullptr;
     gCompanion = nullptr;   // a new fight never inherits the last one's add
+    // Run.cpp prefixes second-wave enemies with "Greater" and bosses with
+    // "Ancient", so the name is enough to know which pass this is.
+    gGreater = enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0
+            || enemyName.rfind("Eternal ", 0) == 0;
     static ArtSet cache[NAMED_COUNT];
     static bool tried[NAMED_COUNT] = { false };
     for (int i = 0; i < NAMED_COUNT; i++) {

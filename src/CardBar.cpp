@@ -10,6 +10,14 @@
 namespace CardBar {
 namespace {
 
+// Energy left this turn. Declared up here because both the layout (which
+// reserves a column for the pips) and the card painter (which reddens a badge
+// you cannot pay for) are defined above the drawing code that sets it.
+int gEnergy = 0, gEnergyMax = 0;
+// True while the full-screen picker owns the display. drawCards is shared
+// with it, and needs to know not to apply hand-only styling there.
+bool gGridActive = false;
+
 // Layout is derived from the console cell so the hand scales with the font -
 // the same way everything else in this build does.
 // Rows withheld for the hand. Derived rather than fixed: a fullscreen window
@@ -24,6 +32,7 @@ int handRowsFor(int totalRows) {
 }
 
 struct Layout {
+    int energyW = 0;   // reserved gutter on the left for the pips
     SDL_Rect band{ 0,0,0,0 };
     int cw = 0, ch = 0, gap = 0;
     int x0 = 0, y0 = 0;
@@ -51,7 +60,10 @@ Layout compute(int nCards, int nActions) {
     L.band = Console::handRegion();
     L.ch = std::max(1, Platform::cellH());
     const int actionW = nActions ? 15 * std::max(1, Platform::cellW()) : 0;
-    const int usable  = L.band.w - actionW - 24;
+    // A reserved column for the energy pips. Taken out of the usable width
+    // like the action buttons are, so a full hand cannot overlap it.
+    L.energyW = gEnergyMax > 0 ? 7 * std::max(1, Platform::cellW()) : 0;
+    const int usable  = L.band.w - actionW - L.energyW - 24;
 
     // Width follows the band height at a card-like aspect. The old fixed 140px
     // cap is why the hand looked lost on a fullscreen display.
@@ -61,7 +73,7 @@ Layout compute(int nCards, int nActions) {
     L.cw = std::max(58, std::min(L.cw, fitByWidth));
     L.gap = std::max(6, L.cw / 9);
     int total = nCards * L.cw + std::max(0, nCards - 1) * L.gap;
-    L.x0 = L.band.x + std::max(12, (usable - total) / 2);
+    L.x0 = L.band.x + L.energyW + std::max(12, (usable - total) / 2);
     L.y0 = L.band.y + 8;
     L.plusR = std::max(9, L.cw / 10);
     return L;
@@ -162,10 +174,19 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         const std::string num = std::to_string(c.cost);
         int bw = (longForm ? (5 + (int)num.size()) : (int)num.size()) * cellW + 12;
         SDL_Rect badge{ q.x + 7, q.y + q.h - bh - 8, std::min(room, bw), bh };
-        fillR(r, badge, badgeBg); frameR(r, badge, badgeLn);
+        // A card you cannot pay for says so on the badge. Greying the whole
+        // card told you it was unavailable but not why.
+        // Only in the hand. drawCards is shared with the full-screen picker,
+        // where energy means nothing - a reward you are choosing to OWN is not
+        // unaffordable, and the leftover figure from the last turn made cards
+        // look barred on the reward, forge and deck screens.
+        const bool tooDear = !gGridActive && gEnergyMax > 0 && c.cost > gEnergy;
+        fillR(r, badge, tooDear ? SDL_Color{ 58, 26, 26, 255 } : badgeBg);
+        frameR(r, badge, tooDear ? SDL_Color{ 176, 68, 60, 255 } : badgeLn);
         int tx = badge.x + 6;
         if (longForm) { Console::drawTextPx(r, tx, badge.y + 2, "cost:", dim, false); tx += 5*cellW; }
-        Console::drawTextPx(r, tx, badge.y + 2, num, energy, true);
+        Console::drawTextPx(r, tx, badge.y + 2, num,
+                            tooDear ? SDL_Color{ 238, 116, 106, 255 } : energy, true);
 
         if (i < plus.size()) {
             SDL_Rect pr = plus[i];
@@ -181,6 +202,14 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
 void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexOffset) {
     const SDL_Color btnBg = tone(34), btnLn = tone(84);
     const SDL_Color lime{ 166,226,46,255 }, ink{ 228,228,238,255 }, dim{ 150,150,168,255 };
+    // The longest name sets the description column, so descriptions line
+    // up down the list however long each name is.
+    int nameCells = 0;
+    bool anyDesc = false;
+    for (const Action& a : gActions) {
+        nameCells = std::max(nameCells, (int)a.label.size());
+        if (!a.desc.empty()) anyDesc = true;
+    }
     for (size_t i = 0; i < rects.size() && i < gActions.size(); i++) {
         const Action& a = gActions[i];
         const bool sel = gPicking && ((int)(indexOffset + i) == gCurrent);
@@ -188,9 +217,57 @@ void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexO
         if (sel) DrawUtil::glowRound(r, q, rad(), lime, 7, 70);
         fillR(r, q, sel ? tone(46) : btnBg, a.disabled ? 140 : 255);
         frameR(r, q, sel ? lime : btnLn);
-        Console::drawTextPx(r, q.x + 10, q.y + (q.h - Platform::cellH())/2,
-                            a.label, a.disabled ? dim : (sel ? lime : ink), sel);
+        const int cellW = std::max(1, Platform::cellW());
+        const int ty = q.y + (q.h - Platform::cellH()) / 2;
+        const SDL_Color nameCol = a.disabled ? dim : (sel ? lime : ink);
+        if (anyDesc) {
+            // Name bold on the left, description dim in its own column.
+            const int pad = std::max(14, cellW * 2);
+            Console::drawTextPx(r, q.x + pad, ty, a.label, nameCol, true);
+            if (!a.desc.empty())
+                Console::drawTextPx(r, q.x + pad + (nameCells + 3) * cellW, ty,
+                                    a.desc, dim, false);
+        } else {
+            // No descriptions anywhere in this set (a plain Yes/No): centre it.
+            const int lw = (int)a.label.size() * cellW;
+            Console::drawTextPx(r, q.x + std::max(10, (q.w - lw) / 2), ty,
+                                a.label, nameCol, sel);
+        }
     }
+}
+
+// Energy as pips: a filled disc per point available, a hollow ring per point
+// spent, with the figure underneath. Reads at a glance without being parsed.
+void drawEnergy(const Layout& L) {
+    if (gEnergyMax <= 0 || L.energyW <= 0) return;
+    SDL_Renderer* r = Platform::renderer();
+    const SDL_Color lit{ 249, 241, 165, 255 };
+    const SDL_Color spent{ 92, 88, 70, 255 };
+
+    const int cx = L.band.x + L.energyW / 2 + 4;
+    // Sized off the band and the number of pips, so raising max energy
+    // shrinks them to fit rather than running out of the band.
+    const int room = L.band.h - Platform::cellH() - 14;
+    int rad = std::max(3, std::min(9, L.ch / 12));
+    while (gEnergyMax * (rad * 2 + 6) - 6 > room && rad > 3) rad--;
+    const int step = rad * 2 + 6;
+    const int totalH = gEnergyMax * step - 6;
+    int py = L.band.y + (L.band.h - totalH) / 2 - Platform::cellH() / 2;
+
+    for (int i = 0; i < gEnergyMax; i++) {
+        const bool have = i < gEnergy;
+        SDL_Rect dot{ cx - rad, py, rad * 2, rad * 2 };
+        if (have) {
+            DrawUtil::fillRound(r, dot, rad, lit);
+        } else {
+            DrawUtil::fillRound(r, dot, rad, SDL_Color{ 34, 31, 26, 255 });
+            DrawUtil::frameRound(r, dot, rad, spent);
+        }
+        py += step;
+    }
+    const std::string txt = std::to_string(gEnergy) + "/" + std::to_string(gEnergyMax);
+    Console::drawTextPx(r, cx - (int)txt.size() * Platform::cellW() / 2, py + 2,
+                        txt, gEnergy > 0 ? lit : spent, true);
 }
 
 void drawHand() {
@@ -199,6 +276,7 @@ void drawHand() {
     // them having to remember to hide the hand.
     if (!gActive || gCards.empty() || Console::handRows() <= 0) return;
     SDL_Renderer* r = Platform::renderer();
+    drawEnergy(gLayout);
     drawCards(r, gCards, gCardRects, gPlusRects, 10);
     drawActions(r, gActionRects, (int)gCards.size());
 }
@@ -212,6 +290,7 @@ std::function<void(int)> gOnHover;
 } // namespace
 
 void setHoverCallback(const std::function<void(int)>& fn) { gOnHover = fn; }
+void setEnergy(int current, int max) { gEnergy = current; gEnergyMax = max; }
 
 int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
            const std::function<void()>& onIdleTick, int idleTickMs) {
@@ -316,7 +395,6 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
 namespace {
 std::string gTitle;
 std::vector<SDL_Rect> gGridRects, gGridPlus, gGridActions;
-bool gGridActive = false;
 
 void layoutGrid(int columns) {
     gGridRects.clear(); gGridPlus.clear(); gGridActions.clear();
@@ -360,11 +438,21 @@ void layoutGrid(int columns) {
     }
 
     int ay = cardless ? y0 : y0 + gridH + ch;
-    int aw = 0;
-    for (const Action& a : gActions) aw = std::max(aw, (int)a.label.size());
-    aw = (aw + 4) * cw;
+    int nameCells = 0, descCells = 0;
+    for (const Action& a : gActions) {
+        nameCells = std::max(nameCells, (int)a.label.size());
+        descCells = std::max(descCells, (int)a.desc.size());
+    }
+    int aw = descCells > 0 ? nameCells + 3 + descCells : nameCells;
+    // Longer and taller than the label strictly needs. A "Yes"/"No" pair
+    // sized to its text is a tiny box in the middle of an empty screen;
+    // these are the most-clicked controls in the game.
+    aw = std::max((aw + 10) * cw, 26 * cw);
+    aw = std::min(aw, W - 80);
+    const int btnH = actionH + ch / 2;
     for (size_t i = 0; i < gActions.size(); i++)
-        gGridActions.push_back(SDL_Rect{ (W - aw) / 2, ay + (int)i * actionH, aw, actionH - 6 });
+        gGridActions.push_back(SDL_Rect{ (W - aw) / 2, ay + (int)i * (btnH + 4),
+                                         aw, btnH });
 }
 
 void drawGrid() {
@@ -470,7 +558,7 @@ void showDetail(const Card& c, const std::string& description,
 
     // Wrap the description to the panel, on word boundaries.
     const int panelW = std::max(320, std::min(560, Platform::screenW() / 3));
-    const int textCols = std::max(12, (panelW - 4 * cw) / cw);
+    const int textCols = std::max(12, (panelW - 6 * cw) / cw);
     std::vector<std::string> lines;
     {
         std::string cur;
@@ -487,7 +575,11 @@ void showDetail(const Card& c, const std::string& description,
         if (!cur.empty()) lines.push_back(cur);
     }
 
-    const int panelH = ch * (int)(lines.size() + 6) + 20;
+    // Description lines are drawn at 1.45x line height and the panel gets
+    // more padding: at a flat ch per line the text was set solid and read
+    // as a block rather than as sentences.
+    const int lineH = (ch * 29) / 20;
+    const int panelH = lineH * (int)lines.size() + ch * 7 + 28;
     SDL_Rect panel{ (Platform::screenW() - panelW) / 2,
                     std::max(20, (Platform::screenH() - panelH) / 2 - ch * 2),
                     panelW, panelH };
@@ -538,7 +630,7 @@ void showDetail(const Card& c, const std::string& description,
         y += 8;
         for (const std::string& ln : lines) {
             Console::drawTextPx(r, x, y, ln, SDL_Color{ 228,228,238,255 }, false);
-            y += ch;
+            y += lineH;
         }
 
         Console::drawTextPx(r, x, panel.y + panel.h - ch - 6,
