@@ -36,11 +36,16 @@ private:
     bool counterAttackActive;
     bool parryActive;
     int  counterBonusValue; // Dodge Reversal's current value - added as flat bonus riposte damage
+    bool counterWasLegendary = false; // armed by a legendary, so the payoff gets the legendary cue
     int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
-    bool statusWardActive = false; // Status Guard: blocks the next ailment the enemy inflicts on the player
+    int  statusWardTurns = 0;      // Status Guard: blocks every ailment the enemy inflicts while it lasts
     bool enemyStatusWardActive = false; // Shadow Knight mirroring Status Guard: blocks the next ailment the player inflicts on it
     int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
 
+    // The ??? encounter. Outside the run's numbering: it does not advance the
+    // counter, losing it cannot end the run, and it happens at most once.
+    bool secretUsedThisRun  = false;
+    bool inSecretEncounter  = false;
     bool bossSecondWindAvailable = false; // once per boss attempt: a lethal hit leaves you at 1 HP instead
 
     // Per-enemy signature mechanics, all reset in startEncounter().
@@ -72,6 +77,10 @@ private:
     DamageType lastPlayedPhysType2 = DamageType::NONE;
 
     int calculateDamage(int attackValue, int defenseValue) const;
+    // HP the enemy would lose to this card right now, for the hover preview.
+    // 0 for anything that would not land: non-attacks, a phased enemy, or
+    // while the Lich's skeleton is soaking hits.
+    int previewDamage(const Card& c) const;
     bool spendEnergy(int cost);
     void resetEnergy();
     void playCardFromHand(int index);
@@ -86,13 +95,16 @@ private:
     void enemyTurn();
     void endPlayerTurn();
     void resetArmor();
-    void displayTurnInfo() const;
     bool checkGameOver();
     void displayGameOver();
     bool handleGameOverInput();
     void finishRun(); // shared tail: record stats, ask Play again, reset or quit accordingly
     bool selectCardToCarryOver(Card& outCard); // on replay, before the deck resets - lets the player keep 1 card
     void startEncounter();
+    bool rollSecretEncounter();  // true if this fight is the ??? one
+    void beginSecretEncounter();
+    void handleSecretWin();
+    void handleSecretDefeat();
     void nextEncounter();
     void handleEncounterWin();
     void handleGameVictory(); // first Shadow Knight kill: legendary drop, victory screen, run ends
@@ -132,7 +144,9 @@ public:
     
     void init();
     void run();
-    void displayStatus() const;
+    void notice(const std::string& text);      // centred one line result screen
+    bool confirm(const std::string& prompt);   // centred yes/no
+    void syncHud();                  // push current combat state into the panel
     void handleInput();
     void displayActionLog() const;   // scrollable replay of this fight
 };
