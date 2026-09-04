@@ -39,12 +39,18 @@ public:
     void resetArmor();
 
     // Status effect interface
-    void applyStatus(StatusType type, int amount, double weakMultiplier = 1.5);
+    void applyStatus(StatusType type, int amount, double weakMultiplier = 1.5,
+                     double strengthMultiplier = 1.2);
     int  processPoison();
     int  processBurn();
     bool processStun();
     double getWeakMultiplier() const;
     void processWeak();
+    // Outgoing damage multiplier while the enemy is buffed. Nothing read
+    // this before Moon Scent: only the player could be Strengthened.
+    double getStrengthMultiplier() const;
+    bool   hasStrength() const;
+    void   processStrength();
     bool hasPoison() const;
     bool hasBurn() const;
     bool hasStun() const;

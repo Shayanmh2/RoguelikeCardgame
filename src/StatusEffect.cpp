@@ -31,6 +31,9 @@ void StatusEffects::apply(StatusType type, int amount, double weakMultiplier, do
             stun = 1; // always exactly 1 turn, never stacks
             break;
         case StatusType::WEAK:
+            // NOTE: `amount` is deliberately unused here - Weak always runs for
+            // WEAK_DURATION. Callers that passed a turn count in it (and card
+            // text that copied the number) have been wrong twice now.
             // Reapplying keeps whichever is stronger rather than stacking - a
             // fresh Weaken shouldn't water down an active Sunder, and vice versa.
             weakMult  = (weakTurns > 0) ? std::max(weakMult, weakMultiplier) : weakMultiplier;

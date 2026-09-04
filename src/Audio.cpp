@@ -105,6 +105,9 @@ static std::string resolveTrack(const std::string& base) {
     return "";
 }
 
+// Shared by both playBGM overloads: everything after "which file".
+static void startTrack(const std::string& path);
+
 void Audio::playBGM(int segment) {
     if (!audioReady) return;
     std::string soundsDir = exeDir() + "sounds/";
@@ -112,7 +115,17 @@ void Audio::playBGM(int segment) {
     std::string path;
     if (segment > 0) path = resolveTrack(soundsDir + "bgm" + std::to_string(segment + 1));
     if (path.empty()) path = resolveTrack(soundsDir + "bgm");
-    if (path.empty() || path == currentBgmPath) return; // no file, or already playing this track
+    startTrack(path);
+}
+
+// A named track, for the fights that are not on the zone schedule.
+void Audio::playBGM(const std::string& baseName) {
+    if (!audioReady) return;
+    startTrack(resolveTrack(exeDir() + "sounds/" + baseName));
+}
+
+static void startTrack(const std::string& path) {
+    if (path.empty() || path == currentBgmPath) return; // no file, or already playing
 
     Mix_HaltMusic();
     if (currentMusic) { Mix_FreeMusic(currentMusic); currentMusic = nullptr; }

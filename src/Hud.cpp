@@ -10,6 +10,7 @@ namespace Hud {
 namespace {
 
 State gState;
+int   gPreview = 0;   // hovered card's damage, drawn on the enemy bar
 bool  gActive = false;
 bool  gInstalled = false;
 
@@ -53,7 +54,8 @@ void panelLabel(SDL_Renderer* r, SDL_Rect panel, const std::string& text) {
                         SDL_Color{ 120,120,138,255 }, true);
 }
 
-void bar(SDL_Renderer* r, SDL_Rect q, float frac, float lag, SDL_Color col) {
+void bar(SDL_Renderer* r, SDL_Rect q, float frac, float lag, SDL_Color col,
+         float preview = 0.0f) {
     frac = std::max(0.0f, std::min(1.0f, frac));
     fill(r, q, tone(20));
     frame(r, q, tone(58));
@@ -62,6 +64,14 @@ void bar(SDL_Renderer* r, SDL_Rect q, float frac, float lag, SDL_Color col) {
         SDL_Rect g{ q.x + 2 + (int)(inner * frac), q.y + 2,
                     (int)(inner * (lag - frac)), q.h - 4 };
         fill(r, g, SDL_Color{ 235, 235, 245, 255 }, 200);
+    }
+    // The slice a hovered card would remove: drawn over the fill from where
+    // the bar would end, so you read the bite and the remainder at once.
+    if (preview > 0.0f) {
+        float from = std::max(0.0f, frac - preview);
+        SDL_Rect p{ q.x + 2 + (int)(inner * from), q.y + 2,
+                    std::max(1, (int)(inner * (frac - from))), q.h - 4 };
+        fill(r, p, SDL_Color{ 255, 236, 170, 255 }, 235);
     }
     int w = (int)(inner * frac);
     // A left-to-right lift across the fill, so the bar has some form rather
@@ -148,12 +158,20 @@ void draw() {
         int shift = ((int)gState.enemyName.size() + 1 - 6) * cw;
         eb.x += shift;
     }
-    bar(r, eb, ef, gEnemyLag, hpColor(gState.enemyHp, gState.enemyMax));
+    const float pv = (gPreview > 0 && gState.enemyMax > 0)
+                   ? std::min(ef, (float)gPreview / gState.enemyMax) : 0.0f;
+    bar(r, eb, ef, gEnemyLag, hpColor(gState.enemyHp, gState.enemyMax), pv);
     tx = eb.x + eb.w + cw;
     Console::drawTextPx(r, tx, y,
         std::to_string(gState.enemyHp) + "/" + std::to_string(gState.enemyMax),
         hpColor(gState.enemyHp, gState.enemyMax), false);
     tx += 9 * cw;
+    if (gPreview > 0) {
+        const bool lethal = gPreview >= gState.enemyHp;
+        Console::drawTextPx(r, tx, y, lethal ? "LETHAL" : ("-" + std::to_string(gPreview)),
+                            SDL_Color{ 255, 236, 170, 255 }, true);
+        tx += 8 * cw;
+    }
     Console::drawTextPx(r, tx, y,
         "ATK " + std::to_string(gState.enemyAtk) + "   DEF " + std::to_string(gState.enemyDef),
         dim, false);
@@ -221,11 +239,13 @@ void set(const State& s) {
     if (gActive) Console::setHudRows(rowsNeeded());
 }
 
+void setPreview(int hpLoss) { gPreview = std::max(0, hpLoss); }
+
 void setActive(bool on) {
     gActive = on;
     if (!gInstalled) { Platform::setHudRenderer(&draw); gInstalled = true; }
     Console::setHudRows(on ? rowsNeeded() : 0);
-    if (!on) { gPlayerLag = gEnemyLag = -1.0f; }
+    if (!on) { gPlayerLag = gEnemyLag = -1.0f; gPreview = 0; }
 }
 
 } // namespace Hud

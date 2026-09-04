@@ -30,6 +30,10 @@ struct State {
 };
 
 void set(const State& s);
+
+// Damage the hovered card would take off the enemy, drawn as a pale bite
+// out of the end of its health bar. 0 clears it.
+void setPreview(int hpLoss);
 void setActive(bool on);            // off outside battle - rewards, forge, menus
 int  rowsNeeded();                  // console rows the panel occupies
 

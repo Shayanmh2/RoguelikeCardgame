@@ -207,7 +207,11 @@ bool inside(const SDL_Rect& q, int x, int y) {
     return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h;
 }
 
+std::function<void(int)> gOnHover;
+
 } // namespace
+
+void setHoverCallback(const std::function<void(int)>& fn) { gOnHover = fn; }
 
 int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
            const std::function<void()>& onIdleTick, int idleTickMs) {
@@ -224,6 +228,13 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     gCurrent = 0;
     while (gCurrent < n && !usable(gCurrent)) gCurrent++;
     if (gCurrent >= n) gCurrent = 0;
+    // Report the highlighted card so the panel can show what it would do.
+    int lastHover = -2;
+    auto tellHover = [&]() {
+        int h = (gCurrent < (int)cards.size()) ? gCurrent : -1;
+        if (h != lastHover) { lastHover = h; if (gOnHover) gOnHover(h); }
+    };
+    tellHover();
 
     Platform::setHandRenderer(&drawHand);
     Platform::flushKeys();
@@ -284,6 +295,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
             if (handled) break;
         }
 
+        tellHover();
+
         if (onIdleTick && idleTickMs > 0 && SDL_GetTicks() - lastTick >= (Uint32)idleTickMs) {
             lastTick = SDL_GetTicks();
             onIdleTick();
@@ -294,6 +307,7 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     // Keep drawing, stop accepting input: the played card's result now happens
     // with the hand still visible rather than the board going empty.
     gPicking = false;
+    if (gOnHover) { gOnHover(-1); gOnHover = nullptr; }  // no stale ghost on the bar
     return result;
 }
 

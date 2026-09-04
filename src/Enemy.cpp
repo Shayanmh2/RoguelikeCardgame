@@ -68,7 +68,13 @@ void     Enemy::setBossType(BossType bt) { bossType = bt; }
 int      Enemy::getBonusAttack()  const { return bonusAttack; }
 void     Enemy::addBonusAttack(int a)   { bonusAttack += a; }
 
-void Enemy::applyStatus(StatusType type, int amount, double weakMultiplier) { statusEffects.apply(type, amount, weakMultiplier); }
+void Enemy::applyStatus(StatusType type, int amount, double weakMultiplier,
+                        double strengthMultiplier) {
+    statusEffects.apply(type, amount, weakMultiplier, strengthMultiplier);
+}
+double Enemy::getStrengthMultiplier() const { return statusEffects.getStrengthMultiplier(); }
+bool   Enemy::hasStrength() const           { return statusEffects.hasStrength(); }
+void   Enemy::processStrength()             { statusEffects.processStrength(); }
 int  Enemy::processPoison()  { return statusEffects.processPoison(); }
 int  Enemy::processBurn()    { return statusEffects.processBurn(); }
 bool Enemy::processStun()    { return statusEffects.processStun(); }

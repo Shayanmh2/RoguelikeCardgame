@@ -94,6 +94,9 @@ namespace EnemyArt {
     // encounters, cycling after the last).
     void setBattleBackdrop(int encounterNumber);
 
+    // The ??? encounter: the forest under a blood moon.
+    void setSecretBackdrop();
+
     // Tutorial fight only.
     void setTutorialBackdrop();
 

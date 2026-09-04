@@ -25,6 +25,9 @@ public:
 
     // Boss reward: always Rare-or-better, weighted 70% Rare / 25% Super Rare / 5% Legendary per pick.
     std::vector<Card> generateRareRewards(int count = 2, int maxCost = 99, const std::vector<std::string>& ownedNames = {});
+    // One unowned Super Rare, for the ??? encounter. Falls back to a Rare if
+    // every Super Rare is already in the deck; empty only if both are.
+    std::vector<Card> generateSuperRareReward(const std::vector<std::string>& ownedNames = {});
 
     // Every legendary the player doesn't own yet - the Shadow Knight's guaranteed drop.
     std::vector<Card> getUnownedLegendaries(const std::vector<std::string>& ownedNames = {}) const;

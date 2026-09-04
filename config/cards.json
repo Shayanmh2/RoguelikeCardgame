@@ -226,7 +226,7 @@
     },
     {
       "name": "Retaliate",
-      "description": "Gain 7 armor. 50% chance to Weaken the enemy for 2 turns.",
+      "description": "Gain 7 armor. 50% chance to Weaken the enemy for 3 turns, making their attacks land for 1.5x less damage.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "cost": 1,
@@ -301,7 +301,7 @@
     },
     {
       "name": "Iron Skin",
-      "description": "Gain 24 armor. 50% chance to Weaken the enemy for 2 turns.",
+      "description": "Gain 24 armor. 50% chance to Weaken the enemy for 3 turns, making their attacks land for 1.5x less damage.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "superRare": true,

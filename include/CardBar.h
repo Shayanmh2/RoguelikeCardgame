@@ -36,6 +36,10 @@ struct Action {
 
 // Returns the chosen index: cards first, then actions. -1 is a cancel.
 // onIdleTick keeps the battle scene breathing while the player thinks.
+// Called with the hand index under the cursor whenever it changes, and -1
+// when the highlight is on an action instead. Set before select().
+void setHoverCallback(const std::function<void(int)>& fn);
+
 int select(const std::vector<Card>& cards,
            const std::vector<Action>& actions,
            const std::function<void()>& onIdleTick = nullptr,

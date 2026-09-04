@@ -166,6 +166,21 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
     return choices;
 }
 
+std::vector<Card> RewardPool::generateSuperRareReward(const std::vector<std::string>& ownedNames) {
+    std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
+    std::vector<Card> superRare, rare;
+    for (const auto& c : rareCards) {
+        if (c.isLegendary() || owned.find(c.getName()) != owned.end()) continue;
+        (c.isSuperRare() ? superRare : rare).push_back(c);
+    }
+    std::vector<Card>& pool = superRare.empty() ? rare : superRare;
+    if (pool.empty()) return {};
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> pick(0, (int)pool.size() - 1);
+    return { pool[pick(gen)] };
+}
+
 std::vector<Card> RewardPool::getUnownedLegendaries(const std::vector<std::string>& ownedNames) const {
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
     std::vector<Card> result;

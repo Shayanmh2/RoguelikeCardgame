@@ -176,7 +176,7 @@ struct Library {
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
     ArtSet named[45];
     Sheet player, slashFx, castFx;
-    Sheet bg[5], tutorialBg, titleBg;
+    Sheet bg[5], tutorialBg, titleBg, bloodMoonBg;
 
     Library() {
         MELEE  = loadSet("assets/sprites/melee_goblin.png");
@@ -197,9 +197,11 @@ struct Library {
         slashFx = loadSheet(basePath() + "assets/sprites/player_slash_fx.png", 30);
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
         const char* bgFiles[5] = {
-            // TODO: both dungeon backdrops are flat brick with a torch every 16
-            // columns. Zones 3-5 got depth passes and these did not, so the first
-            // twenty fights are the dullest looking ones in the game.
+            // TODO: the two dungeon sheets are one layout recoloured, with a torch
+            // on a strict 16-column period and no variation across 512px, so the
+            // first twenty fights read as the same corridor twice. (An earlier
+            // note here blamed a missing depth pass and called zones 3-5 better;
+            // that was wrong - the mountain sheet is plainer than either dungeon.)
             "assets/sprites/bg_dungeon.png",        // 1-10
             "assets/sprites/bg_dungeon_purple.png", // 11-20
             "assets/sprites/bg_forest_night.png",   // 21-30
@@ -213,6 +215,7 @@ struct Library {
         for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 256);
         tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
         titleBg    = loadSheet(basePath() + "assets/sprites/bg_title.png", 256);
+        bloodMoonBg = loadSheet(basePath() + "assets/sprites/bg_forest_bloodmoon.png", 256);
     }
 };
 
@@ -232,6 +235,7 @@ const NamedEntry NAMED_TABLE[] = {
     {"Wolf","beast_wolf"}, {"Spider","beast_spider"}, {"Serpent","beast_serpent"},
     {"Wyvern","beast_wyvern"}, {"Basilisk","beast_basilisk"}, {"Manticore","beast_manticore"},
     {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass"},
+    {"Moonstruck","beast_Moonstruck"},
     {"Skeleton","undead_skeleton"}, {"Ghoul","undead_ghoul"}, {"Wraith","undead_wraith"},
     {"Specter","undead_specter"}, {"Banshee","undead_banshee"}, {"Revenant","undead_revenant"},
     {"Lich","undead_lich"},
@@ -893,6 +897,12 @@ void setBattleBackdrop(int encounterNumber) {
     if (idx < 0) idx = 0;
     gBgSheet = &lib().bg[idx];
     applyGround();
+}
+
+// The ??? encounter's own sky. The same forest, wrong light.
+void setSecretBackdrop() {
+    ensureInstalled();
+    if (lib().bloodMoonBg.ok()) { gBgSheet = &lib().bloodMoonBg; applyGround(); }
 }
 
 void setTutorialBackdrop() {

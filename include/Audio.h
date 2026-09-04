@@ -11,6 +11,8 @@ public:
     static void shutdown();
 
     static void playBGM(int segment = 0);
+    // By file stem, for tracks outside the zone rotation (the ??? encounter).
+    static void playBGM(const std::string& baseName);
     static void stopBGM();
     static void playSFX(const std::string& name);
 
