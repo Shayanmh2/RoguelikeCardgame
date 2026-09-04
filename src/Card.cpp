@@ -150,8 +150,17 @@ void Card::upgrade() {
         if (effect == CardEffect::COUNTER)
             description = "Counter: reverses the enemy's next attack or ailment back at them, doubled, +" + std::to_string(value)
                         + ". Fizzles if they do neither.";
-        else if (effect == CardEffect::PARRY)
-            description = "Parries the attack: riposte for 1.5x damage.";
+        else if (effect == CardEffect::PARRY) {
+            // This used to collapse to one line on upgrade and silently drop
+            // the stun, the armour threshold and the ranged caveat - so Parry+
+            // told you less than Parry did. Both now say the same things, with
+            // the value-derived numbers filled in.
+            description = "Block the enemy's next attack and riposte for 1.5x their attack "
+                          "plus " + std::to_string(value) + ", ignoring their defense, with a chance to stun them. "
+                          "How big a blow you can catch is your armor plus " + std::to_string(value * 3) + ": "
+                          "too heavy a hit breaks the guard. Ranged enemies are blocked but "
+                          "stand too far away to riposte.";
+        }
         else if (effect == CardEffect::POISON)
             description = "Apply " + std::to_string(value) + " Poison (" + std::to_string(value) + " dmg/turn for 3 turns).";
         else if (effect == CardEffect::BURN)

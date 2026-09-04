@@ -90,6 +90,27 @@ static CardBar::Card toWidget(const Card& c, int shownValue, bool disabled = fal
     return w;
 }
 
+// What one upgrade would do to this card. Card::upgrade() adds 3 to the value
+// and takes 1 off the cost with a floor of 1, so both are predictable without
+// having to actually apply it.
+static int upgradedValue(const Card& c) { return c.getValue() + 3; }
+static int upgradedCost(const Card& c)  { return c.getCost() > 1 ? c.getCost() - 1 : c.getCost(); }
+
+// Compact "6 -> 9 dmg" for the card face. The face clips at about fifteen
+// characters, so this cannot spell out the whole change.
+// `bonus` is the flat damage or armour the player already adds to every card
+// of that type. The in-battle hand shows values with it folded in, so the
+// forge has to as well - otherwise a Strike reads "5 -> 8" here and hits for
+// 61 in the fight. Specials get no bonus, so callers pass 0 for those.
+static std::string upgradeFaceLine(const Card& c, int bonus) {
+    const int v = c.getValue() + bonus, u = upgradedValue(c) + bonus;
+    if (c.getEffect() == CardEffect::HEAL)
+        return "heal " + std::to_string(v) + "->" + std::to_string(u);
+    const char* unit = (c.getType() == CardType::ATTACK) ? " dmg"
+                     : (c.getType() == CardType::DEFEND) ? " armor" : " stk";
+    return std::to_string(v) + " -> " + std::to_string(u) + unit;
+}
+
 static std::string rarityWord(const Card& c) {
     if (c.isLegendary()) return "LEGENDARY";
     if (c.isSuperRare()) return "SUPER RARE";
@@ -231,10 +252,11 @@ void Game::init() {
     playerDeck.addCard(Card("Defend", "Gain 8 armor.", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Brace", "Gain 8 armor.", CardType::DEFEND, 1, 8));
     playerDeck.addCard(Card("Parry",
-        "Block the enemy's next attack and riposte for 1.5x their attack, "
-        "ignoring their defense, with a chance to stun them. Your armor sets "
-        "how big a blow you can catch: too heavy a hit breaks the guard. "
-        "Ranged enemies are blocked but stand too far away to riposte.",
+        "Block the enemy's next attack and riposte for 1.5x their attack "
+        "plus 3, ignoring their defense, with a chance to stun them. "
+        "How big a blow you can catch is your armor plus 9: too heavy a hit "
+        "breaks the guard. Ranged enemies are blocked but stand too far away "
+        "to riposte.",
         CardType::SPECIAL, 3, 3, CardEffect::PARRY));
 
     applyUpgrades();
@@ -1747,16 +1769,16 @@ void Game::syncHud() {
         h.playerArmor = playerArmor;
         int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
         int totalArm = upgrades.getArmorBonus()  + equipArmorBonus;
+        // Shown as a permanent readout beside the bar, the way the enemy's
+        // ATK/DEF are - they used to appear only as tags once non-zero.
+        h.playerAtk = totalDmg;
+        h.playerDef = totalArm;
         // Colour is kept, not stripped: the panel renders the escapes, so an
         // ailment reads in its own colour exactly as it does in the log.
         std::string ptags;
         if (playerArmorPersistTurns > 0)
             ptags += std::string(Color::CYAN) + "[Fortified "
                    + std::to_string(playerArmorPersistTurns) + "] " + Color::RESET;
-        if (totalDmg > 0) ptags += std::string(Color::CARD_ATTACK) + "+"
-                                 + std::to_string(totalDmg) + "dmg " + Color::RESET;
-        if (totalArm > 0) ptags += std::string(Color::ARMOR_CLR) + "+"
-                                 + std::to_string(totalArm) + "arm " + Color::RESET;
         ptags += playerStatus.summary();
         h.playerTags = ptags;
 
@@ -3029,7 +3051,16 @@ void Game::restSite() {
                 const Card& c = *groupCard[g];
                 int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
                 bool maxed = upgradesLeft <= 0;
-                CardBar::Card w = toWidget(c, c.getValue(), maxed);
+                // Only ATTACK and DEFEND get the flat bonuses; specials use the
+                // raw card value, so they show unmodified.
+                const int gearBonus =
+                      (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
+                    : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
+                                                        : 0;
+                CardBar::Card w = toWidget(c, c.getValue() + gearBonus, maxed);
+                // On the forge the useful number is what it becomes, not what
+                // it currently is - that is the decision being made here.
+                if (!maxed) w.effect = upgradeFaceLine(c, gearBonus);
                 if (groupCount[g] > 1) w.name += " x" + std::to_string(groupCount[g]);
                 w.note = maxed ? "maxed"
                                : (std::to_string(upgradesLeft) + " upgrade"
@@ -3055,7 +3086,32 @@ void Game::restSite() {
                 int ci = -2 - choice;
                 if (ci >= 0 && ci < shown) {
                     const Card& c = *groupCard[startIdx + ci];
-                    CardBar::showDetail(widgets[ci], c.getDescription(), c.getTypeString(),
+                    const int gearBonus =
+                          (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
+                        : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
+                                                            : 0;
+                    int left = c.getMaxUpgrades() - c.getUpgradeCount();
+                    std::string text = c.getDescription();
+                    if (left > 0) {
+                        // showDetail word-wraps and has no newline handling, so
+                        // this has to read as another sentence rather than a row.
+                        text += "   Upgrading takes it to " + std::to_string(upgradedValue(c) + gearBonus);
+                        text += (c.getType() == CardType::DEFEND) ? " armor" 
+                              : (c.getType() == CardType::ATTACK) ? " damage" : " value";
+                        if (upgradedCost(c) < c.getCost())
+                            text += " and drops the cost from " + std::to_string(c.getCost())
+                                  + " to " + std::to_string(upgradedCost(c));
+                        // upgradesLeft counts the one about to be applied, so
+                        // what remains afterwards is one fewer.
+                        const int after = left - 1;
+                        text += after > 0
+                              ? (". " + std::to_string(after) + " more upgrade"
+                                 + (after != 1 ? "s" : "") + " after that.")
+                              : ". That is its last upgrade.";
+                    } else {
+                        text += "   This card is fully upgraded.";
+                    }
+                    CardBar::showDetail(widgets[ci], text, c.getTypeString(),
                                         rarityWord(c), c.getUpgradeCount());
                 }
                 continue;
@@ -3340,9 +3396,13 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
     const std::string title = std::string(justWonEncounter ? "Round complete" : "Resume run")
         + "        " + std::to_string(currentRun.getEncountersWon()) + " cleared"
         + "        " + std::to_string(playerHealth) + "/" + std::to_string(maxPlayerHealth) + " HP";
+    // Saving used to hide behind a yes/no prompt after choosing End run, so it
+    // was easy to finish a run without realising you could keep it. All three
+    // outcomes are on the screen now.
     std::vector<CardBar::Action> contActs{
-        CardBar::Action{ "Continue    enter the next encounter", false },
-        CardBar::Action{ "End run     finish here and bank your progress", false },
+        CardBar::Action{ "Continue        enter the next encounter", false },
+        CardBar::Action{ "Save and quit   keep this run, resume it from the main menu", false },
+        CardBar::Action{ "End run         finish here without saving", false },
     };
     int choice = CardBar::pick(title, {}, contActs, 0);
     if (choice < 0) choice = 0;
@@ -3351,13 +3411,12 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
         if (justWonEncounter) nextEncounter();
         else startEncounter(); // the loaded encounter hasn't been fought yet - don't skip past it
     } else {
-        if (confirm("Save your progress before ending?")) {
-            // Saving here (instead of Continue) skips nextEncounter() - advance the
-            // counter ourselves so the save points at the next fight, not the one
-            // just won (loading would otherwise replay it).
+        if (choice == 1) {
+            // Saving skips nextEncounter(), so advance the counter here or the
+            // save would point at the fight just won and replay it on load.
             if (justWonEncounter) currentRun.nextEncounter();
             saveGame();
-            notice("Progress saved.");
+            notice("Progress saved. Pick Load Save on the main menu to carry on.");
         }
         inEncounter = false;
     Hud::setActive(false);   // the panel belongs to the fight
@@ -3402,6 +3461,12 @@ void Game::offerCardReward() {
             notice("Reward skipped.");
             return;
         }
+
+        // Taking is the costly misclick, not skipping: an unwanted card sits in
+        // the deck for the rest of the run and only comes out at a rest site.
+        // The boss screen already asked - this is the one seen every fight.
+        const std::string takePrompt = "Add " + rewards[choice].getName() + " to your deck?";
+        if (!confirm(takePrompt)) continue;   // declined - back to the three
 
         playerDeck.addCard(rewards[choice]);
         runStats.addCardToRun();
@@ -3759,7 +3824,8 @@ void Game::showTutorial() {
     bool savedTurnActive   = playerTurnActive;
     bool savedInEncounter  = inEncounter;
 
-    enemy = Enemy("Slime", 35, 4, 2, EnemyType::MELEE);
+    // 15 HP: the tutorial is here to show how a turn works, not to be a fight.
+    enemy = Enemy("Slime", 15, 4, 2, EnemyType::MELEE);
     EnemyArt::setEnemyVariant(enemy.getName());
     EnemyArt::setTutorialBackdrop(); // day forest - a gentler scene than the run's dungeon opener
     playerHealth = maxPlayerHealth;

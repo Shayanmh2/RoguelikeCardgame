@@ -122,14 +122,21 @@ void draw() {
     int x = panel.x + padX;
     int y = panel.y + std::max(4, ch / 3);
 
+    // Every field used to advance the cursor by a hardcoded column count, which
+    // only held while the numbers stayed short: "ATK +0   DEF +0" is 15 cells
+    // against a 14-cell step, so ARM printed on top of it. Advance by what was
+    // actually drawn instead.
+    auto put = [&](int& cx, const std::string& t, SDL_Color col, bool bold = false) {
+        Console::drawTextPx(r, cx, y, t, col, bold);
+        cx += ((int)t.size() + 3) * cw;
+    };
+
     // --- row 1: turn, energy, where you are -------------------------------
-    Console::drawTextPx(r, x, y, "Turn " + std::to_string(gState.turn), ink, true);
-    int col = x + 10 * cw;
-    Console::drawTextPx(r, col, y,
-        std::to_string(gState.energy) + "/" + std::to_string(gState.maxEnergy) + " energy",
-        energy, false);
-    col += 14 * cw;
-    Console::drawTextPx(r, col, y, gState.encounter, dim, false);
+    int col = x;
+    put(col, "Turn " + std::to_string(gState.turn), ink, true);
+    put(col, std::to_string(gState.energy) + "/" + std::to_string(gState.maxEnergy) + " energy",
+        energy);
+    put(col, gState.encounter, dim);
 
     // --- row 2: you -------------------------------------------------------
     const int barW = std::max(120, std::min(360, panel.w / 4));
@@ -139,14 +146,12 @@ void draw() {
     SDL_Rect pb{ x + 6 * cw, y + 1, barW, barH };
     bar(r, pb, pf, gPlayerLag, hpColor(gState.playerHp, gState.playerMax));
     int tx = pb.x + pb.w + cw;
-    Console::drawTextPx(r, tx, y,
-        std::to_string(gState.playerHp) + "/" + std::to_string(gState.playerMax),
-        hpColor(gState.playerHp, gState.playerMax), false);
-    tx += 9 * cw;
-    if (gState.playerArmor > 0) {
-        Console::drawTextPx(r, tx, y, "ARM " + std::to_string(gState.playerArmor), armor, false);
-        tx += 8 * cw;
-    }
+    put(tx, std::to_string(gState.playerHp) + "/" + std::to_string(gState.playerMax),
+        hpColor(gState.playerHp, gState.playerMax));
+    put(tx, "ATK +" + std::to_string(gState.playerAtk)
+          + "   DEF +" + std::to_string(gState.playerDef), dim);
+    if (gState.playerArmor > 0)
+        put(tx, "ARM " + std::to_string(gState.playerArmor), armor);
     if (!gState.playerTags.empty()) Console::drawAnsiPx(r, tx, y, gState.playerTags, dim, false);
 
     // --- row 3: the enemy -------------------------------------------------
@@ -162,20 +167,13 @@ void draw() {
                    ? std::min(ef, (float)gPreview / gState.enemyMax) : 0.0f;
     bar(r, eb, ef, gEnemyLag, hpColor(gState.enemyHp, gState.enemyMax), pv);
     tx = eb.x + eb.w + cw;
-    Console::drawTextPx(r, tx, y,
-        std::to_string(gState.enemyHp) + "/" + std::to_string(gState.enemyMax),
-        hpColor(gState.enemyHp, gState.enemyMax), false);
-    tx += 9 * cw;
-    if (gPreview > 0) {
-        const bool lethal = gPreview >= gState.enemyHp;
-        Console::drawTextPx(r, tx, y, lethal ? "LETHAL" : ("-" + std::to_string(gPreview)),
-                            SDL_Color{ 255, 236, 170, 255 }, true);
-        tx += 8 * cw;
-    }
-    Console::drawTextPx(r, tx, y,
-        "ATK " + std::to_string(gState.enemyAtk) + "   DEF " + std::to_string(gState.enemyDef),
-        dim, false);
-    tx += 14 * cw;
+    put(tx, std::to_string(gState.enemyHp) + "/" + std::to_string(gState.enemyMax),
+        hpColor(gState.enemyHp, gState.enemyMax));
+    if (gPreview > 0)
+        put(tx, gPreview >= gState.enemyHp ? "LETHAL" : ("-" + std::to_string(gPreview)),
+            SDL_Color{ 255, 236, 170, 255 }, true);
+    put(tx, "ATK " + std::to_string(gState.enemyAtk)
+          + "   DEF " + std::to_string(gState.enemyDef), dim);
     if (!gState.enemyTags.empty()) Console::drawAnsiPx(r, tx, y, gState.enemyTags, dim, false);
 
     // --- the summoned add, when one is standing ----------------------------
@@ -189,11 +187,9 @@ void draw() {
         bar(r, ab, gState.addMax > 0 ? (float)gState.addHp / gState.addMax : 0.0f,
             0.0f, hpColor(gState.addHp, gState.addMax));
         tx = ab.x + ab.w + cw;
-        Console::drawTextPx(r, tx, y,
-            std::to_string(gState.addHp) + "/" + std::to_string(gState.addMax),
-            hpColor(gState.addHp, gState.addMax), false);
-        tx += 9 * cw;
-        Console::drawTextPx(r, tx, y, "fights beside the " + gState.enemyName, dim, false);
+        put(tx, std::to_string(gState.addHp) + "/" + std::to_string(gState.addMax),
+            hpColor(gState.addHp, gState.addMax));
+        put(tx, "fights beside the " + gState.enemyName, dim);
     }
 
     // --- last row: whatever is unusual about this fight right now ----------

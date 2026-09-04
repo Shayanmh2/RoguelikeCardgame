@@ -14,6 +14,9 @@ struct State {
     std::string encounter;          // "Encounter 12" / "BOSS"
 
     int  playerHp = 0, playerMax = 1, playerArmor = 0;
+    // Flat bonuses the player adds to every attack / defend card. Always
+    // shown, so the row reads against the enemy's ATK/DEF opposite it.
+    int  playerAtk = 0, playerDef = 0;
     std::string playerTags;         // fortified / bonuses / status summary
 
     std::string enemyName;

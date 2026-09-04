@@ -188,8 +188,8 @@ bool openFontsAt(int px) {
         // and the callers drop to the widget face - a jarring cliff rather
         // than a title one step smaller. 18 characters is "ROGUELIKE
         // CARDGAME"; the advance of this face is about 0.6 of its point size.
-        const int byHeight = (int)(px * 4.6f + 0.5f);
-        const int byWidth  = (screenW() - 60) * 10 / (18 * 6);
+        const int byHeight = (int)(px * 5.6f + 0.5f);
+        const int byWidth  = (screenW() - 44) * 10 / (18 * 6);
         const int dispPx = std::max(px, std::min(byHeight, byWidth));
         TTF_Font* df = TTF_OpenFont(gFontBoldPath.c_str(), dispPx);
         if (df) {
