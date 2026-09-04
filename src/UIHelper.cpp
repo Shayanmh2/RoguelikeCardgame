@@ -8,6 +8,7 @@
 #include "Colors.h"
 #include "Console.h"
 #include "Platform.h"
+#include "EnemyArt.h"
 #include <iostream>
 #include <cmath>
 #include <cctype>
@@ -18,202 +19,208 @@
 static void platSleep(int ms) { Platform::delay(ms); }
 static void flushInputBuffer() { Platform::flushKeys(); }
 
-// Shared input loop for both menus. The drawing side is untouched from the
-// terminal build - it still reprints the block via DECRC - so this only has to
-// decide which option is current and when to commit. optionRow maps each
-// option to the console row it was drawn on, which makes the list clickable
-// and hoverable in addition to arrow-key driven.
-// `current` is taken by reference on purpose: each caller's printAll lambda
-// captures that same variable to decide which row to highlight, so moving the
-// selection has to write through to it. Taking it by value left the arrow keys
-// updating a private copy that nothing ever drew - the selection looked stuck.
-static int menuInputLoop(int n,
-                         const std::function<bool(int)>& isDisabled,
-                         const std::function<void()>& printAll,
-                         int& current,
-                         const std::vector<int>& optionRow,
-                         const std::function<void()>& onIdleTick,
-                         int idleTickMs) {
-    auto step = [&](int dir) {
-        int next = current;
-        for (int i = 0; i < n; i++) {
-            next = (next + dir + n) % n;
-            if (!isDisabled(next)) break;
-        }
-        if (!isDisabled(next) && next != current) {
-            current = next;
-            std::cout << "\0338"; // DECRC - back to the block start, then reprint
-            printAll();
-        }
-    };
-    auto optionAtRow = [&](int row) {
-        if (row < 0) return -1;
-        for (int i = 0; i < n; i++)
-            if (optionRow[i] >= 0 && optionRow[i] == row && !isDisabled(i)) return i;
-        return -1;
-    };
-
-    flushInputBuffer();
-    Uint32 lastTick = SDL_GetTicks();
-
-    // Hover only re-targets when the mouse actually moves. Sampling it every
-    // frame instead made the arrow keys look broken: moving the selection with
-    // the keyboard was immediately overwritten by whatever row the (stationary)
-    // cursor happened to be resting on.
-    int lastMx = -1, lastMy = -1;
-    Platform::mousePos(lastMx, lastMy);
-
-    while (true) {
-        int mx, my;
-        Platform::mousePos(mx, my);
-        if (mx != lastMx || my != lastMy) {
-            lastMx = mx; lastMy = my;
-            int hovered = optionAtRow(Console::rowAtY(my));
-            if (hovered >= 0 && hovered != current) {
-                current = hovered;
-                std::cout << "\0338";
-                printAll();
-            }
-        }
-
-        int cx, cy;
-        if (Platform::takeClick(cx, cy)) {
-            int clicked = optionAtRow(Console::rowAtY(cy));
-            if (clicked >= 0) { std::cout << "\n"; return clicked; }
-        }
-
-        Platform::KeyEvent k = Platform::pollKey();
-        switch (k.key) {
-            case Platform::Key::UP:
-            case Platform::Key::LEFT:  step(-1); break;
-            case Platform::Key::DOWN:
-            case Platform::Key::RIGHT: step(+1); break;
-            case Platform::Key::ENTER:
-                if (!isDisabled(current)) { std::cout << "\n"; return current; }
-                break;
-            case Platform::Key::ESCAPE: return -1;
-            default: break;
-        }
-
-        if (onIdleTick && SDL_GetTicks() - lastTick >= (Uint32)idleTickMs) {
-            onIdleTick();
-            lastTick = SDL_GetTicks();
-        }
-        Platform::frame();
-    }
-}
-
 void UIHelper::printLine(int width, char c) {
     std::cout << Color::DIM;
     for (int i = 0; i < width; ++i) std::cout << c;
     std::cout << Color::RESET << "\n";
 }
 
-std::string UIHelper::createHealthBar(int current, int max, int width) {
-    if (max <= 0) return "";
-
-    int filled = static_cast<int>((static_cast<double>(current) / max) * width);
-    if (current > 0 && filled == 0) filled = 1;
-
-    const char* color = hpColor(current, max);
-    std::string bar = std::string(color) + "[";
-    for (int i = 0; i < width; ++i)
-        bar += (i < filled) ? "\xe2\x96\x88" : " "; // UTF-8 █
-    bar += "]";
-    bar += Color::RESET;
-    return bar;
-}
-
-std::string UIHelper::createArmorBar(int armor, int width) {
-    if (armor < 0) armor = 0;
-    int filled = std::min(armor / 2, width);
-    std::string bar = std::string(Color::BLUE) + "[";
-    for (int i = 0; i < width; ++i)
-        bar += (i < filled) ? "\xe2\x96\xa0" : " "; // UTF-8 ■
-    bar += "]";
-    bar += Color::RESET;
-    return bar;
-}
-
 void UIHelper::printCentered(const std::string& text, int width) {
-    int padding = (width - (int)text.length()) / 2;
+    // Centre on the window, not on a fixed 60 columns. The old measure put
+    // everything left of centre on any window wider than that, which is every
+    // window this build actually runs in.
+    int cols = std::max(width, Console::cols());
+    int padding = (cols - visibleLen(text)) / 2;
     if (padding < 0) padding = 0;
-    std::cout << std::string(padding, ' ') << text << "\n";
+    std::cout << std::string((size_t)padding, ' ') << text << "\n";
 }
 
-void UIHelper::printEncounterHeader(int encounterNum, const std::string& difficulty, const std::string& tierLabel) {
-    // Pick difficulty color
-    const char* diffColor = Color::GREEN;
-    if      (difficulty == "NORMAL")     diffColor = Color::YELLOW;
-    else if (difficulty == "HARD")       diffColor = Color::YELLOW;
-    else if (difficulty == "NIGHTMARE")  diffColor = Color::RED;
-    else if (difficulty == "IMPOSSIBLE") diffColor = Color::MAGENTA;
-    else if (difficulty == "INSANE")     diffColor = Color::MAGENTA;
-
-    printLine(60, '=');
-    std::cout << "  " << Color::BOLD << Color::CYAN << "ENCOUNTER " << encounterNum << Color::RESET
-              << " | " << diffColor << difficulty << Color::RESET
-              << " [" << Color::DIM << tierLabel << Color::RESET << "]\n";
-    printLine(60, '-');
+// Wraps to a readable measure and centres every line. Story text is written as
+// long paragraphs; at full window width it becomes an unreadable ribbon.
+void UIHelper::printCenteredWrapped(const std::string& text, int measure, bool typed) {
+    int cols = std::max(20, std::min(measure, Console::cols() - 4));
+    std::vector<std::string> out;
+    std::string cur;
+    size_t i = 0;
+    while (i <= text.size()) {
+        size_t sp = text.find(' ', i);
+        std::string word = text.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+        if (cur.empty()) cur = word;
+        else if (visibleLen(cur) + 1 + visibleLen(word) <= cols) cur += " " + word;
+        else { out.push_back(cur); cur = word; }
+        if (sp == std::string::npos) break;
+        i = sp + 1;
+    }
+    if (!cur.empty()) out.push_back(cur);
+    for (const std::string& ln : out) {
+        if (!typed) { printCentered(ln, cols); continue; }
+        int pad = (std::max(cols, Console::cols()) - visibleLen(ln)) / 2;
+        if (pad > 0) std::cout << std::string((size_t)pad, 0x20);
+        typeWrite(ln + "\n");
+    }
 }
 
-void UIHelper::printBossHeader(int encounterNum, const std::string& bossName) {
-    std::cout << Color::BOLD << Color::MAGENTA;
-    printLine(60, '*');
-    printCentered("!!! BOSS ENCOUNTER !!!", 60);
-    printCentered("Encounter " + std::to_string(encounterNum), 60);
-    printLine(60, '*');
-    printCentered(bossName, 60);
-    printLine(60, '*');
-    std::cout << Color::RESET;
+// Blank rows so a block of `lines` sits in the middle of the screen instead of
+// hugging the top.
+void UIHelper::padToCenter(int lines) {
+    int pad = (Console::rows() - lines) / 2;
+    for (int i = 0; i < pad; i++) std::cout << "\n";
 }
 
-void UIHelper::printCombatStatus(int playerHP, int playerMaxHP, int playerArmor, int playerEnergy, int maxEnergy,
-                                  const std::string& enemyName, int enemyHP, int enemyMaxHP, int enemyArmor,
-                                  int enemyAttack, int enemyDefense) {
-    printLine(60, '-');
+namespace {
+// The title and its menu are drawn, not printed. On the character grid a one
+// character difference in label length can only move an option by a whole
+// column or none at all, depending on the parity of the console width, so
+// "Start Game" and "How to Play" could never sit correctly relative to each
+// other. Drawn at pixel positions they simply centre.
+bool gBannerOn = false;
 
-    // Player
-    std::cout << Color::BOLD << Color::WHITE << "PLAYER" << Color::RESET << "\n";
-    std::cout << "  HP:  "
-              << hpColor(playerHP, playerMaxHP) << playerHP << "/" << playerMaxHP << Color::RESET
-              << "  " << createHealthBar(playerHP, playerMaxHP) << "\n";
-    std::cout << "  ARM: "
-              << Color::ARMOR_CLR << playerArmor << Color::RESET
-              << "  " << createArmorBar(playerArmor) << "\n";
-    std::cout << "  ENERGY: "
-              << Color::ENERGY_CLR << playerEnergy << "/" << maxEnergy << Color::RESET << "\n\n";
+// The headline overlay. Shares the modal renderer slot with the title
+// banner and the card pickers, which never want it at the same time.
+std::string gHeadline;
+SDL_Color   gHeadlineCol{ 134, 209, 107, 255 };
+std::vector<std::string> gTitleOpts;
+int gTitleSel = 0;
+std::vector<SDL_Rect> gTitleRects;
 
-    // Enemy - ARM and DEF are shown as one combined DEF figure (both are flat
-    // damage reduction; showing them separately just for the enemy read as confusing)
-    std::cout << Color::BOLD << Color::RED << "ENEMY: " << enemyName << Color::RESET << "\n";
-    std::cout << "  HP:  "
-              << hpColor(enemyHP, enemyMaxHP) << enemyHP << "/" << enemyMaxHP << Color::RESET
-              << "  " << createHealthBar(enemyHP, enemyMaxHP) << "\n";
-    std::cout << "  ATK: " << Color::RED    << enemyAttack  << Color::RESET
-              << " | DEF: " << Color::BLUE  << (enemyDefense + enemyArmor) << Color::RESET << "\n";
+void layoutTitleMenu() {
+    gTitleRects.clear();
+    const int cw = std::max(1, Platform::cellW());
+    const int ch = std::max(1, Platform::cellH());
+    const int rowH = ch + ch / 2;
+    int y = Platform::screenH() / 2 + ch;
+    for (const std::string& o : gTitleOpts) {
+        int w = (int)o.size() * cw;
+        gTitleRects.push_back(SDL_Rect{ (Platform::screenW() - w) / 2, y, w, ch });
+        y += rowH;
+    }
+}
 
-    printLine(60, '-');
+// Defined below drawTitleBanner, which calls it from both its paths.
+void drawTitleMenuRows();
+
+void drawHeadline() {
+    if (gHeadline.empty()) return;
+    SDL_Renderer* r = Platform::renderer();
+    const int w = (int)gHeadline.size() * Console::dispCellW();
+    const int y = Platform::screenH() / 4;
+    if (w > Platform::screenW() - 40) {
+        // Too narrow for the display face: clipped text reads worse than
+        // smaller text, so the widget face carries it instead.
+        const int bw = (int)gHeadline.size() * Console::bigCellW();
+        const int bx = (Platform::screenW() - bw) / 2;
+        Console::drawTextBigPx(r, bx + 2, y + 2, gHeadline, SDL_Color{ 0, 0, 0, 255 }, true);
+        Console::drawTextBigPx(r, bx, y, gHeadline, gHeadlineCol, true);
+        return;
+    }
+    const int x = (Platform::screenW() - w) / 2;
+    Console::drawTextDispPx(r, x + 3, y + 3, gHeadline, SDL_Color{ 6, 6, 9, 255 });
+    Console::drawTextDispPx(r, x, y, gHeadline, gHeadlineCol);
+}
+
+void drawTitleBanner() {
+    if (!gBannerOn) return;
+    SDL_Renderer* r = Platform::renderer();
+    const std::string title = "ROGUELIKE CARDGAME";
+    const int w = (int)title.size() * Console::dispCellW();
+    const int y = Platform::screenH() / 5;
+    if (w > Platform::screenW() - 40) {
+        const int bw = (int)title.size() * Console::bigCellW();
+        const int bx = (Platform::screenW() - bw) / 2;
+        Console::drawTextBigPx(r, bx + 3, y + 3, title, SDL_Color{ 0, 0, 0, 255 }, true);
+        Console::drawTextBigPx(r, bx, y, title, SDL_Color{ 240, 200, 60, 255 }, true);
+        layoutTitleMenu();
+        drawTitleMenuRows();
+        return;
+    }
+    const int x = (Platform::screenW() - w) / 2;
+    // Gold on a true black shadow. The shadow is offset a pixel further than
+    // the headline's because a warm colour on a warm-lit backdrop needs more
+    // separation than a cool one did.
+    Console::drawTextDispPx(r, x + 4, y + 4, title, SDL_Color{ 0, 0, 0, 255 });
+    Console::drawTextDispPx(r, x, y, title, SDL_Color{ 240, 200, 60, 255 });
+
+    layoutTitleMenu();
+    drawTitleMenuRows();
+}
+
+void drawTitleMenuRows() {
+    SDL_Renderer* r = Platform::renderer();
+    const int cw = std::max(1, Platform::cellW());
+    for (size_t i = 0; i < gTitleRects.size(); i++) {
+        const bool sel = ((int)i == gTitleSel);
+        const SDL_Rect& q = gTitleRects[i];
+        Console::drawTextPx(r, q.x, q.y, gTitleOpts[i],
+                            sel ? SDL_Color{ 166, 226, 46, 255 }
+                                : SDL_Color{ 208, 208, 222, 255 }, sel);
+        if (sel) Console::drawTextPx(r, q.x - cw * 2, q.y, ">",
+                                     SDL_Color{ 166, 226, 46, 255 }, true);
+    }
+}
+} // namespace
+
+void UIHelper::showTitleBanner(bool on) {
+    gBannerOn = on;
+    EnemyArt::setTitleMode(on);
+    Platform::setModalRenderer(on ? std::function<void()>(&drawTitleBanner)
+                                  : std::function<void()>());
+}
+
+void UIHelper::showHeadline(const std::string& text, int r, int g, int b) {
+    gHeadline = text;
+    gHeadlineCol = SDL_Color{ (Uint8)r, (Uint8)g, (Uint8)b, 255 };
+    Platform::setModalRenderer(text.empty() ? std::function<void()>()
+                                            : std::function<void()>(&drawHeadline));
 }
 
 void UIHelper::printTitle() {
-    std::cout << "\n";
-    std::cout << Color::BOLD << Color::CYAN;
-    printLine(60, '=');
-    printCentered("ROGUELIKE CARDGAME", 60);
-    std::cout << Color::RESET << Color::DIM;
-    printCentered("A turn-based deckbuilder roguelike", 60);
-    std::cout << Color::RESET << Color::BOLD << Color::CYAN;
-    printLine(60, '=');
-    std::cout << Color::RESET << "\n" << Color::DIM;
-    printCentered("Stripped of his soul in a battle long forgotten,", 60);
-    printCentered("a lone knight descends into the dark to reclaim it.", 60);
-    printCentered("Each foe felled returns a fragment of who he was.", 60);
-    printCentered("At the depths below waits his own shadow,", 60);
-    printCentered("the last piece he must face to become a legend.", 60);
-    std::cout << Color::RESET << "\n";
-    std::cout << Color::DIM << "Use arrow keys to navigate, Enter to select.\n\n" << Color::RESET;
+    // Nothing is printed: the title and menu are both drawn. The tagline and
+    // the five line summary were removed because the opening story beat tells
+    // the same thing properly a moment later.
+    showTitleBanner(true);
 }
+
+int UIHelper::titleMenu(const std::vector<std::string>& options) {
+    if (options.empty()) return -1;
+    gTitleOpts = options;
+    gTitleSel = 0;
+    Platform::flushKeys();
+    int lastMx = -1, lastMy = -1;
+    Platform::mousePos(lastMx, lastMy);
+    const int n = (int)options.size();
+
+    while (true) {
+        layoutTitleMenu();
+        int mx, my;
+        Platform::mousePos(mx, my);
+        if (mx != lastMx || my != lastMy) {
+            lastMx = mx; lastMy = my;
+            for (int i = 0; i < n; i++) {
+                const SDL_Rect& q = gTitleRects[i];
+                if (mx >= q.x - 8 && mx < q.x + q.w + 8 && my >= q.y && my < q.y + q.h)
+                    { gTitleSel = i; break; }
+            }
+        }
+        Platform::KeyEvent k = Platform::pollKey();
+        if (k.key == Platform::Key::UP || k.key == Platform::Key::LEFT)
+            gTitleSel = (gTitleSel - 1 + n) % n;
+        else if (k.key == Platform::Key::DOWN || k.key == Platform::Key::RIGHT)
+            gTitleSel = (gTitleSel + 1) % n;
+        else if (k.key == Platform::Key::ENTER) return gTitleSel;
+        else if (k.key == Platform::Key::ESCAPE) return -1;
+
+        int cx, cy;
+        if (Platform::takeClick(cx, cy)) {
+            for (int i = 0; i < n; i++) {
+                const SDL_Rect& q = gTitleRects[i];
+                if (cx >= q.x - 8 && cx < q.x + q.w + 8 && cy >= q.y && cy < q.y + q.h)
+                    { gTitleSel = i; return i; }
+            }
+        }
+        Platform::frame();
+    }
+}
+
 
 void UIHelper::printGameOverScreen(bool won, int encountersWon, int cardsCollected) {
     std::cout << "\n";
@@ -268,7 +275,13 @@ int UIHelper::visibleLen(const std::string& s) {
 }
 
 void UIHelper::waitForKey(const std::string& prompt) {
-    std::cout << "\033[2m" << prompt << "\033[0m";
+    // The default footer is centred, because every screen that takes it is
+    // centred now. A caller passing its own prompt is placing it itself: the
+    // combat log wants its prompt inline with the log text, not in the middle.
+    if (prompt == "  (press any key to continue)")
+        printCentered(std::string("\033[2m") + "(press any key to continue)" + "\033[0m");
+    else
+        std::cout << "\033[2m" << prompt << "\033[0m";
     flushInputBuffer();
     // A click anywhere counts as "any key", matching the prompt's intent.
     while (true) {
@@ -281,150 +294,9 @@ void UIHelper::waitForKey(const std::string& prompt) {
     std::cout << "\n";
 }
 
-int UIHelper::getCursorRow() {
-    return Console::cursorRow();
-}
-
-void UIHelper::setCursorRow(int row) {
-    Console::setCursorRow(row);
-}
-
-int UIHelper::menuSelectRight(const std::vector<std::string>& leftLines,
-                               const std::vector<int>&         optionIndices,
-                               const std::vector<std::string>& options,
-                               int leftColWidth,
-                               int startIndex,
-                               const std::vector<bool>& disabled,
-                               const std::function<void()>& onIdleTick,
-                               int idleTickMs) {
-    int n = (int)options.size();
-    if (n == 0) return -1;
-
-    auto isDisabled = [&](int i) -> bool {
-        return !disabled.empty() && i < (int)disabled.size() && disabled[i];
-    };
-
-    int current = (startIndex >= 0 && startIndex < n) ? startIndex : 0;
-    while (current < n && isDisabled(current)) current++;
-    if (current >= n) current = 0;
-
-    // Merge leftLines+optionIndices, then append uncovered options as left-aligned footer rows
-    std::vector<std::string> allLeft(leftLines);
-    std::vector<int>         allOpt(optionIndices);
-    std::vector<bool>        isFooter(leftLines.size(), false);
-
-    // Pad to same size
-    while ((int)allLeft.size() < (int)allOpt.size()) { allLeft.push_back(""); isFooter.push_back(false); }
-    while ((int)allOpt.size()  < (int)allLeft.size()) allOpt.push_back(-1);
-
-    // Append lines for options not yet mapped - these render left-aligned (no column padding)
-    std::vector<bool> covered(n, false);
-    for (int idx : allOpt) if (idx >= 0 && idx < n) covered[idx] = true;
-    for (int i = 0; i < n; i++) {
-        if (!covered[i]) {
-            allLeft.push_back("");
-            allOpt.push_back(i);
-            isFooter.push_back(true);
-        }
-    }
-
-    int totalLines = (int)allLeft.size();
-
-    // Redraw via terminal-native save/restore cursor (DECSC/DECRC) rather than
-    // computing a row count ourselves - avoids drift under ConPTY terminals.
-    auto printAll = [&]() {
-        for (int i = 0; i < totalLines; i++) {
-            std::cout << "\033[2K\r";
-
-            int optIdx = allOpt[i];
-            bool dis = (optIdx >= 0 && optIdx < n) && isDisabled(optIdx);
-            std::string rendered;
-
-            if (isFooter[i] && optIdx >= 0 && optIdx < n) {
-                // Left-aligned action row - no column padding
-                if (optIdx == current)
-                    rendered = " " + std::string(Color::SELECT_CLR) + "> " + options[optIdx] + "\033[0m";
-                else if (dis)
-                    rendered = "   \033[2m" + options[optIdx] + "\033[0m";
-                else
-                    rendered = "   " + options[optIdx];
-            } else {
-                rendered = allLeft[i];
-                int vlen = visibleLen(allLeft[i]);
-                int pad = leftColWidth - vlen;
-                if (pad > 0) rendered += std::string(pad, ' ');
-
-                if (optIdx >= 0 && optIdx < n) {
-                    if (optIdx == current)
-                        rendered += " " + std::string(Color::SELECT_CLR) + "> " + options[optIdx] + "\033[0m";
-                    else if (dis)
-                        rendered += "   \033[2m" + options[optIdx] + "\033[0m";
-                    else
-                        rendered += "   " + options[optIdx];
-                }
-            }
-
-            std::cout << rendered << "\n";
-        }
-        std::cout.flush();
-    };
-
-    int blockStart = Console::cursorRow();
-    std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
-    printAll();
-
-    // Which console row each option landed on, for mouse hit-testing.
-    std::vector<int> optionRow(n, -1);
-    for (int i = 0; i < totalLines; i++) {
-        int optIdx = allOpt[i];
-        if (optIdx >= 0 && optIdx < n) optionRow[optIdx] = blockStart + i;
-    }
-
-    return menuInputLoop(n, isDisabled, printAll, current, optionRow, onIdleTick, idleTickMs);
-}
-
-int UIHelper::menuSelect(const std::vector<std::string>& options, int startIndex,
-                         const std::vector<bool>& disabled) {
-    if (options.empty()) return -1;
-
-    int n = (int)options.size();
-
-    auto isDisabled = [&](int i) -> bool {
-        return !disabled.empty() && i < (int)disabled.size() && disabled[i];
-    };
-
-    // Find first enabled item starting from startIndex
-    int current = (startIndex >= 0 && startIndex < n) ? startIndex : 0;
-    while (current < n && isDisabled(current)) current++;
-    if (current >= n) current = 0;
-
-    // See menuSelectRight for why this uses DECSC/DECRC (terminal-native
-    // save/restore cursor) instead of computing a row count ourselves.
-    auto printOptions = [&]() {
-        for (int i = 0; i < n; i++) {
-            std::cout << "\033[2K\r";
-            std::string rendered;
-            if (i == current) {
-                rendered = std::string(Color::SELECT_CLR) + "> " + options[i] + "\033[0m";
-            } else if (isDisabled(i)) {
-                rendered = "  \033[2m" + options[i] + "\033[0m";
-            } else {
-                rendered = "  " + options[i];
-            }
-            std::cout << rendered << "\n";
-        }
-        std::cout.flush();
-    };
-
-    int blockStart = Console::cursorRow();
-    std::cout << "\0337"; // DECSC - remember exactly where this menu block starts
-    printOptions();
-
-    std::vector<int> optionRow(n);
-    for (int i = 0; i < n; i++) optionRow[i] = blockStart + i;
-
-    return menuInputLoop(n, isDisabled, printOptions, current, optionRow, nullptr, 0);
-}
+// Centred menus are opt in: the battle and rest menus read better left
+// aligned against their own content, but a full screen menu under a
+// centred title looked detached hugging the left edge.
 
 void UIHelper::typeWrite(const std::string& text, int msPerChar) {
     // Timing runs off a wall-clock deadline rather than sleeping per character.

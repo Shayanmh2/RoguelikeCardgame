@@ -1,5 +1,6 @@
 #include "UpgradeSystem.h"
 #include "UIHelper.h"
+#include "CardBar.h"
 #include <iostream>
 
 UpgradeSystem::UpgradeSystem() {
@@ -38,16 +39,15 @@ void UpgradeSystem::selectActiveUpgrades() {
         for (int i = 0; i < (int)allUpgrades.size(); i++)
             if (unlockedUpgrades[i]) idxMap.push_back(i);
 
-        std::vector<std::string> options;
+        std::vector<CardBar::Action> options;
         for (int i : idxMap) {
-            std::string status = activeUpgrades[i] ? "[ON]  " : "[   ] ";
-            options.push_back(status + allUpgrades[i].getName() + " - " + allUpgrades[i].getDescription());
+            std::string status = activeUpgrades[i] ? "[ON]   " : "[  ]   ";
+            options.push_back(CardBar::Action{
+                status + allUpgrades[i].getName() + "    " + allUpgrades[i].getDescription(), false });
         }
-        options.push_back("Done");
+        options.push_back(CardBar::Action{ "Done", false });
 
-        UIHelper::clearScreen();
-        std::cout << "\nUpgrades - select to toggle:\n";
-        int choice = UIHelper::menuSelect(options);
+        int choice = CardBar::pick("Upgrades, select to toggle", {}, options, 0);
 
         if (choice < 0 || choice >= (int)idxMap.size()) break;  // Done or ESC
 
