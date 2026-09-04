@@ -195,6 +195,16 @@ static CardType strToCardType(const std::string& s) {
 struct EquipTier { std::string name; int bonus; };
 
 // Gear name/bonus escalates per tier claimed; the last tier repeats after that.
+// Gear name colour, on the same rarity ladder the cards use. Both slots were
+// hardcoded to 153 - the rare tint - so a Legendary Blade came up the same
+// blue as a Rusty Blade and the last tier read as nothing special.
+static int equipTintFor(int tier) {
+    if (tier >= 5) return 220;   // legendary: neon gold
+    if (tier == 4) return 218;   // super rare: pale pink
+    if (tier >= 2) return 153;   // rare: sky blue
+    return 120;                  // common: pale green
+}
+
 static EquipTier weaponTierAt(int tier) {
     static const std::vector<EquipTier> tiers = {
         {"Rusty Blade", 3}, {"Iron Sword", 4}, {"Steel Blade", 5},
@@ -3419,7 +3429,7 @@ void Game::offerEquipmentDrop() {
         w.effect = "+" + std::to_string(weapon.bonus) + " dmg";
         w.note = "on every attack";
         w.tint = Console::xterm256Public(9);
-        w.nameColor = Console::xterm256Public(153);
+        w.nameColor = Console::xterm256Public(equipTintFor(weaponTier));
         widgets.push_back(w);
 
         CardBar::Card a2;
@@ -3427,7 +3437,7 @@ void Game::offerEquipmentDrop() {
         a2.effect = "+" + std::to_string(armor.bonus) + " armor";
         a2.note = "on every defend";
         a2.tint = Console::xterm256Public(12);
-        a2.nameColor = Console::xterm256Public(153);
+        a2.nameColor = Console::xterm256Public(equipTintFor(armorTier));
         widgets.push_back(a2);
 
         CardBar::Card h;
