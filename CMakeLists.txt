@@ -79,6 +79,17 @@ target_link_libraries(cardgame_sdl2 PRIVATE
     SDL2_ttf::SDL2_ttf-static
     SDL2_mixer::SDL2_mixer-static)
 
+# Linux: fold the C++ runtime into the binary. SDL is already static, so glibc
+# is then the only version-sensitive dependency left, and a distro with an
+# older libstdc++ than the build host will still run it.
+#
+# NOT fully static: SDL dlopen()s the X11, Wayland and audio backends at
+# runtime, and a statically linked glibc cannot dlopen. It would build and then
+# start with no video or sound.
+if(UNIX AND NOT APPLE)
+    target_link_options(cardgame_sdl2 PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+
 # Wipe before copying: copy_directory leaves files that were deleted from the
 # source tree, which would quietly package removed assets into a release. That
 # matters for anything license-bound (a font we stopped shipping shouldn't
