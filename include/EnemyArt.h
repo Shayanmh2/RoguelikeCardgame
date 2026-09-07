@@ -49,7 +49,7 @@ namespace EnemyArt {
     void printBattleBlock(EnemyType type, BossType boss = BossType::NONE);
 
     // Ailment cast: knight's palm glows in the ailment's color.
-    enum class CastGlow { POISON, BURN, STUN, WEAK };
+    enum class CastGlow { POISON, BURN, STUN, WEAK, REND };
     void printBattleCast(EnemyType type, BossType boss, CastGlow glow);
 
     // Ailment lands: the afflicted side flashes the status color for a beat.
@@ -65,6 +65,7 @@ namespace EnemyArt {
         bool weak     = false;
         bool poison   = false;
         bool burn     = false;
+        bool rend     = false;
         bool stun     = false;
     };
 

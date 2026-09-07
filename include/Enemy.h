@@ -43,6 +43,7 @@ public:
                      double strengthMultiplier = 1.2);
     int  processPoison();
     int  processBurn();
+    int  processRend();  // spent when this enemy attacks, not on the turn tick
     bool processStun();
     double getWeakMultiplier() const;
     void processWeak();
@@ -53,6 +54,7 @@ public:
     void   processStrength();
     bool hasPoison() const;
     bool hasBurn() const;
+    bool hasRend() const;
     bool hasStun() const;
     bool hasWeak() const;
 

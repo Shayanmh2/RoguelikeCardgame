@@ -35,9 +35,13 @@ namespace Color {
     constexpr const char* ENERGY_CLR    = YELLOW;
     constexpr const char* POISON_CLR    = DGREEN;
     constexpr const char* BURN_CLR      = ORANGE;
+    constexpr const char* REND_CLR      = CYAN;      // wind: pale and cutting
     constexpr const char* STUN_CLR      = YELLOW;
     constexpr const char* WEAK_CLR      = BLUE;
-    constexpr const char* STRENGTH_CLR  = DGREEN;
+    // Red, not green: this is an attack buff, and it shared DGREEN with Poison,
+    // so the HUD showed a buff and an ailment in the same colour. The battle
+    // scene already tints Strength red (AURA_STRENGTH / TINT_STRENGTH).
+    constexpr const char* STRENGTH_CLR  = RED;
     constexpr const char* BOSS_CLR      = MAGENTA;
     constexpr const char* CARD_ATTACK   = RED;
     constexpr const char* CARD_DEFEND   = BLUE;

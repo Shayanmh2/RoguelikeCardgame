@@ -14,6 +14,7 @@ enum class CardEffect {
     NONE,
     POISON,
     BURN,
+    REND,       // SPECIAL: damage per enemy SWING rather than per turn
     STUN,
     WEAK,
     COUNTER,
@@ -27,6 +28,7 @@ enum class CardEffect {
     HEAL,       // SPECIAL: restores the card's value in HP
     WARD,       // DEFEND: also blocks the next incoming ailment (Poison/Burn/Weak/Stun)
     TAUNT,      // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
+    FEAR,       // SPECIAL: the mirror - enemy is much more likely to brace instead
     TRUESTRIKE  // ATTACK: lands in full - no defense, resistance, parry or phase applies
 };
 
@@ -47,6 +49,17 @@ private:
     DamageType elemType;  // elemental tag (FIRE/POISON/WIND), NONE if untyped
 
 public:
+    // The one place a config/save string becomes an enum. There used to be a
+    // copy of this in Game.cpp and another in RewardPool.cpp; an effect added
+    // to one and not the other silently produced inert cards.
+    // The one definition of the Strength ladder. There were four copies of this
+    // expression (two here, two in Game.cpp) and they all had to be edited in step;
+    // that is precisely how REND went missing from one of the two effect tables.
+    double strengthMultiplier() const;
+
+    static CardEffect effectFromString(const std::string& s);
+    static DamageType damageTypeFromString(const std::string& s);
+
     Card(std::string n, std::string desc, CardType t, int c, int v,
          CardEffect e = CardEffect::NONE, bool isRare = false,
          DamageType physT = DamageType::NONE, DamageType elemT = DamageType::NONE,

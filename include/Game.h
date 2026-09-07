@@ -41,6 +41,7 @@ private:
     int  statusWardTurns = 0;      // Status Guard: blocks every ailment the enemy inflicts while it lasts
     bool enemyStatusWardActive = false; // Shadow Knight mirroring Status Guard: blocks the next ailment the player inflicts on it
     int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
+    int  enemyFearTurns  = 0; // Fear: each of these turns the enemy has a FEAR_BRACE_CHANCE to brace instead of acting
 
     // The ??? encounter. Outside the run's numbering: it does not advance the
     // counter, losing it cannot end the run, and it happens at most once.
@@ -87,6 +88,9 @@ private:
     void applyCardEffect(const Card& card);
     void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward
     bool applyEnemyStatus(StatusType type, int amount, double weakMultiplier = 1.5); // same, mirrored; false if warded
+    void tickPlayerRend(); // Rend fires on the player's swing too (Shadow Knight mirror)
+    bool tickEnemyRend(); // Rend fires on the enemy's swing; true if it killed them
+    bool enemyCanDefend() const; // Fear only works on something that has a guard to raise
     bool tryStunEnemy(); // enemy.tryApplyStun(), blockable by a mirrored ward
     void enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult); // regular-enemy attack resolution (armor/counter/parry), no boss second-wind
     void triggerAssassinAmbush(); // Assassin only: one free strike after a random card the player plays
@@ -122,6 +126,10 @@ private:
     void displayRunStats() const;
     void displayEnemyInfo() const;
     void offerCardReward();
+    void offerExhaustedReward();   // pool is dry: a forge visit first, then duplicates
+    void presentCardChoice(const std::vector<Card>& rewards,
+                           const std::string& title, const std::string& skipPrompt);
+    bool forgeMenu(const std::string& baseTitle); // true only if a card was upgraded
     void offerEquipmentDrop();
     void applyUpgrades();
     void selectUpgrades();

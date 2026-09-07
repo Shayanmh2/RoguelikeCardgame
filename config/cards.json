@@ -24,7 +24,7 @@
     },
     {
       "name": "Poison Dart",
-      "description": "Apply 3 Poison. Deals 3 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 3 Poison. Deals 2 damage at the start of each of the enemy's turns for 6 turns, ignoring armor. Slow, but it outlasts almost any fight. Stacks: another Poison adds to the tick and extends the timer, up to 12 turns.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 1,
@@ -32,7 +32,7 @@
     },
     {
       "name": "Torch",
-      "description": "Apply 5 Burn. Deals 5 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 5 Burn. Deals 7 damage at the start of each of the enemy's turns for 2 turns, ignoring armor. Hits hard and burns out fast. Stacks: another Burn adds to the tick and extends the timer, up to 4 turns.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 1,
@@ -48,7 +48,7 @@
     },
     {
       "name": "Gale Slash",
-      "description": "Deal 6 damage.",
+      "description": "Deal 6 damage. 10% chance on hit to also apply Rend 3: 3 damage the next 3 times it attacks.",
       "type": "ATTACK",
       "elemType": "WIND",
       "cost": 1,
@@ -56,7 +56,7 @@
     },
     {
       "name": "Flame Slash",
-      "description": "Deal 6 damage.",
+      "description": "Deal 6 damage. 10% chance on hit to also apply Burn 3: 4 damage a turn for 2 turns.",
       "type": "ATTACK",
       "elemType": "FIRE",
       "cost": 1,
@@ -64,7 +64,7 @@
     },
     {
       "name": "Venom Strike",
-      "description": "Deal 6 damage.",
+      "description": "Deal 6 damage. 10% chance on hit to also apply Poison 3: 2 damage a turn for 6 turns.",
       "type": "ATTACK",
       "elemType": "POISON",
       "cost": 1,
@@ -72,7 +72,7 @@
     },
     {
       "name": "Flare",
-      "description": "Deal 4 damage.",
+      "description": "Deal 4 damage. 10% chance on hit to also apply Burn 3: 4 damage a turn for 2 turns.",
       "type": "ATTACK",
       "elemType": "FIRE",
       "cost": 1,
@@ -80,7 +80,7 @@
     },
     {
       "name": "Dagger Throw",
-      "description": "Deal 4 damage.",
+      "description": "Deal 4 damage. 10% chance on hit to also apply Rend 3: 3 damage the next 3 times it attacks.",
       "type": "ATTACK",
       "elemType": "WIND",
       "cost": 1,
@@ -88,7 +88,7 @@
     },
     {
       "name": "Sting",
-      "description": "Deal 4 damage.",
+      "description": "Deal 4 damage. 10% chance on hit to also apply Poison 3: 2 damage a turn for 6 turns.",
       "type": "ATTACK",
       "elemType": "POISON",
       "cost": 1,
@@ -96,7 +96,7 @@
     },
     {
       "name": "Whirlwind",
-      "description": "Deal 6 damage.",
+      "description": "Deal 6 damage. 10% chance on hit to also apply Rend 3: 3 damage the next 3 times it attacks.",
       "type": "ATTACK",
       "physType": "PIERCE",
       "elemType": "WIND",
@@ -152,9 +152,26 @@
     },
     {
       "name": "Taunt",
-      "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast.",
+      "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast. Fails one time in ten.",
       "type": "SPECIAL",
       "effect": "TAUNT",
+      "cost": 1,
+      "value": 1
+    },
+    {
+      "name": "Gust",
+      "description": "Apply 4 Rend. The next 3 times the enemy attacks it takes 4 damage, ignoring armor. A stalling, buffing or stunned enemy takes nothing from it, and anything that swings twice a turn takes it twice. Stacks: another Rend adds to the hit and adds charges, up to 6.",
+      "type": "SPECIAL",
+      "effect": "REND",
+      "elemType": "WIND",
+      "cost": 1,
+      "value": 4
+    },
+    {
+      "name": "Fear",
+      "description": "Frighten the enemy. For their next 2 turns they are far more likely to brace behind their guard than to attack or cast. Useless against anything with no defensive move of its own, and like Taunt it fails one time in ten.",
+      "type": "SPECIAL",
+      "effect": "FEAR",
       "cost": 1,
       "value": 1
     }
@@ -165,8 +182,9 @@
       "description": "Gain x2 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
       "type": "SPECIAL",
       "effect": "STRENGTH",
-      "cost": 1,
-      "value": 1
+      "cost": 2,
+      "value": 1,
+      "superRare": true
     },
     {
       "name": "Power Strike",
@@ -201,7 +219,7 @@
     },
     {
       "name": "Molten Hammer",
-      "description": "Deal 25 damage.",
+      "description": "Deal 25 damage. 10% chance on hit to also apply Burn 3: 4 damage a turn for 2 turns.",
       "type": "ATTACK",
       "physType": "SMASH",
       "elemType": "FIRE",
@@ -242,7 +260,7 @@
     },
     {
       "name": "Toxic Cloud",
-      "description": "Apply 8 Poison. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 8 Poison. Deals 4 damage at the start of each of the enemy's turns for 6 turns, ignoring armor. Slow, but it outlasts almost any fight. Stacks: another Poison adds to the tick and extends the timer, up to 12 turns.",
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
@@ -250,7 +268,7 @@
     },
     {
       "name": "Inferno",
-      "description": "Apply 8 Burn. Deals 8 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 8 Burn. Deals 12 damage at the start of each of the enemy's turns for 2 turns, ignoring armor. Hits hard and burns out fast. Stacks: another Burn adds to the tick and extends the timer, up to 4 turns.",
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
@@ -275,7 +293,7 @@
     },
     {
       "name": "Venomous Lance",
-      "description": "Deal 12 damage.",
+      "description": "Deal 12 damage. 10% chance on hit to also apply Poison 3: 2 damage a turn for 6 turns.",
       "type": "ATTACK",
       "physType": "PIERCE",
       "elemType": "POISON",
@@ -329,7 +347,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage, then gain x3 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power: a second cast adds turns and keeps the stronger multiplier.",
+      "description": "Deal 13 damage, then gain x4 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -339,7 +357,7 @@
     },
     {
       "name": "Cyclone",
-      "description": "Deal 25 damage.",
+      "description": "Deal 25 damage. 10% chance on hit to also apply Rend 3: 3 damage the next 3 times it attacks.",
       "type": "ATTACK",
       "physType": "PIERCE",
       "elemType": "WIND",
@@ -349,7 +367,7 @@
     },
     {
       "name": "Virulent Plague",
-      "description": "Apply 14 Poison. Deals 14 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Poison adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 14 Poison. Deals 7 damage at the start of each of the enemy's turns for 6 turns, ignoring armor. Slow, but it outlasts almost any fight. Stacks: another Poison adds to the tick and extends the timer, up to 12 turns.",
       "type": "SPECIAL",
       "effect": "POISON",
       "superRare": true,
@@ -358,7 +376,7 @@
     },
     {
       "name": "Hellfire",
-      "description": "Apply 12 Burn. Deals 12 damage at the start of each of the enemy's turns for 3 turns, ignoring armor. Stacks: another Burn adds its damage to the tick and extends the timer by 3 turns, up to 10.",
+      "description": "Apply 12 Burn. Deals 18 damage at the start of each of the enemy's turns for 2 turns, ignoring armor. Hits hard and burns out fast. Stacks: another Burn adds to the tick and extends the timer, up to 4 turns.",
       "type": "SPECIAL",
       "effect": "BURN",
       "superRare": true,
@@ -391,6 +409,25 @@
       "legendary": true,
       "cost": 4,
       "value": 40
+    },
+    {
+      "name": "Storm",
+      "description": "Apply 8 Rend. The next 3 times the enemy attacks it takes 8 damage, ignoring armor. A stalling, buffing or stunned enemy takes nothing from it, and anything that swings twice a turn takes it twice. Stacks: another Rend adds to the hit and adds charges, up to 6.",
+      "type": "SPECIAL",
+      "effect": "REND",
+      "elemType": "WIND",
+      "cost": 2,
+      "value": 8
+    },
+    {
+      "name": "Tornado",
+      "description": "Apply 13 Rend. The next 3 times the enemy attacks it takes 13 damage, ignoring armor. A stalling, buffing or stunned enemy takes nothing from it, and anything that swings twice a turn takes it twice. Stacks: another Rend adds to the hit and adds charges, up to 6.",
+      "type": "SPECIAL",
+      "effect": "REND",
+      "elemType": "WIND",
+      "superRare": true,
+      "cost": 3,
+      "value": 13
     }
   ]
 }
