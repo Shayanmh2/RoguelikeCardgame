@@ -77,11 +77,13 @@ bool   Enemy::hasStrength() const           { return statusEffects.hasStrength()
 void   Enemy::processStrength()             { statusEffects.processStrength(); }
 int  Enemy::processPoison()  { return statusEffects.processPoison(); }
 int  Enemy::processBurn()    { return statusEffects.processBurn(); }
+int  Enemy::processRend()    { return statusEffects.processRend(); }
 bool Enemy::processStun()    { return statusEffects.processStun(); }
 double Enemy::getWeakMultiplier() const { return statusEffects.getWeakMultiplier(); }
 void Enemy::processWeak()    { statusEffects.processWeak(); }
 bool Enemy::hasPoison() const { return statusEffects.hasPoison(); }
 bool Enemy::hasBurn()   const { return statusEffects.hasBurn(); }
+bool Enemy::hasRend()   const { return statusEffects.hasRend(); }
 bool Enemy::hasStun()   const { return statusEffects.hasStun(); }
 bool Enemy::hasWeak()   const { return statusEffects.hasWeak(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }

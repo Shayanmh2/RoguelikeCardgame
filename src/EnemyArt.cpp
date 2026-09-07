@@ -45,6 +45,7 @@ const Tint TINT_POISON{ 0.45f, 0.45f, 0.45f,  38, 110,  38 };
 const Tint TINT_BURN  { 0.45f, 0.45f, 0.45f, 132,  71,  22 };
 const Tint TINT_STUN  { 0.45f, 0.45f, 0.45f, 134, 118,  33 };
 const Tint TINT_WEAK  { 0.45f, 0.45f, 0.45f,  49,  66, 129 };
+const Tint TINT_REND  { 0.45f, 0.45f, 0.45f,  40, 110, 125 };
 const Tint DEATH_DARK { 0.35f, 0.35f, 0.35f,   0,   0,   0 };
 
 const Tint TINT_STRENGTH{ 1.00f, 0.70f, 0.70f, 90,  0,  0 };
@@ -55,12 +56,16 @@ const Tint AURA_WEAK    { 0.85f, 0.85f, 1.00f,  0,  0, 65 };
 const Tint AURA_POISON  { 0.85f, 1.00f, 0.85f,  0, 55,  0 };
 const Tint AURA_BURN    { 1.00f, 1.00f, 0.75f, 60, 22,  0 };
 const Tint AURA_STUN    { 1.00f, 1.00f, 0.80f, 55, 48,  0 };
+// Wind: green and blue held, red drained. Colour-mod can only pull channels
+// down, so the cyan has to come from taking red away rather than adding cyan.
+const Tint AURA_REND    { 0.82f, 1.00f, 1.00f,  0, 45, 55 };
 
 Tint statusTint(CastGlow glow) {
     switch (glow) {
         case CastGlow::BURN: return TINT_BURN;
         case CastGlow::STUN: return TINT_STUN;
         case CastGlow::WEAK: return TINT_WEAK;
+        case CastGlow::REND: return TINT_REND;
         default:             return TINT_POISON;
     }
 }
@@ -356,12 +361,13 @@ void showScene() { Console::setSceneRows(sceneRowsNeeded()); }
 // Cycles through whichever auras are active, one every 2 seconds, so a side
 // carrying several statuses shows each in turn instead of blending to mud.
 bool pickAura(const AuraFlags& f, Tint& out) {
-    Tint active[5];
+    Tint active[6];
     int n = 0;
     if (f.strength) active[n++] = AURA_STRENGTH;
     if (f.weak)     active[n++] = AURA_WEAK;
     if (f.poison)   active[n++] = AURA_POISON;
     if (f.burn)     active[n++] = AURA_BURN;
+    if (f.rend)     active[n++] = AURA_REND;
     if (f.stun)     active[n++] = AURA_STUN;
     if (n == 0) return false;
     out = active[(SDL_GetTicks() / 2000) % (Uint32)n];
@@ -852,12 +858,13 @@ void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
     gPortraitOnly = false;
     gType = type; gBoss = boss;
     showScene();
-    int fxIdx = 0; // fx sheet order: poison, burn, stun, weak
+    int fxIdx = 0; // fx sheet order: poison, burn, stun, weak, rend
     switch (glow) {
         case CastGlow::POISON: fxIdx = 0; break;
         case CastGlow::BURN:   fxIdx = 1; break;
         case CastGlow::STUN:   fxIdx = 2; break;
         case CastGlow::WEAK:   fxIdx = 3; break;
+        case CastGlow::REND:   fxIdx = 4; break;
     }
     gPlayerFrame = 7; gCastFrame = fxIdx;
     hold(320);

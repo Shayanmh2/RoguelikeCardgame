@@ -26,36 +26,14 @@ void RewardPool::initializeCardPool() {
     auto commonData = ConfigLoader::loadCommonCards(configPath);
     auto rareData = ConfigLoader::loadRareCards(configPath);
 
-    auto toEffect = [](const std::string& e) -> CardEffect {
-        if (e == "POISON")     return CardEffect::POISON;
-        if (e == "BURN")       return CardEffect::BURN;
-        if (e == "STUN")       return CardEffect::STUN;
-        if (e == "WEAK")       return CardEffect::WEAK;
-        if (e == "COUNTER")    return CardEffect::COUNTER;
-        if (e == "PARRY")      return CardEffect::PARRY;
-        if (e == "PIERCE")     return CardEffect::PIERCE;
-        if (e == "FORTIFY")    return CardEffect::FORTIFY;
-        if (e == "STRENGTH")   return CardEffect::STRENGTH;
-        if (e == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
-        if (e == "IMPAIR")     return CardEffect::IMPAIR;
-        if (e == "CHIP")       return CardEffect::CHIP;
-        if (e == "HEAL")       return CardEffect::HEAL;
-        if (e == "WARD")       return CardEffect::WARD;
-        if (e == "TAUNT")      return CardEffect::TAUNT;
-        if (e == "TRUESTRIKE") return CardEffect::TRUESTRIKE;
-        return CardEffect::NONE;
-    };
-    auto toPhysType = [](const std::string& s) -> DamageType {
-        if (s == "SMASH")  return DamageType::SMASH;
-        if (s == "PIERCE") return DamageType::PIERCE;
-        return DamageType::NONE;
-    };
-    auto toElemType = [](const std::string& s) -> DamageType {
-        if (s == "FIRE")   return DamageType::FIRE;
-        if (s == "POISON") return DamageType::POISON;
-        if (s == "WIND")   return DamageType::WIND;
-        return DamageType::NONE;
-    };
+    // Delegates. This table used to be duplicated here, and REND went missing
+    // from the copy, so every wind card handed out was an inert SPECIAL with
+    // CardEffect::NONE: no message, no status applied, no matching sound.
+    auto toEffect = [](const std::string& e) { return Card::effectFromString(e); };
+    auto toPhysType = [](const std::string& s) { return Card::damageTypeFromString(s); };
+    // Physical and elemental read the same table; a card carries at most one
+    // of each kind, so one converter serves both slots.
+    auto toElemType = [](const std::string& s) { return Card::damageTypeFromString(s); };
 
     for (const auto& data : commonData) {
         CardType type = CardType::ATTACK;

@@ -24,6 +24,7 @@ static const char* effectSoundName(CardEffect effect) {
     switch (effect) {
         case CardEffect::POISON: return "poison";
         case CardEffect::BURN:   return "fire";
+        case CardEffect::REND:   return "wind";
         case CardEffect::STUN:   return "volt";
         case CardEffect::HEAL:   return "heal";
         default:                 return "special";
@@ -44,6 +45,7 @@ static std::string cardFaceLine(const Card& c, int shownValue) {
     switch (c.getEffect()) {
         case CardEffect::POISON:     extra = "poison";   break;
         case CardEffect::BURN:       extra = "burn";     break;
+        case CardEffect::REND:       extra = "rend";     break;
         case CardEffect::STUN:       extra = "stun";     break;
         case CardEffect::WEAK:       extra = "weaken";   break;
         case CardEffect::COUNTER:    extra = "counter";  break;
@@ -57,6 +59,7 @@ static std::string cardFaceLine(const Card& c, int shownValue) {
         case CardEffect::HEAL:       base  = "heal " + std::to_string(shownValue); break;
         case CardEffect::WARD:       extra = "ward";     break;
         case CardEffect::TAUNT:      extra = "taunt";    break;
+        case CardEffect::FEAR:       extra = "fear";     break;
         // Six characters is what fits beside a three-digit damage figure;
         // "unstoppable" was rendering as "unstop".
         case CardEffect::TRUESTRIKE: extra = "true";    break;
@@ -146,6 +149,7 @@ static const char* effectToStr(CardEffect e) {
     switch (e) {
         case CardEffect::POISON:     return "POISON";
         case CardEffect::BURN:       return "BURN";
+        case CardEffect::REND:       return "REND";
         case CardEffect::STUN:       return "STUN";
         case CardEffect::WEAK:       return "WEAK";
         case CardEffect::COUNTER:    return "COUNTER";
@@ -159,29 +163,12 @@ static const char* effectToStr(CardEffect e) {
         case CardEffect::HEAL:       return "HEAL";
         case CardEffect::WARD:       return "WARD";
         case CardEffect::TAUNT:      return "TAUNT";
+        case CardEffect::FEAR:       return "FEAR";
         case CardEffect::TRUESTRIKE: return "TRUESTRIKE";
         default:                     return "NONE";
     }
 }
-static CardEffect strToEffect(const std::string& s) {
-    if (s == "POISON")     return CardEffect::POISON;
-    if (s == "BURN")       return CardEffect::BURN;
-    if (s == "STUN")       return CardEffect::STUN;
-    if (s == "WEAK")       return CardEffect::WEAK;
-    if (s == "COUNTER")    return CardEffect::COUNTER;
-    if (s == "PARRY")      return CardEffect::PARRY;
-    if (s == "PIERCE")     return CardEffect::PIERCE;
-    if (s == "FORTIFY")    return CardEffect::FORTIFY;
-    if (s == "STRENGTH")   return CardEffect::STRENGTH;
-    if (s == "DOUBLE_HIT") return CardEffect::DOUBLE_HIT;
-    if (s == "IMPAIR")     return CardEffect::IMPAIR;
-    if (s == "CHIP")       return CardEffect::CHIP;
-    if (s == "HEAL")       return CardEffect::HEAL;
-    if (s == "WARD")       return CardEffect::WARD;
-    if (s == "TAUNT")      return CardEffect::TAUNT;
-    if (s == "TRUESTRIKE") return CardEffect::TRUESTRIKE;
-    return CardEffect::NONE;
-}
+static CardEffect strToEffect(const std::string& s) { return Card::effectFromString(s); }
 static const char* dmgToStr(DamageType t) {
     switch (t) {
         case DamageType::SMASH:  return "SMASH";
@@ -192,14 +179,7 @@ static const char* dmgToStr(DamageType t) {
         default:                 return "NONE";
     }
 }
-static DamageType strToDmg(const std::string& s) {
-    if (s == "SMASH")  return DamageType::SMASH;
-    if (s == "PIERCE") return DamageType::PIERCE;
-    if (s == "FIRE")   return DamageType::FIRE;
-    if (s == "POISON") return DamageType::POISON;
-    if (s == "WIND")   return DamageType::WIND;
-    return DamageType::NONE;
-}
+static DamageType strToDmg(const std::string& s) { return Card::damageTypeFromString(s); }
 static const char* cardTypeToStr(CardType t) {
     switch (t) {
         case CardType::ATTACK: return "ATTACK";
@@ -531,15 +511,15 @@ void Game::displayEnemyInfo() const {
                         std::cout << "  " << Color::HEAL    << "Heal"   << Color::RESET << " (60%)         - recovers ~" << (8 + def / 2) << " HP (low HP)\n";
                         std::cout << "  " << Color::RED      << "Attack" << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
                     } else {
-                        std::cout << "  " << Color::CARD_SPECIAL << "Poison Bolt" << Color::RESET << " (40%)         - poisons you (3 stacks)\n";
-                        std::cout << "  " << Color::CARD_SPECIAL << "Fireball"    << Color::RESET << " (20%)         - burns you (2 turns)\n";
+                        std::cout << "  " << Color::CARD_SPECIAL << "Poison Bolt" << Color::RESET << " (40%)         - Poison 3 (2 dmg/turn, 6 turns)\n";
+                        std::cout << "  " << Color::CARD_SPECIAL << "Fireball"    << Color::RESET << " (20%)         - Burn 2 (3 dmg/turn, 2 turns)\n";
                         std::cout << "  " << Color::RED         << "Attack"      << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
                         std::cout << "  " << Color::DIM     << "[Casts Heal instead if HP drops below 33%]" << Color::RESET << "\n";
                     }
                     break;
                 case EnemyType::BEAST:
                     std::cout << "  " << Color::RED       << "Attack"         << Color::RESET << " (60%, " << atk << " dmg) - reduced by your armor\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Venomous bite"  << Color::RESET << " (25%)         - poisons you (3 stacks)\n";
+                    std::cout << "  " << Color::CARD_SPECIAL << "Venomous bite"  << Color::RESET << " (25%)         - Poison 3 (2 dmg/turn, 6 turns)\n";
                     std::cout << "  " << Color::ARMOR_CLR  << "Defend"         << Color::RESET << " (15%)         - gains " << std::max(1, def - 1) << " armor\n";
                     break;
                 case EnemyType::UNDEAD:
@@ -607,6 +587,13 @@ void Game::resetEnergy() {
     playerEnergy = maxEnergy;
 }
 
+// Taunt and Fear both miss one time in ten. Shared, so the two cannot drift
+// apart the way the two copies of the effect table did.
+static bool provokeFizzles() {
+    static thread_local std::mt19937 g(std::random_device{}());
+    return std::uniform_int_distribution<>(1, 100)(g) <= 10;
+}
+
 void Game::applyCardEffect(const Card& card) {
     int val = card.getValue();
     switch (card.getEffect()) {
@@ -614,14 +601,24 @@ void Game::applyCardEffect(const Card& card) {
             EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON);
             if (applyEnemyStatus(StatusType::POISON, val)) {
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON, true);
-                std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
+                std::cout << "  " << Color::POISON_CLR << "Applied " << val << " Poison to enemy! ("
+                          << (val + 1) / 2 << " dmg/turn for 6 turns)" << Color::RESET << "\n";
             }
             break;
         case CardEffect::BURN:
             EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::BURN);
             if (applyEnemyStatus(StatusType::BURN, val)) {
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::BURN, true);
-                std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! (" << val << " dmg/turn for 3 turns)" << Color::RESET << "\n";
+                std::cout << "  " << Color::BURN_CLR << "Applied " << val << " Burn to enemy! ("
+                          << val + val / 2 << " dmg/turn for 2 turns)" << Color::RESET << "\n";
+            }
+            break;
+        case CardEffect::REND:
+            EnemyArt::printBattleCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::REND);
+            if (applyEnemyStatus(StatusType::REND, val)) {
+                EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::REND, true);
+                std::cout << "  " << Color::REND_CLR << "Applied " << val << " Rend to enemy! ("
+                          << val << " damage the next 3 times it attacks)" << Color::RESET << "\n";
             }
             break;
         case CardEffect::STUN:
@@ -670,17 +667,35 @@ void Game::applyCardEffect(const Card& card) {
             break;
         }
         case CardEffect::STRENGTH: {
-            // Same rarity scaling as Bloodlust's inline version (Uncommon 1.2x, Rare 2x,
-            // Super Rare 3x) - this path is for pure-buff SPECIAL cards like Strengthen.
+            // This path is for pure-buff SPECIAL cards like Strengthen; Bloodlust
+            // takes the ATTACK path below. Both read the same ladder now.
             EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
-            double buff = card.isSuperRare() ? 3.0 : card.isRare() ? 2.0 : 1.2;
+            double buff = card.strengthMultiplier();
             playerStatus.apply(StatusType::STRENGTH, 2, 1.5, buff);
             std::cout << "  " << Color::STRENGTH_CLR << "Strength surges! x" << buff << " damage for 2 turns!" << Color::RESET << "\n";
             break;
         }
+        // Taunt and Fear are one card pointed in opposite directions, and both
+        // are a read rather than a guarantee: one time in ten it does not land.
         case CardEffect::TAUNT:
+            if (provokeFizzles()) {
+                std::cout << "  " << Color::DIM << "The taunt glances off. They are not listening." << Color::RESET << "\n";
+                break;
+            }
             enemyTauntTurns = 2;
             std::cout << "  " << Color::RED << "You taunt the enemy! They're much more likely to attack for their next 2 turns." << Color::RESET << "\n";
+            break;
+        case CardEffect::FEAR:
+            if (!enemyCanDefend()) {
+                std::cout << "  " << Color::DIM << "It has no guard to hide behind. There is nothing for the fear to do." << Color::RESET << "\n";
+                break;
+            }
+            if (provokeFizzles()) {
+                std::cout << "  " << Color::DIM << "It holds your gaze without flinching. The fear does not take." << Color::RESET << "\n";
+                break;
+            }
+            enemyFearTurns = 2;
+            std::cout << "  " << Color::CYAN << "The enemy recoils! They're much more likely to brace than to act for their next 2 turns." << Color::RESET << "\n";
             break;
         default:
             break;
@@ -739,6 +754,47 @@ bool Game::applyEnemyStatus(StatusType type, int amount, double weakMultiplier) 
 }
 
 // Silent when warded - callers already have their own "resisted" fallback message.
+// Fear needs something to work on. Roughly three quarters of the roster has no
+// defensive move at all, and bracing them would be inventing armor for creatures
+// that never block, so the card refuses instead.
+//
+// Two lists because enemyTurn() dispatches in two stages: a named signature
+// first, then a generic per-type fallback for enemies without one. A named enemy
+// guards only if its own branch says so; an unnamed one inherits its type, and
+// CASTER and UNDEAD have no brace there. test_fear re-derives both lists straight
+// from enemyTurn() and fails if this drifts out of step with it.
+bool Game::enemyCanDefend() const {
+    // Bosses never reach enemyTurn() - bossAction() has no brace path at all.
+    if (enemy.isBoss()) return false;
+
+    static const char* kGuarded[] = {
+        "Knight", "Guardian", "Barbarian", "Sentinel", "Warden",
+        "Paladin", "Bastion", "Fortress", "Orc", "Wolf",
+    };
+    static const char* kNamed[] = {
+        "Goblin", "Bandit", "Raider", "Warrior", "Knight", "Berserker",
+        "Gladiator", "Enforcer", "Guardian", "Barbarian", "Sentinel", "Warden",
+        "Paladin", "Bastion", "Fortress", "Orc", "Sage", "Archon",
+        "Spellmaster", "Enchanter", "Sorcerer", "Vampire", "Mystic", "Deadeye",
+        "Wyvern", "Omneye", "Falcon", "Wolf", "Spider", "Serpent",
+        "Basilisk", "Cockatrice", "Manticore", "Fleshmass", "Ghoul", "Banshee",
+        "Specter", "Wraith", "Revenant", "Moonstruck", "Lich",
+    };
+    const std::string n = enemy.getName();
+    auto has = [&](const char* k) { return n.find(k) != std::string::npos; };
+
+    for (const char* g : kGuarded) if (has(g)) return true;
+    for (const char* m : kNamed)   if (has(m)) return false;  // named, but no guard
+
+    switch (enemy.getType()) {
+        case EnemyType::MELEE:
+        case EnemyType::RANGED:
+        case EnemyType::TANK:
+        case EnemyType::BEAST:  return true;
+        default:                return false;   // CASTER and UNDEAD never brace
+    }
+}
+
 bool Game::tryStunEnemy() {
     if (enemyStatusWardActive) {
         enemyStatusWardActive = false;
@@ -753,11 +809,13 @@ void Game::refreshBattleAuras() {
     knight.weak     = playerStatus.hasWeak();
     knight.poison   = playerStatus.hasPoison();
     knight.burn     = playerStatus.hasBurn();
+    knight.rend     = playerStatus.hasRend();
     knight.stun     = playerStatus.hasStun();
     foe.strength = enemy.hasStrength();   // Moon Scent: glows red, as the knight does
     foe.weak   = enemy.hasWeak();
     foe.poison = enemy.hasPoison();
     foe.burn   = enemy.hasBurn();
+    foe.rend   = enemy.hasRend();
     foe.stun   = enemy.hasStun();
     EnemyArt::setBattleAuras(knight, foe);
 }
@@ -793,6 +851,9 @@ void Game::playCardFromHand(int index) {
             Audio::playSFX("legendary");
 
         if (playedCard.getType() == CardType::ATTACK) {
+            // One tear per attack card, not per hit: a double-hit card is still
+            // one swing as far as the wound is concerned.
+            tickPlayerRend();
             // Reckoning: ignores defense like PIERCE, and additionally refuses
             // every reduction the enemy can put in the way.
             bool trueStrike     = (playedCard.getEffect() == CardEffect::TRUESTRIKE);
@@ -876,19 +937,31 @@ void Game::playCardFromHand(int index) {
                     std::cout << "\n";
 
                     // 10% chance per hit to also inflict the matching ailment.
-                    if (enemy.isAlive() && (playedCard.getElemType() == DamageType::POISON || playedCard.getElemType() == DamageType::FIRE)) {
+                    // Wind joins poison and fire here now that it has a status of
+                    // its own, so all three elements behave the same way on hit.
+                    const DamageType elem = playedCard.getElemType();
+                    if (enemy.isAlive() && (elem == DamageType::POISON || elem == DamageType::FIRE
+                                            || elem == DamageType::WIND)) {
                         std::random_device rd;
                         std::mt19937 gen(rd());
                         if (std::uniform_int_distribution<>(1, 100)(gen) <= 10) {
-                            if (playedCard.getElemType() == DamageType::POISON) {
+                            // The value applied is 3, but the tick is not: poison pays
+                            // half of it over six turns, burn half again over two. These
+                            // numbers mirror StatusEffects::apply() and must move with it.
+                            if (elem == DamageType::POISON) {
                                 if (applyEnemyStatus(StatusType::POISON, 3)) {
                                     EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON, true);
-                                    std::cout << "  " << Color::POISON_CLR << "The venom seeps in! Poisoned for 3 dmg/turn." << Color::RESET << "\n";
+                                    std::cout << "  " << Color::POISON_CLR << "The venom seeps in! Poisoned for 2 dmg/turn." << Color::RESET << "\n";
                                 }
-                            } else {
+                            } else if (elem == DamageType::FIRE) {
                                 if (applyEnemyStatus(StatusType::BURN, 3)) {
                                     EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::BURN, true);
-                                    std::cout << "  " << Color::BURN_CLR << "The flames catch! Burning for 3 dmg/turn." << Color::RESET << "\n";
+                                    std::cout << "  " << Color::BURN_CLR << "The flames catch! Burning for 4 dmg/turn." << Color::RESET << "\n";
+                                }
+                            } else {
+                                if (applyEnemyStatus(StatusType::REND, 3)) {
+                                    EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::REND, true);
+                                    std::cout << "  " << Color::REND_CLR << "The cut runs deep! 3 damage each time it swings." << Color::RESET << "\n";
                                 }
                             }
                         }
@@ -905,10 +978,9 @@ void Game::playCardFromHand(int index) {
             }
 
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
-                // Scales with rarity, same idea as Weaken/Shatter/Sunder: Uncommon 1.2x,
-                // Rare 2x, Super Rare 3x (only Strengthen and Bloodlust use this today).
+                // Bloodlust's path. Same ladder as the SPECIAL buff cards.
                 EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
-                double strengthBuff = playedCard.isSuperRare() ? 3.0 : playedCard.isRare() ? 2.0 : 1.2;
+                double strengthBuff = playedCard.strengthMultiplier();
                 playerStatus.apply(StatusType::STRENGTH, 2, 1.5, strengthBuff);
                 std::cout << "  " << Color::STRENGTH_CLR << "Strength surges! x" << strengthBuff << " damage for 2 turns!" << Color::RESET << "\n";
             }
@@ -972,10 +1044,42 @@ void Game::playCardFromHand(int index) {
 // Parry interception, then damage. weakMult is passed in (read once per enemy
 // turn, before processWeak ticks) rather than re-read here. No boss second-wind -
 // that's bossStrikesPlayer's job.
+// Rend pays out when the enemy swings, not on the turn tick. Both attack paths
+// call this first, so an enemy that attacks twice in a turn is torn twice, and
+// one that stalls, buffs or sits stunned is never torn at all. Returns true if
+// the tear killed it, in which case the blow never lands.
+// The player half of Rend. Only the Shadow Knight can inflict it, by mirroring
+// one of the wind cards back, and it works the same way from that side: the
+// wound opens when YOU swing, so it taxes an aggressive turn and costs nothing
+// on a turn spent blocking.
+void Game::tickPlayerRend() {
+    int dmg = playerStatus.processRend();
+    if (dmg <= 0) return;
+    playerHealth = std::max(0, playerHealth - dmg);   // ignores armor, like the other DoTs
+    std::cout << "  " << Color::REND_CLR << "Your own wound tears as you swing: "
+              << dmg << " damage." << Color::RESET << "\n";
+    refreshBattleAuras();
+}
+
+bool Game::tickEnemyRend() {
+    int dmg = enemy.processRend();
+    if (dmg <= 0) return false;
+    int before = enemy.getHealth();
+    enemy.takeDamage(dmg);
+    int lost = before - enemy.getHealth();
+    EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(),
+                                     EnemyArt::CastGlow::REND, true);
+    std::cout << "  " << Color::REND_CLR << "The wound tears open as it swings: "
+              << lost << " damage." << Color::RESET << "\n";
+    refreshBattleAuras();
+    return enemy.getHealth() <= 0;
+}
+
 void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
     // Weak scales it down, Strength scales it up - the mirror of what the
     // player's own two buffs do to their attacks.
     atk = (int)(atk * weakMult * enemy.getStrengthMultiplier());
+    if (tickEnemyRend()) return;   // the tear finished it before the blow landed
     EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
     // Dodge Reversal fires before Parry when both are active (uncapped, higher priority)
     if (counterAttackActive) {
@@ -1131,6 +1235,11 @@ void Game::enemyTurn() {
     std::uniform_int_distribution<> rollDist(0, 99);
     int roll = rollDist(gen);
 
+    // How often a feared enemy braces instead of taking its turn. Deliberately not
+    // 100: a two-turn guaranteed skip would be far stronger than Taunt, which only
+    // changes WHICH action happens, never whether one happens at all.
+    const int FEAR_BRACE_CHANCE = 60;
+
     // Taunt: force this turn's roll into whichever bucket guarantees an Attack
     // action for this enemy type, rather than leaving it to chance.
     bool taunted = enemyTauntTurns > 0;
@@ -1181,6 +1290,22 @@ void Game::enemyTurn() {
     EnemyType t = enemy.getType();
     int atk = enemy.getBaseAttack();
     int def = enemy.getBaseDefense();
+
+    // Fear resolves here, once, rather than threaded through every branch below
+    // the way Taunt is. Taunt can force the roll into an attack bucket because
+    // every type has one; there is no matching "defend bucket" to invert into
+    // (the Warden attacks on a low roll, the Sentinel braces on one), and several
+    // enemies have no defensive move at all. A flat chance to brace instead of
+    // acting behaves identically for all of them.
+    if (enemyFearTurns > 0 && enemyCanDefend()) {
+        enemyFearTurns--;
+        if (rollDist(gen) < FEAR_BRACE_CHANCE) {
+            UIHelper::typeWrite(std::string(Color::CYAN)
+                + "The enemy flinches back and throws up its guard." + Color::RESET + "\n");
+            doDefend(def);
+            return;
+        }
+    }
 
     // --- Per-name signature moves. Reuse the doAttack/doDefend/applyPlayerStatus
     // helpers in scope; return when handled, else fall through to the generic
@@ -1518,11 +1643,11 @@ void Game::enemyTurn() {
             } else if (roll < 40) {
                 applyPlayerStatus(StatusType::POISON, 3);
                 Audio::playSFX("poison");
-                std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! You are poisoned for 3 stacks." << Color::RESET << "\n";
+                std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! Poison 3: 2 damage a turn for 6 turns." << Color::RESET << "\n";
             } else if (roll < 60) {
                 applyPlayerStatus(StatusType::BURN, 2);
                 Audio::playSFX("fire");
-                std::cout << Color::BURN_CLR << "Enemy casts Fireball! You are burning for 2 turns." << Color::RESET << "\n";
+                std::cout << Color::BURN_CLR << "Enemy casts Fireball! Burn 2: 3 damage a turn for 2 turns." << Color::RESET << "\n";
             } else {
                 doAttack(atk + 1, false);
             }
@@ -2078,6 +2203,7 @@ Enemy Game::generateBossEnemy() {
 // Shared by bossAction() and the Shadow Knight's mirrored attacks (can't be a lambda - those resolve outside bossAction()).
 void Game::bossStrikesPlayer(int damage, bool raw) {
     double weakMult = enemy.getWeakMultiplier() * enemy.getStrengthMultiplier();
+    if (tickEnemyRend()) return;   // the tear finished it before the blow landed
     EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
     // Dodge Reversal fires before Parry when both are active (uncapped, higher priority)
     if (counterAttackActive) {
@@ -2465,6 +2591,12 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
                 std::cout << "  " << Color::BURN_CLR << "Black flames catch, inflicting Burn " << v << "!" << Color::RESET << "\n";
                 UIHelper::pause(300);
                 break;
+            case CardEffect::REND:
+                applyPlayerStatus(StatusType::REND, v);
+                std::cout << "  " << Color::REND_CLR << "The shadow opens a wound that tears when you strike: Rend "
+                          << v << "!" << Color::RESET << "\n";
+                UIHelper::pause(300);
+                break;
             case CardEffect::WEAK:
                 applyPlayerStatus(StatusType::WEAK, v);
                 std::cout << "  " << Color::WEAK_CLR << "A creeping dread sets in, inflicting Weak " << v << "!" << Color::RESET << "\n";
@@ -2487,6 +2619,11 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
 
 void Game::offerBossReward() {
     std::vector<Card> rewards = rewardPool.generateRareRewards(3, maxEnergy, playerDeck.getAllCardNames());
+
+    // Without this the loop below builds an empty option list and still puts up
+    // a "choose one" screen with nothing on it but Skip. The rare pool runs dry
+    // before the second wave runs out of bosses, so it is reachable in play.
+    if (rewards.empty()) { offerExhaustedReward(); return; }
 
     std::vector<std::string> leftLines;
     std::vector<int>         optionIndices;
@@ -2738,6 +2875,10 @@ void Game::beginSecretEncounter() {
     playerStatus.reset();
     enemyParryStance = false;
     playerAttackOnly = false;
+    // Both are set to 2 and ticked down once per enemy turn, so killing the
+    // enemy inside that window used to carry the effect into the next fight.
+    enemyTauntTurns = 0;
+    enemyFearTurns = 0;
     playerBoundTurn = false;
     curseTurnsLeft = 0;
     lichAddAlive = false;
@@ -2947,6 +3088,10 @@ void Game::startEncounter() {
 
     // Fresh fight: clear every per-enemy signature mechanic from the last one.
     playerAttackOnly = false;
+    // Both are set to 2 and ticked down once per enemy turn, so killing the
+    // enemy inside that window used to carry the effect into the next fight.
+    enemyTauntTurns = 0;
+    enemyFearTurns = 0;
     enemyInvulnerable = false;
     enemyParryStance = false;
     nextHandPenalty = 0;
@@ -2993,6 +3138,160 @@ void Game::nextEncounter() {
     startEncounter();
 }
 
+// The forge screen, lifted out of restSite() so the card reward can reuse it
+// once the pool has nothing new left to hand out. Returns true only if a card
+// was actually upgraded - backing out or declining the confirm costs the
+// caller nothing.
+bool Game::forgeMenu(const std::string& baseTitle) {
+    if (playerDeck.totalCards() == 0) {
+        notice("Your deck is empty. Nothing to upgrade.");
+        return false;
+    }
+
+    std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+    std::stable_sort(allCards.begin(), allCards.end(),
+        [](const Card& a, const Card& b) { return rarityRank(a) > rarityRank(b); });
+
+    // Group identical cards together - picking a group upgrades every copy at once.
+    std::vector<const Card*> groupCard;
+    std::vector<int>         groupCount;
+    for (size_t i = 0; i < allCards.size(); i++) {
+        const Card& c = allCards[i];
+        bool merged = false;
+        for (size_t g = 0; g < groupCard.size(); g++) {
+            if (groupCard[g]->getName() == c.getName()) {
+                groupCount[g]++;
+                merged = true;
+                break;
+            }
+        }
+        if (!merged) {
+            groupCard.push_back(&allCards[i]);
+            groupCount.push_back(1);
+        }
+    }
+
+    // Paginated - a long collection previously produced tall enough menus to
+    // reliably trigger the redraw-duplication glitch (see the How To Play /
+    // Tutorial fixes for the same root cause).
+    const int PAGE_SIZE = 8;
+    int totalGroups = (int)groupCard.size();
+    int totalPages  = std::max(1, (totalGroups + PAGE_SIZE - 1) / PAGE_SIZE);
+    int page = 0;
+    bool committed = false;
+
+    while (true) {
+        int startIdx = page * PAGE_SIZE;
+        int endIdx   = std::min(startIdx + PAGE_SIZE, totalGroups);
+
+        // Same widgets as everywhere else, with the upgrade state as the
+        // card's note line and maxed cards greyed out rather than listed
+        // and then refused.
+        std::vector<CardBar::Card> widgets;
+        for (int g = startIdx; g < endIdx; g++) {
+            const Card& c = *groupCard[g];
+            int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
+            bool maxed = upgradesLeft <= 0;
+            // Only ATTACK and DEFEND get the flat bonuses; specials use the
+            // raw card value, so they show unmodified.
+            const int gearBonus =
+                  (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
+                : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
+                                                    : 0;
+            CardBar::Card w = toWidget(c, c.getValue() + gearBonus, maxed);
+            // On the forge the useful number is what it becomes, not what
+            // it currently is - that is the decision being made here.
+            if (!maxed) w.effect = upgradeFaceLine(c, gearBonus);
+            if (groupCount[g] > 1) w.name += " x" + std::to_string(groupCount[g]);
+            w.note = maxed ? "maxed"
+                           : (std::to_string(upgradesLeft) + " upgrade"
+                              + (upgradesLeft != 1 ? "s" : "") + " left");
+            widgets.push_back(w);
+        }
+
+        std::string title = baseTitle;
+        if (totalPages > 1)
+            title += "   page " + std::to_string(page + 1) + "/" + std::to_string(totalPages);
+
+        std::vector<CardBar::Action> acts;
+        if (totalPages > 1) {
+            acts.push_back(CardBar::Action{ "Previous page", page == 0 });
+            acts.push_back(CardBar::Action{ "Next page",     page >= totalPages - 1 });
+        }
+        acts.push_back(CardBar::Action{ "Return", false });
+
+        int choice = CardBar::pick(title, widgets, acts, 4);
+        const int shown = endIdx - startIdx;
+
+        if (choice <= -2) {                       // "+" opens the card text
+            int ci = -2 - choice;
+            if (ci >= 0 && ci < shown) {
+                const Card& c = *groupCard[startIdx + ci];
+                const int gearBonus =
+                      (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
+                    : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
+                                                        : 0;
+                int left = c.getMaxUpgrades() - c.getUpgradeCount();
+                std::string text = c.getDescription();
+                if (left > 0) {
+                    // showDetail word-wraps and has no newline handling, so
+                    // this has to read as another sentence rather than a row.
+                    text += "   Upgrading takes it to " + std::to_string(upgradedValue(c) + gearBonus);
+                    text += (c.getType() == CardType::DEFEND) ? " armor" 
+                          : (c.getType() == CardType::ATTACK) ? " damage" : " value";
+                    if (upgradedCost(c) < c.getCost())
+                        text += " and drops the cost from " + std::to_string(c.getCost())
+                              + " to " + std::to_string(upgradedCost(c));
+                    // upgradesLeft counts the one about to be applied, so
+                    // what remains afterwards is one fewer.
+                    const int after = left - 1;
+                    text += after > 0
+                          ? (". " + std::to_string(after) + " more upgrade"
+                             + (after != 1 ? "s" : "") + " after that.")
+                          : ". That is its last upgrade.";
+                } else {
+                    text += "   This card is fully upgraded.";
+                }
+                CardBar::showDetail(widgets[ci], text, c.getTypeString(),
+                                    rarityWord(c), c.getUpgradeCount());
+            }
+            continue;
+        }
+        if (choice < 0) break;                    // backed out, nothing committed
+        if (choice >= shown) {
+            int act = choice - shown;
+            if (totalPages > 1 && act == 0) { page--; continue; }
+            if (totalPages > 1 && act == 1) { page++; continue; }
+            break;                                // Return
+        }
+
+        int groupIdx = startIdx + choice;
+        std::string beforeName = groupCard[groupIdx]->getName();
+        std::string afterName  = beforeName + "+";
+
+        const std::string confirmPrompt = "Upgrade " + beforeName + " to " + afterName + "?";
+        if (!confirm(confirmPrompt)) continue; // declined - back to this page
+
+        int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
+        if (upgradedCount > 0) {
+            Audio::playSFX("upgrade");
+            std::vector<Card> updated = playerDeck.getAllCardsOrdered();
+            auto it = std::find_if(updated.begin(), updated.end(),
+                                    [&](const Card& c) { return c.getName() == afterName; });
+            std::string done = (upgradedCount > 1 ? ("All " + std::to_string(upgradedCount) + " ") : std::string())
+                             + beforeName + (upgradedCount > 1 ? " cards" : "")
+                             + " upgraded to " + afterName + ".";
+            if (it != updated.end())
+                done += "  cost " + std::to_string(it->getCost())
+                      + ", value " + std::to_string(it->getValue()) + ".";
+            notice(done);
+        }
+        committed = true;
+        break;
+    }
+    return committed;
+}
+
 void Game::restSite() {
     // Rest/Forge commit and end the visit; Return loops back to this menu.
     while (true) {
@@ -3019,155 +3318,8 @@ void Game::restSite() {
         notice("You rest and fully recover to " + std::to_string(maxPlayerHealth) + " HP.");
         break; // committed - progress as normal
     } else if (siteChoice == 1) {
-        if (playerDeck.totalCards() == 0) {
-            notice("Your deck is empty. Nothing to upgrade.");
-            continue; // nothing happened - back to the rest site menu
-        }
-
-        std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
-        std::stable_sort(allCards.begin(), allCards.end(),
-            [](const Card& a, const Card& b) { return rarityRank(a) > rarityRank(b); });
-
-        // Group identical cards together - picking a group upgrades every copy at once.
-        std::vector<const Card*> groupCard;
-        std::vector<int>         groupCount;
-        for (size_t i = 0; i < allCards.size(); i++) {
-            const Card& c = allCards[i];
-            bool merged = false;
-            for (size_t g = 0; g < groupCard.size(); g++) {
-                if (groupCard[g]->getName() == c.getName()) {
-                    groupCount[g]++;
-                    merged = true;
-                    break;
-                }
-            }
-            if (!merged) {
-                groupCard.push_back(&allCards[i]);
-                groupCount.push_back(1);
-            }
-        }
-
-        // Paginated - a long collection previously produced tall enough menus to
-        // reliably trigger the redraw-duplication glitch (see the How To Play /
-        // Tutorial fixes for the same root cause).
-        const int PAGE_SIZE = 8;
-        int totalGroups = (int)groupCard.size();
-        int totalPages  = std::max(1, (totalGroups + PAGE_SIZE - 1) / PAGE_SIZE);
-        int page = 0;
-        bool committed = false;
-
-        while (true) {
-            int startIdx = page * PAGE_SIZE;
-            int endIdx   = std::min(startIdx + PAGE_SIZE, totalGroups);
-
-            // Same widgets as everywhere else, with the upgrade state as the
-            // card's note line and maxed cards greyed out rather than listed
-            // and then refused.
-            std::vector<CardBar::Card> widgets;
-            for (int g = startIdx; g < endIdx; g++) {
-                const Card& c = *groupCard[g];
-                int upgradesLeft = c.getMaxUpgrades() - c.getUpgradeCount();
-                bool maxed = upgradesLeft <= 0;
-                // Only ATTACK and DEFEND get the flat bonuses; specials use the
-                // raw card value, so they show unmodified.
-                const int gearBonus =
-                      (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
-                    : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
-                                                        : 0;
-                CardBar::Card w = toWidget(c, c.getValue() + gearBonus, maxed);
-                // On the forge the useful number is what it becomes, not what
-                // it currently is - that is the decision being made here.
-                if (!maxed) w.effect = upgradeFaceLine(c, gearBonus);
-                if (groupCount[g] > 1) w.name += " x" + std::to_string(groupCount[g]);
-                w.note = maxed ? "maxed"
-                               : (std::to_string(upgradesLeft) + " upgrade"
-                                  + (upgradesLeft != 1 ? "s" : "") + " left");
-                widgets.push_back(w);
-            }
-
-            std::string title = "Forge   pick a card to upgrade";
-            if (totalPages > 1)
-                title += "   page " + std::to_string(page + 1) + "/" + std::to_string(totalPages);
-
-            std::vector<CardBar::Action> acts;
-            if (totalPages > 1) {
-                acts.push_back(CardBar::Action{ "Previous page", page == 0 });
-                acts.push_back(CardBar::Action{ "Next page",     page >= totalPages - 1 });
-            }
-            acts.push_back(CardBar::Action{ "Return", false });
-
-            int choice = CardBar::pick(title, widgets, acts, 4);
-            const int shown = endIdx - startIdx;
-
-            if (choice <= -2) {                       // "+" opens the card text
-                int ci = -2 - choice;
-                if (ci >= 0 && ci < shown) {
-                    const Card& c = *groupCard[startIdx + ci];
-                    const int gearBonus =
-                          (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
-                        : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
-                                                            : 0;
-                    int left = c.getMaxUpgrades() - c.getUpgradeCount();
-                    std::string text = c.getDescription();
-                    if (left > 0) {
-                        // showDetail word-wraps and has no newline handling, so
-                        // this has to read as another sentence rather than a row.
-                        text += "   Upgrading takes it to " + std::to_string(upgradedValue(c) + gearBonus);
-                        text += (c.getType() == CardType::DEFEND) ? " armor" 
-                              : (c.getType() == CardType::ATTACK) ? " damage" : " value";
-                        if (upgradedCost(c) < c.getCost())
-                            text += " and drops the cost from " + std::to_string(c.getCost())
-                                  + " to " + std::to_string(upgradedCost(c));
-                        // upgradesLeft counts the one about to be applied, so
-                        // what remains afterwards is one fewer.
-                        const int after = left - 1;
-                        text += after > 0
-                              ? (". " + std::to_string(after) + " more upgrade"
-                                 + (after != 1 ? "s" : "") + " after that.")
-                              : ". That is its last upgrade.";
-                    } else {
-                        text += "   This card is fully upgraded.";
-                    }
-                    CardBar::showDetail(widgets[ci], text, c.getTypeString(),
-                                        rarityWord(c), c.getUpgradeCount());
-                }
-                continue;
-            }
-            if (choice < 0) break;                    // backed out, nothing committed
-            if (choice >= shown) {
-                int act = choice - shown;
-                if (totalPages > 1 && act == 0) { page--; continue; }
-                if (totalPages > 1 && act == 1) { page++; continue; }
-                break;                                // Return
-            }
-
-            int groupIdx = startIdx + choice;
-            std::string beforeName = groupCard[groupIdx]->getName();
-            std::string afterName  = beforeName + "+";
-
-            const std::string confirmPrompt = "Upgrade " + beforeName + " to " + afterName + "?";
-            if (!confirm(confirmPrompt)) continue; // declined - back to this page
-
-            int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
-            if (upgradedCount > 0) {
-                Audio::playSFX("upgrade");
-                std::vector<Card> updated = playerDeck.getAllCardsOrdered();
-                auto it = std::find_if(updated.begin(), updated.end(),
-                                        [&](const Card& c) { return c.getName() == afterName; });
-                std::string done = (upgradedCount > 1 ? ("All " + std::to_string(upgradedCount) + " ") : std::string())
-                                 + beforeName + (upgradedCount > 1 ? " cards" : "")
-                                 + " upgraded to " + afterName + ".";
-                if (it != updated.end())
-                    done += "  cost " + std::to_string(it->getCost())
-                          + ", value " + std::to_string(it->getValue()) + ".";
-                notice(done);
-            }
-            committed = true;
-            break;
-        }
-
-        if (committed) break; // progress as normal
-        else continue;        // back to the rest site menu, no commitment made
+        if (forgeMenu("Forge   pick a card to upgrade")) break; // committed - progress as normal
+        continue;                                              // nothing forged - back to the menu
     } else if (siteChoice == 2) {
         viewDeckManage();
         continue; // browsing/discarding never costs your rest site visit - back to the rest site menu
@@ -3479,6 +3631,34 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
     }
 }
 
+// Every card the pool can reach at this cost is already in the deck. That is
+// reachable well inside the second wave - there are only 47 obtainable cards and
+// rewards never repeat one you own - so this has to be a real reward, not a
+// shrug. A forge visit beats a second copy that late, so it goes first.
+void Game::offerExhaustedReward() {
+    bool anyUpgradable = false;
+    for (const Card& c : playerDeck.getAllCardsOrdered()) {
+        if (c.getUpgradeCount() < c.getMaxUpgrades()) { anyUpgradable = true; break; }
+    }
+
+    if (anyUpgradable) {
+        notice("You already carry every card this road can offer."
+               "  The forge is lit instead.");
+        if (forgeMenu("Nothing new to take   upgrade a card instead")) return;
+    }
+
+    // Passing no owned names is the point: same weighted roll, duplicates
+    // allowed. generateWeightedRewards still erases each pick from its pool, so
+    // the three on screen are distinct from each other.
+    std::vector<Card> dupes = rewardPool.generateWeightedRewards(
+        3, upgrades.isActive(4), maxEnergy, {},
+        std::min(2, currentRun.getCurrentEncounter() / 10));
+    if (dupes.empty()) { notice("Nothing left to offer."); return; }
+
+    presentCardChoice(dupes, "Nothing new left   take a second copy",
+                      "Skip this reward, take none of the three?");
+}
+
 void Game::offerCardReward() {
     UIHelper::clearScreen();
     bool rarityBoost = upgrades.isActive(4);
@@ -3486,19 +3666,22 @@ void Game::offerCardReward() {
     int maxRarityUnlocked = std::min(2, currentRun.getCurrentEncounter() / 10);
     std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames(), maxRarityUnlocked);
 
-    if (rewards.empty()) {
-        notice("No new cards left to offer. You already own everything"
-               " available at this cost.");
-        return;
-    }
+    if (rewards.empty()) { offerExhaustedReward(); return; }
 
+    presentCardChoice(rewards, "Pick a card to add to your deck",
+                      "Skip this reward, take none of the three?");
+}
+
+// The three-card pick screen, shared by the normal reward and the exhausted
+// fallback so both behave identically (details on "+", confirm before taking).
+void Game::presentCardChoice(const std::vector<Card>& rewards,
+                             const std::string& title, const std::string& skipPrompt) {
     std::vector<CardBar::Card> widgets;
     for (const Card& c : rewards) widgets.push_back(toWidget(c, c.getValue()));
 
     while (true) {
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Skip", false } };
-        int choice = CardBar::pick("Pick a card to add to your deck",
-                                   widgets, acts, (int)widgets.size());
+        int choice = CardBar::pick(title, widgets, acts, (int)widgets.size());
 
         // "+" opens that card's details, then drops back to the same choice.
         if (choice <= -2) {
@@ -3511,8 +3694,7 @@ void Game::offerCardReward() {
         }
 
         if (choice < 0 || choice >= (int)rewards.size()) {
-            const std::string confirmPrompt = "Skip this reward, take none of the three?";
-            if (!confirm(confirmPrompt)) continue;
+            if (!confirm(skipPrompt)) continue;
             notice("Reward skipped.");
             return;
         }
@@ -3794,8 +3976,13 @@ void Game::showHowToPlay() {
     std::cout << "  Enemy\" in combat to plan your attacks.\n\n";
 
     std::cout << Color::BOLD << "STATUS EFFECTS" << Color::RESET << "\n";
-    std::cout << "  " << Color::POISON_CLR << "Poison" << Color::RESET << " / " << Color::BURN_CLR << "Burn" << Color::RESET
-              << "     damage over time, ticks down each turn\n";
+    std::cout << "  " << Color::POISON_CLR << "Poison" << Color::RESET
+              << "        half the card value each turn, for 6 turns. Slow, wins long fights.\n";
+    std::cout << "  " << Color::BURN_CLR << "Burn" << Color::RESET
+              << "          half again the card value each turn, for 2 turns. Hits now.\n";
+    std::cout << "  " << Color::REND_CLR << "Rend" << Color::RESET
+              << "          the full card value, but only when the target ATTACKS,\n";
+    std::cout << "                nothing while it stalls or sits stunned. Wind inflicts it.\n";
     std::cout << "  " << Color::STUN_CLR << "Stun" << Color::RESET << "          skip the target's next turn entirely\n";
     std::cout << "  " << Color::WEAK_CLR << "Weak" << Color::RESET << "          target deals 1.5-2x less damage for a few turns\n";
     std::cout << "  " << Color::STRENGTH_CLR << "Strength" << Color::RESET << "      damage dealt is multiplied for a number of turns (buff)\n\n";
