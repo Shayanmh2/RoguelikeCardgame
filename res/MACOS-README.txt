@@ -1,39 +1,47 @@
-Roguelike Cardgame - macOS
-==========================
+Roguelike Cardgame on macOS
+===========================
 
-If macOS says the file "is not safe" and only offers Done or Move to Trash,
-the game is not broken and nothing is wrong with your download.
+If the app will not open, that is Gatekeeper, not a broken download.
 
-macOS quarantines anything downloaded from the internet that has not been
-signed with a paid Apple Developer ID and submitted to Apple for notarisation.
-This is a hobby project and has not been through that process, so Gatekeeper
-refuses to open it rather than warning you.
+The game is signed, but only ad-hoc: proper notarisation needs a paid Apple
+Developer account. macOS treats an un-notarised app downloaded from the
+internet as untrusted and refuses to launch it.
 
-FIX (choose either)
+macOS 15 (Sequoia) and newer
+----------------------------
+Right-click > Open NO LONGER works on Sequoia. Apple removed that bypass.
+Do this instead:
 
-1. Terminal, one line. Open Terminal, type the following with a trailing
-   space, drag the app onto the window so the path fills itself in, press
-   Return:
+  1. Double-click the app once. It will be blocked - that is expected.
+  2. Open System Settings > Privacy & Security.
+  3. Scroll to Security. There will be a line naming the app and an
+     "Open Anyway" button. Click it.
+  4. Confirm with Touch ID or your password.
 
-       xattr -dr com.apple.quarantine 
+The app opens normally from then on.
 
-   Then open the app normally.
+macOS 14 (Sonoma) and earlier
+-----------------------------
+  1. Right-click (or Control-click) the app.
+  2. Choose Open.
+  3. Click Open in the dialog.
 
-2. System Settings. Try to open the app once and let it be blocked. Then go to
-   System Settings > Privacy & Security, scroll to the Security section, and
-   click "Open Anyway" next to the message about Roguelike Cardgame. Confirm
-   on the next prompt.
+The one-line alternative
+------------------------
+If you are comfortable in Terminal, clearing the quarantine flag skips all of
+the above. Replace the path with wherever you put the app:
 
-   On macOS 14 and earlier you can instead right-click (or Control-click) the
-   app and choose Open, which offers an Open button the plain double-click
-   does not.
+  xattr -dr com.apple.quarantine "/Applications/Roguelike Cardgame.app"
 
-WHY NOT JUST FIX IT PROPERLY
+Then launch it normally.
 
-Removing the warning needs an Apple Developer ID (99 USD/year) and each
-release run through Apple's notarisation service. If that ever happens, this
-file goes away.
+"The application is damaged and can't be opened"
+------------------------------------------------
+That message usually means the archive was unpacked by something that dropped
+the bundle's structure or the executable bit. Unpack the .tar.gz with Finder or
+with `tar -xzf`, not with a third-party unarchiver.
 
-The app keeps its assets, config and sounds inside the bundle next to the
-executable. Do not move the executable out on its own - it looks for those
-folders beside itself.
+Requirements
+------------
+macOS 11 (Big Sur) or newer, Apple Silicon. The release is built on GitHub's
+arm64 runner, so it will not run on an Intel Mac.

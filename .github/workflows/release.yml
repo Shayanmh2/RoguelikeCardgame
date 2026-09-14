@@ -59,6 +59,7 @@ jobs:
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
+             ${{ matrix.name == 'macos' && '-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' || '' }}
 
       - name: Build
         env:
@@ -106,7 +107,13 @@ jobs:
               echo '  <key>CFBundlePackageType</key><string>APPL</string>'
               echo '  <key>CFBundleShortVersionString</key><string>0.9.3</string>'
               echo '  <key>CFBundleVersion</key><string>0.9.3</string>'
-              echo '  <key>LSMinimumSystemVersion</key><string>10.13</string>'
+              echo '  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>'
+              echo '  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>'
+              echo '  <key>LSApplicationCategoryType</key><string>public.app-category.role-playing-games</string>'
+              # Must match CMAKE_OSX_DEPLOYMENT_TARGET above. Claiming 10.13
+              # while the binary was built for something newer is read as a
+              # damaged bundle rather than an unsupported one.
+              echo '  <key>LSMinimumSystemVersion</key><string>11.0</string>'
               echo '  <key>NSHighResolutionCapable</key><true/>'
               echo '</dict>'
               echo '</plist>'
@@ -116,7 +123,15 @@ jobs:
             # arm64 binary with no signature at all is killed outright by the
             # kernel, and re-signing after we rearranged the bundle keeps it
             # from being reported as damaged.
-            codesign --force --deep --sign - "$app" || echo "codesign failed (non-fatal)"
+            #
+            # NOT --deep: Apple deprecated it and it signs nested code in an
+            # order modern Gatekeeper rejects. The documented order is
+            # inside-out - every nested binary first, then the bundle itself.
+            find "$app/Contents/MacOS" -type f -perm +111 -print0 \
+              | xargs -0 -I{} codesign --force --timestamp=none --sign - "{}" || true
+            codesign --force --timestamp=none --sign - "$app" \
+              || echo "codesign failed (non-fatal)"
+            codesign --verify --strict --verbose=2 "$app" || true
 
             cp res/MACOS-README.txt "$staging/" 2>/dev/null || true
             # tar, not zip: it preserves the executable bit and the bundle layout.
