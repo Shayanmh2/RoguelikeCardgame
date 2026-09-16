@@ -243,6 +243,9 @@ struct Library {
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
     ArtSet named[45];
     Sheet player, slashFx, castFx;
+    // The knight's gear, one row of his frames per tier: the armour he wears
+    // and the sword he carries, drawn over the same poses.
+    Sheet playerArmor, playerWeapon;
     // Real projectiles: arrow, dagger, arcane bolt, fang. The cast-orb sheet
     // was standing in for all of them, so an archer's shot read as a spell.
     Sheet projFx;   // see include/ProjectileTable.h for what each frame is
@@ -264,6 +267,8 @@ struct Library {
         SHADOWKNIGHT = loadSet("assets/sprites/boss_shadowknight.png");
 
         player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
+        playerArmor  = loadSheet(basePath() + "assets/sprites/player_armor.png", 30);
+        playerWeapon = loadSheet(basePath() + "assets/sprites/player_weapon.png", 30);
         slashFx = loadSheet(basePath() + "assets/sprites/player_slash_fx.png", 30);
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
         projFx  = loadSheet(basePath() + "assets/sprites/projectiles.png", 30);
@@ -423,6 +428,9 @@ float gFlameT = 0.0f;
 int  gSlashFrame = -1;  // sword-trail overlay on the player, -1 = none
 int  gCastFrame = -1;   // cast-orb overlay on the player
 bool gGhost = false;
+// How many weapon / armour drops the knight has taken. Picks which tier
+// frame of the gear sheets he is drawn wearing.
+int gWeaponTiers = 0, gArmorTiers = 0;
 // Second-wave enemies, tinted gilded-amber. Colour-mod can only pull
 // channels down, so this is blue drained hard and green a little: red
 // stays full and the sprite reads as gold-touched.
@@ -671,6 +679,26 @@ void drawTitleScene() {
 }
 
 // Installed with Platform once, then called every frame.
+// The knight in the gear he is carrying: his armour tier drawn in the pose,
+// then his blade over it. Both sheets hold one row of poses per tier. If either
+// is missing the plain sprite is drawn instead, so the game still runs on an
+// install without them.
+void drawKnight(int frame, const SDL_Rect& dst, const Tint& tint, Uint8 alpha = 255) {
+    const Sheet& armour = lib().playerArmor;
+    const Sheet& weapon = lib().playerWeapon;
+    const int poses = lib().player.count;
+    if (!armour.ok() || poses <= 0) {
+        blit(lib().player, frame, dst, tint, alpha);
+        return;
+    }
+    const int armTier = std::max(0, std::min(gArmorTiers, armour.count / poses - 1));
+    blit(armour, armTier * poses + frame, dst, tint, alpha);
+    if (weapon.ok()) {
+        const int wepTier = std::max(0, std::min(gWeaponTiers, weapon.count / poses - 1));
+        blit(weapon, wepTier * poses + frame, dst, tint, alpha);
+    }
+}
+
 void drawScene() {
     if (gTitleMode) { drawTitleScene(); return; }
     if (Console::sceneRows() <= 0) return;
@@ -746,7 +774,7 @@ void drawScene() {
     if (pframe == F_IDLE_A || pframe == F_IDLE_B)
         pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
     gPlayerRect = pdst;
-    blit(lib().player, pframe, pdst, pt);
+    drawKnight(pframe, pdst, pt);
     if (gSlashFrame >= 0) blit(lib().slashFx, gSlashFrame, pdst, Tint{});
     if (gCastFrame >= 0)  blit(lib().castFx, gCastFrame, pdst, Tint{});
 
@@ -1390,6 +1418,12 @@ void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
 }
 
 void setEnemyGhost(bool on) { gGhost = on; }
+
+void setGearTiers(int weaponTiers, int armorTiers) {
+    ensureInstalled();
+    gWeaponTiers = weaponTiers;
+    gArmorTiers  = armorTiers;
+}
 
 // Force the lazy Library to build now. It decodes roughly twenty PNGs and
 // creates two GPU textures for each, and it used to happen on the first

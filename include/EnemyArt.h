@@ -119,6 +119,13 @@ namespace EnemyArt {
     // Set before drawing the scene.
     void setBattleAuras(AuraFlags knight, AuraFlags enemy);
 
+
+    // The gear the knight is carrying, as tier counts (0 = nothing taken yet).
+    // Armour recolours his plate; the weapon recolours the trail his blade
+    // leaves, which is the only part of the sword that is its own art. A status
+    // flash or an aura still wins: this is the colour he rests at.
+    void setGearTiers(int weaponTiers, int armorTiers);
+
     // Ghost/Illusion: render the enemy faded and spectral (Mystic, Specter,
     // Wraith while invulnerable). Set before drawing the scene, cleared after.
     void setEnemyGhost(bool on);

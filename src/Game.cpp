@@ -247,15 +247,15 @@ static EquipTier weaponTierAt(int tier) {
         // The first tier has to be large enough to move a starter card. At +8% a
         // 5-damage card rounded straight back to 5 and the drop felt like nothing.
         {"Rusty Blade", 15}, {"Iron Sword", 16}, {"Steel Blade", 17},
-        {"War Axe", 18}, {"Mythril Edge", 20}, {"Legendary Blade", 22}
+        {"Ebon Blade", 18}, {"Mythril Edge", 20}, {"Legendary Blade", 22}
     };
     int idx = std::min(tier, (int)tiers.size() - 1);
     return tiers[idx];
 }
 static EquipTier armorTierAt(int tier) {
     static const std::vector<EquipTier> tiers = {
-        {"Iron Plating", 15}, {"Steel Plating", 16}, {"Chainmail", 17},
-        {"Plate Armor", 18}, {"Mythril Plating", 20}, {"Legendary Aegis", 22}
+        {"Iron Plating", 15}, {"Chainmail", 16}, {"Steel Plating", 17},
+        {"Ivory Plate", 18}, {"Mythril Plating", 20}, {"Legendary Aegis", 22}
     };
     int idx = std::min(tier, (int)tiers.size() - 1);
     return tiers[idx];
@@ -957,6 +957,9 @@ bool Game::tryStunEnemy() {
 }
 
 void Game::refreshBattleAuras() {
+    // Cheap, and this runs whenever the scene is about to be redrawn, so a drop
+    // taken between fights shows on the knight without another call site.
+    EnemyArt::setGearTiers(weaponTier, armorTier);
     EnemyArt::AuraFlags knight, foe;
     knight.strength = playerStatus.hasStrength();
     knight.weak     = playerStatus.hasWeak();
