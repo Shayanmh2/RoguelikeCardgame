@@ -115,6 +115,9 @@ private:
     int  enemyProjectile() const;    // frame from the generated ProjectileTable
     int  enemyMuzzleX() const;       // and where on its sprite the shot leaves
     int  enemyMuzzleY() const;
+    // The Archon's attack frames ARE its pillars of flame, so every move it
+    // makes raises them across the arena rather than only its Hellfire.
+    bool enemyRaisesFlames() const;
     bool enemyIsFlyer() const;       // Wyvern, Falcon: dives in, pulls away, throws nothing
     bool archetypeIsRanged() const;  // RANGED and CASTER fight at a distance by nature
     void triggerAssassinAmbush(); // Assassin only: one free strike after a random card the player plays

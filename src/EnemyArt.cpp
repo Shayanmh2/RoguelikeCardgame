@@ -415,6 +415,7 @@ int   gBeamFrame = -1;
 float gBeamT = 0.0f;
 int   gBeamSrcXPct = 50, gBeamSrcYPct = 50;
 int   gBeamAlpha = 255;
+Tint  gBeamTint;
 // Pillars of flame standing on the floor between the fighters, climbing as
 // gFlameT runs 0 to 1.
 int   gFlameFrame = -1;
@@ -815,7 +816,12 @@ void drawScene() {
                 SDL_Rect bdst{ bx0 - len, edst.y, len, sprH };
                 SDL_Rect bsrc{ gBeamFrame * ps.frameW, 0, ps.frameW, ps.frameH };
                 SDL_SetTextureAlphaMod(ps.tex, (Uint8)gBeamAlpha);
+                SDL_SetTextureColorMod(ps.tex,
+                                       (Uint8)std::min(255, (int)(gBeamTint.mulR * 255.0f + 0.5f)),
+                                       (Uint8)std::min(255, (int)(gBeamTint.mulG * 255.0f + 0.5f)),
+                                       (Uint8)std::min(255, (int)(gBeamTint.mulB * 255.0f + 0.5f)));
                 SDL_RenderCopyEx(r, ps.tex, &bsrc, &bdst, 0.0, nullptr, SDL_FLIP_HORIZONTAL);
+                SDL_SetTextureColorMod(ps.tex, 255, 255, 255);
                 SDL_SetTextureAlphaMod(ps.tex, 255);
             }
         }
@@ -1261,7 +1267,7 @@ void printEnemyCast(EnemyType type, BossType boss, CastGlow glow, int projectile
 // A beam extends rather than travels: it stays joined to the eye, reaches the
 // knight, holds, and fades.
 void printEnemyBeam(EnemyType type, BossType boss, int projectile,
-                    int muzzleX, int muzzleY) {
+                    int muzzleX, int muzzleY, bool weakGlow) {
     ensureInstalled();
     gPortraitOnly = false;
     gType = type; gBoss = boss;
@@ -1276,6 +1282,7 @@ void printEnemyBeam(EnemyType type, BossType boss, int projectile,
     gBeamSrcXPct = muzzleX >= 0 ? muzzleX : s.sheet.muzzleXPct;
     gBeamSrcYPct = muzzleY >= 0 ? muzzleY : s.sheet.muzzlePct;
     gBeamAlpha   = 255;
+    gBeamTint    = weakGlow ? statusTint(CastGlow::WEAK) : Tint{};
     // Reaches across in about a third of a second, then burns for a beat.
     for (int i = 0; i <= 8; i++) { gBeamT = (float)i / 8.0f; hold(26); }
     hold(150);
@@ -1284,6 +1291,7 @@ void printEnemyBeam(EnemyType type, BossType boss, int projectile,
     gBeamFrame = -1;
     gBeamT = 0.0f;
     gBeamAlpha = 255;
+    gBeamTint = Tint{};
     gEnemyFrame = F_IDLE_A;
 }
 

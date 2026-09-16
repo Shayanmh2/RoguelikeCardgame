@@ -87,8 +87,10 @@ namespace EnemyArt {
 
     // A beam, which is not a projectile: it stays attached to the eye that fires
     // it and reaches across the field, rather than travelling as an object.
+    // weakGlow washes the ray in the Weak colour, for a gaze that saps rather
+    // than burns. The art is the same ray either way.
     void printEnemyBeam(EnemyType type, BossType boss, int projectile,
-                        int muzzleX = -1, int muzzleY = -1);
+                        int muzzleX = -1, int muzzleY = -1, bool weakGlow = false);
 
     // Flame climbing out of the floor across the whole arena, the Archon's own
     // attack frames spread over the ground between the two fighters.

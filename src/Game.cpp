@@ -1272,6 +1272,10 @@ int Game::enemyProjectile() const {
     }
 }
 
+bool Game::enemyRaisesFlames() const {
+    return enemy.getName().find("Archon") != std::string::npos;
+}
+
 bool Game::enemyIsFlyer() const {
     const std::string n = enemy.getName();
     return n.find("Wyvern") != std::string::npos || n.find("Falcon") != std::string::npos;
@@ -1290,6 +1294,9 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
     if (fromCompanion)
         EnemyArt::printCompanionAttack(enemy.getType(), enemy.getBossType());
+    else if (enemyRaisesFlames())
+        EnemyArt::printGroundFlames(enemy.getType(), enemy.getBossType(),
+                                    ProjectileTable::FX_PILLAR);
     else
         EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0, ranged,
                                     useAttackFrames, projectile,
@@ -1548,6 +1555,11 @@ void Game::enemyTurn() {
     // proj picks the art that crosses the field. -1 keeps the generic status orb,
     // which is right for an ailment with no object of its own.
     auto cast = [&](EnemyArt::CastGlow g, int proj = -1) {
+        if (enemyRaisesFlames()) {
+            EnemyArt::printGroundFlames(enemy.getType(), enemy.getBossType(),
+                                        ProjectileTable::FX_PILLAR);
+            return;
+        }
         EnemyArt::printEnemyCast(enemy.getType(), enemy.getBossType(), g, proj, enemyMuzzleX(), enemyMuzzleY());
     };
     // For a status that RIDES an attack. The blow already crossed the field, so
@@ -1891,7 +1903,17 @@ void Game::enemyTurn() {
     if (nameHas("Wyvern"))  { themed("Wyvern dives with a FLYING GNASH!");
                               doAttackAt(atk + 2, true, true, true, EnemyArt::Proj::NONE, /*closeIn*/true); return; }
     if (nameHas("Omneye")) {
-        if (!taunted && roll < 30) { cast(EnemyArt::CastGlow::WEAK); applyPlayerStatus(StatusType::WEAK, 2); Audio::playSFXPitched("special", 0.85f); std::cout << Color::WEAK_CLR << "Omneye's gaze unsettles you. Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); return; }
+        if (!taunted && roll < 30) {
+            // The same ray it shoots with, washed blue: the eye has one way of
+            // reaching you, and it was throwing an orb across the sky.
+            EnemyArt::printEnemyBeam(enemy.getType(), enemy.getBossType(), ProjectileTable::FX_BEAM,
+                                     enemyMuzzleX(), enemyMuzzleY(), /*weakGlow*/true);
+            applyPlayerStatus(StatusType::WEAK, 2);
+            Audio::playSFXPitched("special", 0.85f);
+            std::cout << Color::WEAK_CLR << "Omneye's gaze unsettles you. Weakened 2." << Color::RESET << "\n";
+            UIHelper::pause(200);
+            return;
+        }
         themed("Omneye fires a searing eye-beam!");
         // A beam, not a bolt: it stays joined to the pupil.
         EnemyArt::printEnemyBeam(enemy.getType(), enemy.getBossType(), ProjectileTable::FX_BEAM,
