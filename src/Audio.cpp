@@ -5,6 +5,8 @@
 #include <filesystem>
 #include <iostream>
 #include <cstdint>
+#include <cstdio>
+#include <cstdio>
 
 #if defined(_WIN32)
     #include <windows.h>
@@ -147,22 +149,70 @@ void Audio::stopBGM() {
     currentBgmPath.clear();
 }
 
+// Loads (once) and returns the chunk for a cue, or nullptr if there is no file.
+static Mix_Chunk* loadSFX(const std::string& name) {
+    auto it = sfxCache.find(name);
+    if (it != sfxCache.end()) return it->second;
+    std::string dir = Audio::exeDir() + "sounds/";
+    std::string path;
+    if (std::filesystem::exists(dir + name + ".mp3")) path = dir + name + ".mp3";
+    else if (std::filesystem::exists(dir + name + ".wav")) path = dir + name + ".wav";
+    else { sfxCache[name] = nullptr; return nullptr; } // remember "missing" so we don't stat the disk again
+    Mix_Chunk* chunk = Mix_LoadWAV(path.c_str()); // despite the name, Mix_LoadWAV decodes mp3/wav/ogg alike
+    if (!chunk)
+        std::cerr << "Audio: could not load " << path << ": " << Mix_GetError() << "\n";
+    sfxCache[name] = chunk;
+    return chunk;
+}
+
 void Audio::playSFX(const std::string& name) {
     if (!audioReady) return;
-    auto it = sfxCache.find(name);
-    Mix_Chunk* chunk = nullptr;
-    if (it != sfxCache.end()) {
-        chunk = it->second;
-    } else {
-        std::string dir = exeDir() + "sounds/";
-        std::string path;
-        if (std::filesystem::exists(dir + name + ".mp3")) path = dir + name + ".mp3";
-        else if (std::filesystem::exists(dir + name + ".wav")) path = dir + name + ".wav";
-        else { sfxCache[name] = nullptr; return; } // remember "missing" so we don't stat the disk again
-        chunk = Mix_LoadWAV(path.c_str()); // despite the name, Mix_LoadWAV decodes mp3/wav/ogg alike
-        if (!chunk)
-            std::cerr << "Audio: could not load " << path << ": " << Mix_GetError() << "\n";
-        sfxCache[name] = chunk;
-    }
+    Mix_Chunk* chunk = loadSFX(name);
     if (chunk) Mix_PlayChannel(-1, chunk, 0);
+}
+
+// A pitched copy of a cue: SDL_mixer has no pitch control, and a second
+// recording of every sound is a lot of megabytes for one bit of information.
+// Nearest-sample resampling is enough for cues this short and this noisy.
+void Audio::playSFXPitched(const std::string& name, float ratio) {
+    if (!audioReady) return;
+    if (ratio <= 0.05f || ratio > 4.0f) ratio = 1.0f;
+    char key[64];
+    std::snprintf(key, sizeof(key), "%s@%.2f", name.c_str(), (double)ratio);
+    auto it = sfxCache.find(key);
+    if (it != sfxCache.end()) {
+        if (it->second) Mix_PlayChannel(-1, it->second, 0);
+        return;
+    }
+    Mix_Chunk* base = loadSFX(name);
+    // One decoded format; anything but signed 16-bit plays at its own pitch.
+    int freq = 0, channels = 0; Uint16 fmt = 0;
+    if (!base || !Mix_QuerySpec(&freq, &fmt, &channels) || fmt != AUDIO_S16SYS) {
+        sfxCache[key] = nullptr;
+        if (base) Mix_PlayChannel(-1, base, 0);
+        return;
+    }
+    const int frameBytes = 2 * channels;
+    const Uint32 inFrames = base->alen / frameBytes;
+    const Uint32 outFrames = (Uint32)(inFrames / ratio);
+    if (inFrames == 0 || outFrames == 0) { sfxCache[key] = nullptr; return; }
+
+    Uint8* buf = (Uint8*)SDL_malloc((size_t)outFrames * frameBytes);
+    if (!buf) { sfxCache[key] = nullptr; return; }
+    const Sint16* in = (const Sint16*)base->abuf;
+    Sint16* out = (Sint16*)buf;
+    for (Uint32 f = 0; f < outFrames; f++) {
+        Uint32 src = (Uint32)(f * ratio);
+        if (src >= inFrames) src = inFrames - 1;
+        for (int c = 0; c < channels; c++)
+            out[f * channels + c] = in[src * channels + c];
+    }
+    Mix_Chunk* pitched = (Mix_Chunk*)SDL_malloc(sizeof(Mix_Chunk));
+    if (!pitched) { SDL_free(buf); sfxCache[key] = nullptr; return; }
+    pitched->allocated = 1;          // Mix_FreeChunk owns the buffer from here
+    pitched->abuf = buf;
+    pitched->alen = outFrames * frameBytes;
+    pitched->volume = base->volume;
+    sfxCache[key] = pitched;
+    Mix_PlayChannel(-1, pitched, 0);
 }

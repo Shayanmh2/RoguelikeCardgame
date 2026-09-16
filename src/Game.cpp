@@ -3,6 +3,7 @@
 #include "Colors.h"
 #include "UIHelper.h"
 #include "EnemyArt.h"
+#include "ProjectileTable.h"
 #include "Console.h"
 #include "CardBar.h"
 #include "Hud.h"
@@ -17,7 +18,7 @@
 #include <stdexcept> // catch(std::out_of_range) below; reaches us transitively today
                      // on all three toolchains, but Deck.cpp proved that is luck.
 
-Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamageBonus(0), equipArmorBonus(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
+Game::Game() : playerDeck(), enemy("Enemy", 50, 8, 4, EnemyType::MELEE), currentRun(), playerHealth(100), maxPlayerHealth(100), playerArmor(0), playerArmorPersistTurns(0), playerEnergy(3), maxEnergy(3), turnNumber(1), playerTurnActive(true), running(false), inEncounter(false), equipDamagePercent(0), equipArmorPercent(0), weaponTier(0), armorTier(0), counterAttackActive(false), parryActive(false), counterBonusValue(0), parryBonusValue(0) {}
 
 // Elemental effects get a matching sound; everything else uses "special".
 static const char* effectSoundName(CardEffect effect) {
@@ -29,6 +30,18 @@ static const char* effectSoundName(CardEffect effect) {
         case CardEffect::HEAL:   return "heal";
         default:                 return "special";
     }
+}
+
+// The stripe along a card's top edge says what KIND of thing it is. Equipment
+// used to borrow the attack red and the defend blue, so a weapon drop looked
+// like an attack card and an armour drop like a defend card. Items and boons
+// get their own colours instead.
+namespace Stripe {
+    constexpr int ATTACK  =  9;   // red
+    constexpr int DEFEND  = 12;   // blue
+    constexpr int SPECIAL = 13;   // purple
+    constexpr int ITEM    = 10;   // green  - equipment and consumables
+    constexpr int BOON    = 15;   // white  - the one-off run choices
 }
 
 // Card name tint by rarity; legendary gets bold gold instead of a pastel.
@@ -56,13 +69,14 @@ static std::string cardFaceLine(const Card& c, int shownValue) {
         case CardEffect::DOUBLE_HIT: extra = "hits x2";  break;
         case CardEffect::IMPAIR:     extra = "impair";   break;
         case CardEffect::CHIP:       extra = "chip";     break;
-        case CardEffect::HEAL:       base  = "heal " + std::to_string(shownValue); break;
+        case CardEffect::HEAL:       base  = "to " + std::to_string(shownValue) + "%"; break;
         case CardEffect::WARD:       extra = "ward";     break;
         case CardEffect::TAUNT:      extra = "taunt";    break;
         case CardEffect::FEAR:       extra = "fear";     break;
         // Six characters is what fits beside a three-digit damage figure;
         // "unstoppable" was rendering as "unstop".
         case CardEffect::TRUESTRIKE: extra = "true";    break;
+        case CardEffect::TRUE_DOUBLE: extra = "true x2"; break;
         default: break;
     }
     if (extra) base += "  " + std::string(extra);
@@ -87,28 +101,24 @@ static CardBar::Card toWidget(const Card& c, int shownValue, bool disabled = fal
                     : c.isStarter()   ?   7
                                       : 120);
     w.tint = Console::xterm256Public(
-                 (c.getType() == CardType::ATTACK) ? 9
-               : (c.getType() == CardType::DEFEND) ? 12
-                                                   : 13);
+                 (c.getType() == CardType::ATTACK) ? Stripe::ATTACK
+               : (c.getType() == CardType::DEFEND) ? Stripe::DEFEND
+                                                   : Stripe::SPECIAL);
     return w;
 }
 
 // What one upgrade would do to this card. Card::upgrade() adds 3 to the value
 // and takes 1 off the cost with a floor of 1, so both are predictable without
 // having to actually apply it.
+static int upgradedCost(const Card& c)  { return c.getCost() > c.minCost() ? c.getCost() - 1 : c.getCost(); }
 static int upgradedValue(const Card& c) { return c.getValue() + 3; }
-static int upgradedCost(const Card& c)  { return c.getCost() > 1 ? c.getCost() - 1 : c.getCost(); }
 
-// Compact "6 -> 9 dmg" for the card face. The face clips at about fifteen
-// characters, so this cannot spell out the whole change.
-// `bonus` is the flat damage or armour the player already adds to every card
-// of that type. The in-battle hand shows values with it folded in, so the
-// forge has to as well - otherwise a Strike reads "5 -> 8" here and hits for
-// 61 in the fight. Specials get no bonus, so callers pass 0 for those.
-static std::string upgradeFaceLine(const Card& c, int bonus) {
-    const int v = c.getValue() + bonus, u = upgradedValue(c) + bonus;
+// Compact "6 -> 9 dmg" for the card face, which clips at about fifteen
+// characters. Both numbers arrive already geared: the hand shows geared values,
+// so the forge has to as well.
+static std::string upgradeFaceLine(const Card& c, int v, int u) {
     if (c.getEffect() == CardEffect::HEAL)
-        return "heal " + std::to_string(v) + "->" + std::to_string(u);
+        return "to " + std::to_string(v) + "% -> " + std::to_string(u) + "%";
     const char* unit = (c.getType() == CardType::ATTACK) ? " dmg"
                      : (c.getType() == CardType::DEFEND) ? " armor" : " stk";
     return std::to_string(v) + " -> " + std::to_string(u) + unit;
@@ -128,6 +138,26 @@ static const char* rarityTint(const Card& c) {
     if (c.isSuperRare()) return Color::SUPER_RARE_TINT;
     if (c.isRare())      return Color::RARE_TINT;
     return Color::COMMON_TINT;
+}
+
+// How often an enemy reaches for its own moves; the rest of the time it runs its
+// archetype kit. Shared with displayEnemyInfo() so the odds the player is shown
+// are the odds the turn logic actually rolls.
+static const int kSignatureChance = 40;
+
+// A boon every this many encounters, for the whole run.
+static const int BOON_INTERVAL = 12;
+
+static int signatureChanceFor(const std::string& name) {
+    auto has = [&](const char* k) { return name.find(k) != std::string::npos; };
+    // The secret fight should play like ITS fight, not like any other beast:
+    // its own moves outnumber every kit move put together.
+    if (has("Moonstruck")) return 60;
+    // Two full hits in one turn; at 40% these were the moves that felt constant.
+    if (has("Enforcer") || has("Manticore")) return 30;
+    // A summon that then stays on the field and attacks every turn.
+    if (has("Lich")) return 25;
+    return kSignatureChance;
 }
 
 // Higher = rarer; used to sort card lists highest-rarity-first (Forge, View Deck).
@@ -165,6 +195,7 @@ static const char* effectToStr(CardEffect e) {
         case CardEffect::TAUNT:      return "TAUNT";
         case CardEffect::FEAR:       return "FEAR";
         case CardEffect::TRUESTRIKE: return "TRUESTRIKE";
+        case CardEffect::TRUE_DOUBLE: return "TRUE_DOUBLE";
         default:                     return "NONE";
     }
 }
@@ -206,21 +237,36 @@ static int equipTintFor(int tier) {
     return 120;                  // common: pale green
 }
 
+// Gear is a percentage of a card's own value, so it scales with the deck you
+// built instead of paying out once per card played. No ceiling: a percentage
+// cannot run away the way a flat bonus did.
+static const int GEAR_PCT_CAP = 100000;
+
 static EquipTier weaponTierAt(int tier) {
     static const std::vector<EquipTier> tiers = {
-        {"Rusty Blade", 3}, {"Iron Sword", 4}, {"Steel Blade", 5},
-        {"War Axe", 6}, {"Mythril Edge", 8}, {"Legendary Blade", 10}
+        // The first tier has to be large enough to move a starter card. At +8% a
+        // 5-damage card rounded straight back to 5 and the drop felt like nothing.
+        {"Rusty Blade", 15}, {"Iron Sword", 16}, {"Steel Blade", 17},
+        {"War Axe", 18}, {"Mythril Edge", 20}, {"Legendary Blade", 22}
     };
     int idx = std::min(tier, (int)tiers.size() - 1);
     return tiers[idx];
 }
 static EquipTier armorTierAt(int tier) {
     static const std::vector<EquipTier> tiers = {
-        {"Iron Plating", 3}, {"Steel Plating", 4}, {"Chainmail", 5},
-        {"Plate Armor", 6}, {"Mythril Plating", 8}, {"Legendary Aegis", 10}
+        {"Iron Plating", 15}, {"Steel Plating", 16}, {"Chainmail", 17},
+        {"Plate Armor", 18}, {"Mythril Plating", 20}, {"Legendary Aegis", 22}
     };
     int idx = std::min(tier, (int)tiers.size() - 1);
     return tiers[idx];
+}
+
+// Derived from the tier count rather than accumulated, so a save file only has
+// to store the tier and the percentage rebuilds itself correctly on load.
+static int gearPercentFor(int tiers, bool weapon) {
+    int p = 0;
+    for (int i = 0; i < tiers; i++) p += (weapon ? weaponTierAt(i) : armorTierAt(i)).bonus;
+    return std::min(GEAR_PCT_CAP, p);
 }
 
 void Game::init() {
@@ -229,15 +275,18 @@ void Game::init() {
     playerDeck.addCard(Card("Slash", "Deal 4 damage.", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage. Counts as a Smash attack, so it hits harder against enemies weak to Smash and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::SMASH));
     playerDeck.addCard(Card("Lunge", "Deal 6 damage. Counts as a Pierce attack, so it hits harder against enemies weak to Pierce and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::PIERCE));
-    playerDeck.addCard(Card("Defend", "Gain 8 armor.", CardType::DEFEND, 1, 8));
-    playerDeck.addCard(Card("Brace", "Gain 8 armor.", CardType::DEFEND, 1, 8));
+    // 5 armor: two of these at one energy each covered most of an early turn.
+    playerDeck.addCard(Card("Defend", "Gain 5 armor.", CardType::DEFEND, 1, 5));
+    playerDeck.addCard(Card("Brace", "Gain 5 armor.", CardType::DEFEND, 1, 5));
     playerDeck.addCard(Card("Parry",
         "Block the enemy's next attack and riposte for 1.5x their attack "
         "plus 3, ignoring their defense, with a chance to stun them. "
         "How big a blow you can catch is your armor plus 9: too heavy a hit "
         "breaks the guard. Ranged enemies are blocked but stand too far away "
         "to riposte.",
-        CardType::SPECIAL, 3, 3, CardEffect::PARRY));
+        // Cost 2, not 3: with starters no longer upgradable this is where Parry
+        // used to end up anyway, and 3 was never the cost it was balanced at.
+        CardType::SPECIAL, 2, 3, CardEffect::PARRY));
 
     applyUpgrades();
     
@@ -364,7 +413,9 @@ void Game::displayActionLog() const {
 }
 
 void Game::displayEnemyInfo() const {
-    int atk = enemy.getBaseAttack();
+    // Includes any self-buff, so the numbers on this screen are the numbers
+    // the enemy will actually hit for right now.
+    int atk = enemy.getBaseAttack() + enemy.getBonusAttack();
     int def = enemy.getBaseDefense(); // used below for move-estimate formulas, not the live display
 
     EnemyArt::print(EnemyArt::getWalkFrame(enemy.getType(), enemy.getBossType()));
@@ -388,39 +439,42 @@ void Game::displayEnemyInfo() const {
                    << " (-50% dmg from matching attacks)" << Color::RESET << "\n";
     enemy.displayStatusEffects("  ");
 
-    std::cout << "\n" << Color::DIM << "Possible moves:" << Color::RESET << "\n";
+    std::cout << "\n" << Color::DIM << "Possible moves (chance per turn):" << Color::RESET << "\n";
 
     if (enemy.isBoss()) {
         switch (enemy.getBossType()) {
+            // Percentages are the roll buckets in bossAction(); keep them in step.
+            // Each line carries what the move does, not just how often.
             case BossType::STONE_COLOSSUS:
-                std::cout << "  " << Color::RED    << "Earthquake Slam" << Color::RESET << " (rare)    - hits you twice, ignores armor\n";
-                std::cout << "  " << Color::ARMOR_CLR << "Fortify"      << Color::RESET << " (common)  - gains a lot of armor\n";
-                std::cout << "  " << Color::RED    << "Crush"           << Color::RESET << " (common)  - heavy melee strike\n";
+                std::cout << "  " << Color::RED << "Crush" << Color::RESET << " (55%, " << (atk + 4) << " dmg) - a heavy melee strike\n";
+                std::cout << "  " << Color::ARMOR_CLR << "Fortify" << Color::RESET << " (30%, Armor +8) - digs in\n";
+                std::cout << "  " << Color::RED << "Earthquake Slam" << Color::RESET << " (15%, 15 dmg) - ignores your armor entirely\n";
                 break;
             case BossType::VILE_WITCH:
-                std::cout << "  " << Color::CARD_SPECIAL << "Poison Cloud" << Color::RESET << " (common)  - poisons you heavily\n";
-                std::cout << "  " << Color::CARD_SPECIAL << "Hex"          << Color::RESET << " (common)  - burns you\n";
-                std::cout << "  " << Color::RED         << "Strike"       << Color::RESET << " (uncommon)- direct attack\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Plague" << Color::RESET << " (40%, Poison 4 + Burn 2) - both at once\n";
+                std::cout << "  " << Color::RED << "Strike" << Color::RESET << " (30%, " << atk << " dmg) - a direct attack\n";
+                std::cout << "  " << Color::HEAL << "Life Siphon" << Color::RESET << " (15%, heals 20) - drains your health into herself\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Toxic Eruption" << Color::RESET << " (15%, Poison 6) - the ground itself festers\n";
                 break;
             case BossType::WARLORD:
-                std::cout << "  " << Color::STUN_CLR << "Thunderstrike" << Color::RESET << " (rare)    - stuns you, then attacks\n";
-                std::cout << "  " << Color::CARD_SPECIAL << "War Cry"   << Color::RESET << " (uncommon)- weakens you, then attacks\n";
-                std::cout << "  " << Color::RED      << "Heavy Strike"  << Color::RESET << " (common)  - attacks, grows stronger each turn\n";
+                std::cout << "  " << Color::RED << "Heavy Strike" << Color::RESET << " (73%, " << atk << " dmg) - and it grows +1 attack, up to +10\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Battlecry" << Color::RESET << " (15%, Weaken 3) - no attack that turn\n";
+                std::cout << "  " << Color::STUN_CLR << "Thunderstrike" << Color::RESET << " (12%, stun) - you lose your next turn\n";
                 break;
             case BossType::HYDRA:
-                std::cout << "  " << Color::CARD_SPECIAL << "Venomous Bite" << Color::RESET << " (common)  - poisons you heavily\n";
-                std::cout << "  " << Color::RED         << "Twin Strike"   << Color::RESET << " (common)  - hits you twice\n";
-                std::cout << "  " << Color::HEAL        << "Regrowth"      << Color::RESET << " (uncommon)- regrows a head, heals HP\n";
-                std::cout << "  " << Color::RED         << "Bite"          << Color::RESET << " (uncommon)- direct attack\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Venomous Bite" << Color::RESET << " (30%, Poison 5) - venom in the wound\n";
+                std::cout << "  " << Color::RED << "Twin Strike" << Color::RESET << " (25%, " << atk << " dmg x2) - two heads, two bites\n";
+                std::cout << "  " << Color::RED << "Bite" << Color::RESET << " (25%, " << atk << " dmg) - a direct attack\n";
+                std::cout << "  " << Color::HEAL << "Regrowth" << Color::RESET << " (20%, heals 18) - regrows a severed head\n";
                 break;
             case BossType::DRAGON:
-                std::cout << "  " << Color::CARD_SPECIAL << "Fire Breath" << Color::RESET << " (common)  - burns you heavily\n";
-                std::cout << "  " << Color::RED       << "Claw Rake"   << Color::RESET << " (uncommon)- heavy strike, ignores armor\n";
-                std::cout << "  " << Color::CARD_SPECIAL << "Wing Buffet" << Color::RESET << " (uncommon)- knocks you off balance, weakens you\n";
-                std::cout << "  " << Color::RED         << "Claw"        << Color::RESET << " (uncommon)- direct attack\n";
+                std::cout << "  " << Color::RED << "Claw" << Color::RESET << " (30%, " << atk << " dmg) - a direct attack\n";
+                std::cout << "  " << Color::RED << "Claw Rake" << Color::RESET << " (25%, " << (atk + 5) << " dmg) - ignores your armor\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Wing Buffet" << Color::RESET << " (25%, Weaken 3) - knocks you off balance\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Fire Breath" << Color::RESET << " (20%, Burn 8) - a wall of flame\n";
                 break;
             case BossType::SHADOW_KNIGHT:
-                std::cout << "  " << Color::CARD_SPECIAL << "Dark Mirror" << Color::RESET << " (always)  - plays a shadow copy of a random card from YOUR deck\n";
+                std::cout << "  " << Color::CARD_SPECIAL << "Dark Mirror" << Color::RESET << " (100%) - plays a shadow copy of a random card from YOUR deck\n";
                 std::cout << "  " << Color::DIM << "  Your attacks become its strikes, your armor its guard, your potions its mending." << Color::RESET << "\n";
                 std::cout << "  " << Color::DIM << "  The bigger your deck's numbers, the harder it hits back." << Color::RESET << "\n";
                 break;
@@ -428,106 +482,175 @@ void Game::displayEnemyInfo() const {
         }
     } else {
         auto nameHas = [&](const char* k){ return enemy.getName().find(k) != std::string::npos; };
-        // tag shown in parens right after the move name: exact hit chance and/or damage,
-        // pulled from the same roll thresholds/formulas enemyTurn() actually uses.
+        // Lines are collected first so each group is printed under a heading that
+        // states its share of turns. Every tag is a chance PER TURN: an enemy's own
+        // moves share S% of its turns, the archetype kit the rest.
+        std::string buf;
         auto line = [&](const char* clr, const char* mv, const std::string& tag, const std::string& desc){
-            std::cout << "  " << clr << mv << Color::RESET;
-            if (!tag.empty()) std::cout << Color::DIM << " (" << tag << ")" << Color::RESET;
-            std::cout << " - " << desc << "\n";
+            buf += std::string("  ") + clr + mv + Color::RESET;
+            if (!tag.empty()) buf += std::string(Color::DIM) + " (" + tag + ")" + Color::RESET;
+            buf += " - " + desc + "\n";
         };
-        auto pct     = [](int p){ return std::to_string(p) + "%"; };
-        auto justDmg = [](int d){ return std::to_string(d) + " dmg"; };
-        auto pctDmg  = [](int p, int d){ return std::to_string(p) + "%, " + std::to_string(d) + " dmg"; };
-        auto pctTag  = [](int p, const std::string& s){ return std::to_string(p) + "%, " + s; };
+        auto flush = [&](const std::string& heading){
+            if (buf.empty()) return;
+            std::cout << "  " << Color::DIM << heading << Color::RESET << "\n" << buf;
+            buf.clear();
+        };
+        auto pct   = [](int p){ return std::to_string(p) + "%"; };
+        auto dmg   = [](int d){ return std::to_string(d) + " dmg"; };
+        auto tag   = [](const std::string& p, const std::string& t){ return p + ", " + t; };
+        auto armor = [](int a){ return "Armor +" + std::to_string(a); };
+        const int S   = signatureChanceFor(enemy.getName());
+        const int kit = 100 - S;
+        const std::string all = pct(S);
+        auto sig    = [&](int share) { return pct(S * share / 100); };
+        auto kitPct = [&](int share) { return pct(share * kit / 100); };
+
         bool named = true;
         // MELEE
-        if      (nameHas("Goblin"))    line(Color::RED, "Jab", justDmg(atk), "a quick strike.");
-        else if (nameHas("Bandit"))    line(Color::RED, "Dagger Throw", justDmg(atk), "a hurled blade.");
-        else if (nameHas("Raider"))    line(Color::RED, "Bash", justDmg(atk), "a heavy smash.");
-        else if (nameHas("Warrior"))   line(Color::RED, "Pierce", justDmg(atk), "a lunge that bypasses half your armor.");
-        else if (nameHas("Knight"))    line(Color::ARMOR_CLR, "Shield Bash", justDmg(std::max(1, atk / 2)), "raises armor, then chips you.");
-        else if (nameHas("Berserker")) line(Color::RED, "Frenzy", pctDmg(55, atk), "45% chance to grow +2 attack instead.");
-        else if (nameHas("Gladiator")) line(Color::RED, "Uppercut", justDmg(atk + 3), "a brutal armor-piercing blow.");
-        else if (nameHas("Enforcer"))  line(Color::RED, "Combo Strike", justDmg(atk) + " x2", "hits you twice.");
+        if      (nameHas("Goblin"))    line(Color::RED, "Jab", tag(all, dmg(atk)), "a quick strike.");
+        else if (nameHas("Bandit"))    line(Color::RED, "Dagger Throw", tag(all, dmg(atk)), "a hurled blade. Parry blocks it but cannot riposte.");
+        else if (nameHas("Raider"))    line(Color::RED, "Bash", tag(all, dmg(atk)), "a heavy smash.");
+        else if (nameHas("Warrior"))   line(Color::RED, "Pierce", tag(all, dmg(atk)), "a lunge that bypasses half your armor.");
+        else if (nameHas("Knight"))    line(Color::ARMOR_CLR, "Shield Bash", tag(all, dmg(std::max(1, atk / 2))), "raises " + armor(def) + ", then chips you.");
+        else if (nameHas("Berserker")) {
+            line(Color::RED, "Roar", sig(45), "+2 attack, up to +6. Once maxed it swings instead.");
+            line(Color::RED, "Frenzy", tag(sig(55), dmg(atk)), "a wild swing.");
+        }
+        else if (nameHas("Gladiator")) line(Color::RED, "Uppercut", tag(all, dmg(atk + 3)), "a brutal blow that bypasses half your armor.");
+        else if (nameHas("Enforcer"))  line(Color::RED, "Combo Strike", tag(all, dmg(atk) + " x2"), "hits you twice.");
         // TANK
-        else if (nameHas("Guardian"))  line(Color::RED, "Whirlwind", pctDmg(60, atk), "a piercing sweep, or braces.");
-        else if (nameHas("Barbarian")) line(Color::ARMOR_CLR, "Iron Skin", pctTag(60, "Armor +" + std::to_string(def + 6)), "big armor (may also weaken you); else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Sentinel"))  line(Color::ARMOR_CLR, "Fortify", pctTag(60, "Armor +" + std::to_string(def + 4)), "stacks armor; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Warden"))    line(Color::RED, "Smackdown", pctDmg(60, atk + 1), "a solid hit, or braces.");
-        else if (nameHas("Paladin"))   line(Color::RED, "Cleave", pctDmg(60, atk + 2), "a piercing strike, or braces.");
-        else if (nameHas("Bastion"))   line(Color::ARMOR_CLR, "Wall / Challenge", "45% / 30%", "a wall of +" + std::to_string(def + 8) + " armor, or forces attack-only; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Fortress"))  line(Color::ARMOR_CLR, "Shield Bash", justDmg(std::max(1, atk / 2)), "armor, then bashes you.");
-        else if (nameHas("Orc"))       line(Color::RED, "Body Slam", pctDmg(60, atk + 2), "a crushing blow, or braces.");
+        else if (nameHas("Guardian"))  line(Color::RED, "Whirlwind", tag(all, dmg(atk)), "a sweep that bypasses half your armor.");
+        else if (nameHas("Barbarian")) line(Color::ARMOR_CLR, "Iron Skin", tag(all, armor(def + 6)), "hardens up; half the time it also weakens you 2.");
+        else if (nameHas("Sentinel"))  line(Color::ARMOR_CLR, "Fortify", tag(all, armor(def + 4)), "stacks armor.");
+        else if (nameHas("Warden"))    line(Color::RED, "Smackdown", tag(all, dmg(atk + 1)), "a solid hit.");
+        else if (nameHas("Paladin"))   line(Color::RED, "Cleave", tag(all, dmg(atk + 2)), "a strike that bypasses half your armor.");
+        else if (nameHas("Bastion")) {
+            line(Color::ARMOR_CLR, "Wall", tag(sig(60), armor(def + 8)), "an impenetrable wall.");
+            line(Color::RED, "Challenge", sig(40), "next turn you can only play ATTACK cards.");
+        }
+        else if (nameHas("Fortress"))  line(Color::ARMOR_CLR, "Shield Bash", tag(all, dmg(std::max(1, atk / 2))), "braces for " + armor(def) + ", then bashes you.");
+        else if (nameHas("Orc"))       line(Color::RED, "Body Slam", tag(all, dmg(atk + 2)), "a crushing blow.");
         // CASTER
-        else if (nameHas("Sage"))      line(Color::BURN_CLR, "Torch", pctTag(70, "Burn 5"), "may heal when low; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Archon"))    line(Color::BURN_CLR, "Hellfire", pctTag(70, "Burn 12"), "may heal when low; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Spellmaster"))line(Color::POISON_CLR, "Virulent Plague", pctTag(70, "Poison 14"), "may heal when low; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Enchanter")) line(Color::CARD_SPECIAL, "Tempt", pct(60), "shrinks your next hand to 3 cards; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Sorcerer"))  line(Color::BLUE, "Ice Blast", pct(60), "weakens you and thins your next hand; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Vampire"))   line(Color::MAGENTA, "Vampiric Drain", pctDmg(65, 10), "hits you, heals herself +6, weakens you 2.");
-        else if (nameHas("Mystic"))    line(Color::CYAN, "Illusion", pct(50), "becomes untargetable for a turn; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Sage"))      line(Color::BURN_CLR, "Torch", tag(all, "Burn 5"), "a hurled flame. Below a third of its HP, 40% of these heal it ~" + std::to_string(8 + def / 2) + " instead.");
+        else if (nameHas("Archon"))    line(Color::BURN_CLR, "Hellfire", tag(all, "Burn 12"), "fire from above. Below a third of its HP, 35% of these heal it ~" + std::to_string(10 + def / 2) + " instead.");
+        else if (nameHas("Spellmaster"))line(Color::POISON_CLR, "Virulent Plague", tag(all, "Poison 14"), "a festering curse. Below a third of its HP, 35% of these heal it ~" + std::to_string(10 + def / 2) + " instead.");
+        else if (nameHas("Enchanter")) line(Color::CARD_SPECIAL, "Tempt", all, "your next hand is 2 cards smaller.");
+        else if (nameHas("Sorcerer"))  line(Color::BLUE, "Ice Blast", tag(all, "Weaken 2"), "and your next hand is a card smaller.");
+        else if (nameHas("Vampire"))   line(Color::MAGENTA, "Vampiric Drain", tag(all, dmg(10)), "a bite: she heals +6 and gains +1 attack, and weakens you 2.");
+        else if (nameHas("Mystic"))    line(Color::CYAN, "Illusion", all, "takes no damage on your next turn.");
         // RANGED
-        else if (nameHas("Deadeye"))   line(Color::RED, "Dead Shot", justDmg(atk), "a shot that pierces your armor.");
-        else if (nameHas("Wyvern"))    line(Color::RED, "Flying Gnash", justDmg(atk + 2), "a piercing dive.");
-        else if (nameHas("Omneye"))    line(Color::RED, "Eye-Beam", pctDmg(70, atk + 2), "a piercing beam; else a 30% weakening gaze.");
-        else if (nameHas("Assassin"))  line(Color::RED, "Ambush", "45%, " + justDmg(atk), "strikes mid-turn on a random card you play (armor-piercing).");
-        else if (nameHas("Falcon"))    line(Color::CYAN, "Gouge", pctDmg(65, atk + 1), "a wind-borne dive that rakes straight past your armor.");
+        else if (nameHas("Deadeye"))   line(Color::RED, "Dead Shot", tag(all, dmg(atk)), "a shot that bypasses half your armor.");
+        else if (nameHas("Wyvern"))    line(Color::RED, "Flying Gnash", tag(all, dmg(atk + 2)), "a diving bite that bypasses half your armor.");
+        else if (nameHas("Omneye")) {
+            line(Color::RED, "Eye-Beam", tag(sig(70), dmg(atk + 2)), "a beam that bypasses half your armor.");
+            line(Color::WEAK_CLR, "Gaze", tag(sig(30), "Weaken 2"), "an unsettling stare.");
+        }
+        else if (nameHas("Assassin")) {
+            // Not a turn move: it fires during YOUR turn, so its turns use the
+            // generic ranged moves listed with it.
+            line(Color::RED, "Ambush", "45% per card you play, " + dmg(atk), "once per turn, strikes from the shadows past half your armor.");
+            named = false;
+        }
+        else if (nameHas("Falcon"))    line(Color::CYAN, "Gouge", tag(all, dmg(atk + 1)), "a wind-borne dive that rakes past half your armor.");
         // BEAST
-        else if (nameHas("Wolf"))      line(Color::RED, "Bite", pctDmg(70, atk), "a lunging bite, or braces.");
-        else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", pctTag(50, "Weaken 2"), "else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", pctTag(50, "Weaken 3"), "else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", pct(40), "lose the run if it isn't dead in 5 turns! Else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Cockatrice"))line(Color::MAGENTA, "Petrifying Bite", pctDmg(35, atk), "bites, then 3 turns to kill it or you turn to stone!");
-        else if (nameHas("Manticore")) line(Color::RED, "Twin Maw", justDmg(atk) + " x2", "both heads bite in the same lunge.");
-        else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", justDmg(atk), "a landed lash limits you to 1 card next turn.");
+        else if (nameHas("Wolf"))      line(Color::RED, "Bite", tag(all, dmg(atk)), "a lunging bite.");
+        else if (nameHas("Spider"))    line(Color::CARD_SPECIAL, "Web Trap", tag(all, "Weaken 2"), "a sticky snare.");
+        else if (nameHas("Serpent"))   line(Color::CARD_SPECIAL, "Entangle", tag(all, "Weaken 3"), "coils around you.");
+        else if (nameHas("Basilisk"))  line(Color::MAGENTA, "Curse", tag(all, "once"), "lose the run if it isn't dead in 7 turns. After that, those turns go to its other moves.");
+        else if (nameHas("Cockatrice"))line(Color::MAGENTA, "Petrifying Bite", tag(all, dmg(atk)), "bites, then 5 turns to kill it or you turn to stone. Once per fight.");
+        else if (nameHas("Manticore")) line(Color::RED, "Twin Maw", tag(all, dmg(atk) + " x2"), "both heads bite in the same lunge.");
+        else if (nameHas("Fleshmass")) line(Color::MAGENTA, "Bind", tag(all, dmg(atk)), "a lash that draws blood limits you to 1 card next turn.");
         // UNDEAD
-        else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", justDmg(atk), "bites, heals itself +8, poisons you 3.");
-        else if (nameHas("Banshee"))   line(Color::CARD_SPECIAL, "Wailing Scream", "Weaken 2", "weakens you, strengthens herself +2 attack.");
-        else if (nameHas("Specter") || nameHas("Wraith")) line(Color::CYAN, "Ghost", pct(50), "becomes untargetable for a turn; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Moonstruck"))line(Color::STRENGTH_CLR, "Moon Scent", "45%", "works itself into a frenzy: its attacks hit x1.6 harder for 3 turns; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Revenant"))  line(Color::CYAN, "Parry", "50%", "catches your next blow, halves it and ripostes; else attacks for " + justDmg(atk) + ".");
-        else if (nameHas("Lich"))      line(Color::MAGENTA, "Raise Undead", pctTag(45, "Summon (6 atk)"), "summons a skeleton that guards it; else attacks for " + justDmg(atk) + ".");
+        else if (nameHas("Ghoul"))     line(Color::CARD_SPECIAL, "Chomp", tag(all, dmg(atk)), "heals itself +8 and poisons you 3.");
+        else if (nameHas("Banshee"))   line(Color::CARD_SPECIAL, "Wailing Scream", tag(all, "Weaken 2"), "and she gains +2 attack, up to +6.");
+        else if (nameHas("Specter") || nameHas("Wraith")) line(Color::CYAN, "Ghost", all, "takes no damage on your next turn.");
+        else if (nameHas("Moonstruck")) {
+            line(Color::STRENGTH_CLR, "Moon Scent", all + " when calm", "works itself into a frenzy: its blows hit x1.6 for 3 turns.");
+            line(Color::RED, "Moonlit Maul", tag(all + " while frenzied", dmg(atk + 3)), "a savage blow, x1.6 while the scent lasts.");
+        }
+        else if (nameHas("Revenant"))  line(Color::CYAN, "Parry", all, "catches your next blow, halves it and ripostes.");
+        else if (nameHas("Lich"))      line(Color::MAGENTA, "Raise Undead", tag(all, "Skeleton, 24 HP, 6 atk"), "it soaks your attacks and claws you every turn. While it stands, those turns go to its other moves.");
         else named = false;
 
-        if (named) {
-            line(Color::RED, "Basic attack", justDmg(atk), "a plain strike otherwise.");
-        } else {
+        // No turn signature of its own: these are the moves on its S% of turns.
+        if (!named) {
             switch (enemy.getType()) {
                 case EnemyType::MELEE:
-                    std::cout << "  " << Color::RED     << "Attack"  << Color::RESET << " (70%, " << atk << " dmg) - reduced by your armor\n";
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (30%)         - gains " << def << " armor\n";
+                    line(Color::RED, "Attack", tag(sig(70), dmg(atk)), "reduced by your armor.");
+                    line(Color::ARMOR_CLR, "Defend", tag(sig(30), armor(def)), "braces.");
                     break;
                 case EnemyType::RANGED:
-                    std::cout << "  " << Color::RED      << "Pierce attack"   << Color::RESET << " (60%, " << atk << " dmg) - bypasses half your armor\n";
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend"         << Color::RESET << " (20%)         - gains " << std::max(1, def - 1) << " armor\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Crippling shot" << Color::RESET << " (20%)         - weakens you (-2 dmg for 2 turns)\n";
+                    line(Color::RED, "Pierce attack", tag(sig(60), dmg(atk)), "bypasses half your armor.");
+                    line(Color::ARMOR_CLR, "Defend", tag(sig(20), armor(std::max(1, def - 1))), "braces.");
+                    line(Color::CARD_SPECIAL, "Crippling shot", tag(sig(20), "Weaken 2"), "you deal less damage for 2 turns.");
                     break;
                 case EnemyType::TANK:
-                    std::cout << "  " << Color::ARMOR_CLR << "Defend" << Color::RESET << " (65%)         - gains " << def << " armor\n";
-                    std::cout << "  " << Color::RED       << "Attack" << Color::RESET << " (35%, " << std::max(1, atk - 2) << " dmg) - reduced by your armor\n";
+                    line(Color::ARMOR_CLR, "Defend", tag(sig(65), armor(def)), "braces.");
+                    line(Color::RED, "Attack", tag(sig(35), dmg(std::max(1, atk - 2))), "reduced by your armor.");
                     break;
                 case EnemyType::CASTER:
                     if (enemy.getHealth() < enemy.getMaxHealth() / 3) {
-                        std::cout << "  " << Color::HEAL    << "Heal"   << Color::RESET << " (60%)         - recovers ~" << (8 + def / 2) << " HP (low HP)\n";
-                        std::cout << "  " << Color::RED      << "Attack" << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
+                        line(Color::HEAL, "Heal", tag(sig(60), "~" + std::to_string(8 + def / 2) + " HP"), "it is below a third of its HP.");
+                        line(Color::RED, "Attack", tag(sig(40), dmg(atk + 1)), "a plain cast.");
                     } else {
-                        std::cout << "  " << Color::CARD_SPECIAL << "Poison Bolt" << Color::RESET << " (40%)         - Poison 3 (2 dmg/turn, 6 turns)\n";
-                        std::cout << "  " << Color::CARD_SPECIAL << "Fireball"    << Color::RESET << " (20%)         - Burn 2 (3 dmg/turn, 2 turns)\n";
-                        std::cout << "  " << Color::RED         << "Attack"      << Color::RESET << " (40%, " << (atk + 1) << " dmg)\n";
-                        std::cout << "  " << Color::DIM     << "[Casts Heal instead if HP drops below 33%]" << Color::RESET << "\n";
+                        line(Color::CARD_SPECIAL, "Poison Bolt", tag(sig(40), "Poison 3"), "2 dmg a turn for 6 turns.");
+                        line(Color::CARD_SPECIAL, "Fireball", tag(sig(20), "Burn 2"), "3 dmg a turn for 2 turns.");
+                        line(Color::RED, "Attack", tag(sig(40), dmg(atk + 1)), "a plain cast. Below a third of its HP it heals instead.");
                     }
                     break;
                 case EnemyType::BEAST:
-                    std::cout << "  " << Color::RED       << "Attack"         << Color::RESET << " (60%, " << atk << " dmg) - reduced by your armor\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Venomous bite"  << Color::RESET << " (25%)         - Poison 3 (2 dmg/turn, 6 turns)\n";
-                    std::cout << "  " << Color::ARMOR_CLR  << "Defend"         << Color::RESET << " (15%)         - gains " << std::max(1, def - 1) << " armor\n";
+                    line(Color::RED, "Attack", tag(sig(60), dmg(atk)), "reduced by your armor.");
+                    line(Color::CARD_SPECIAL, "Venomous bite", tag(sig(25), "Poison 3"), "2 dmg a turn for 6 turns.");
+                    line(Color::ARMOR_CLR, "Defend", tag(sig(15), armor(std::max(1, def - 1))), "braces.");
                     break;
                 case EnemyType::UNDEAD:
-                    std::cout << "  " << Color::RED      << "Attack"         << Color::RESET << " (75%, " << atk << " dmg) - reduced by your armor\n";
-                    std::cout << "  " << Color::CARD_SPECIAL << "Chilling touch" << Color::RESET << " (25%)         - weakens you (-2 dmg for 2 turns)\n";
+                    line(Color::RED, "Attack", tag(sig(75), dmg(atk)), "reduced by your armor.");
+                    line(Color::CARD_SPECIAL, "Chilling touch", tag(sig(25), "Weaken 2"), "you deal less damage for 2 turns.");
                     break;
+                default: break;
             }
         }
+        flush("  Its own moves (" + pct(S) + " of turns):");
+
+        // The archetype kit, which every enemy runs on the rest of its turns.
+        auto printKit = [&]() {
+            switch (enemy.getType()) {
+                case EnemyType::MELEE:
+                    line(Color::RED, "Swing", tag(kitPct(60), dmg(atk)), "a plain blow.");
+                    line(Color::RED, "Wind up", tag(kitPct(25), "+2 atk"), "no damage this turn; up to +6.");
+                    line(Color::RED, "Heavy swing", tag(kitPct(15), dmg(atk + 3)), "a committed blow.");
+                    break;
+                case EnemyType::TANK:
+                    line(Color::ARMOR_CLR, "Brace", tag(kitPct(45), armor(def + 2)), "digs in.");
+                    line(Color::RED, "Heavy blow", tag(kitPct(40), dmg(atk + 2)), "a hard hit.");
+                    line(Color::ARMOR_CLR, "Shove", tag(kitPct(15), dmg(std::max(1, atk / 2))), "braces for " + armor(def) + ", then hits.");
+                    break;
+                case EnemyType::RANGED:
+                    line(Color::RED, "Shot", tag(kitPct(60), dmg(atk)), "bypasses half your armor.");
+                    line(Color::WEAK_CLR, "Weakening shot", tag(kitPct(25), "Weaken 2"), "clips your arm.");
+                    line(Color::RED, "Double shot", tag(kitPct(15), dmg(std::max(1, atk / 2)) + " x2"), "both bypass half your armor.");
+                    break;
+                case EnemyType::CASTER:
+                    line(Color::RED, "Force bolt", tag(kitPct(45), dmg(atk)), "a plain cast.");
+                    line(Color::WEAK_CLR, "Hex", tag(kitPct(30), "Weaken 2"), "a settling curse.");
+                    line(Color::HEAL, "Mend / brace", tag(kitPct(25), "~" + std::to_string(6 + def) + " HP"), "heals when below half HP, else braces for " + armor(def) + ".");
+                    break;
+                case EnemyType::BEAST:
+                    line(Color::RED, "Lunge", tag(kitPct(55), dmg(atk)), "teeth and claws.");
+                    line(Color::RED, "Frenzy", tag(kitPct(30), "+2 atk"), "no damage this turn; up to +6.");
+                    line(Color::ARMOR_CLR, "Brace", tag(kitPct(15), armor(def)), "hunkers down.");
+                    break;
+                case EnemyType::UNDEAD:
+                    line(Color::RED, "Claw", tag(kitPct(50), dmg(atk)), "dead hands.");
+                    line(Color::POISON_CLR, "Grave rot", tag(kitPct(30), "Poison 3"), "a festering touch.");
+                    line(Color::HEAL, "Drain", tag(kitPct(20), "~" + std::to_string(5 + def) + " HP"), "heals itself.");
+                    break;
+                default: break;
+            }
+            flush("  Its other moves (" + pct(kit) + " of turns):");
+        };
+        printKit();
     }
     std::cout << "\n";
 }
@@ -537,11 +660,13 @@ void Game::displayEnemyInfo() const {
 int Game::previewDamage(const Card& c) const {
     if (c.getType() != CardType::ATTACK) return 0;
     if (lichAddAlive) return 0;                       // the skeleton soaks it all
-    const bool trueStrike = (c.getEffect() == CardEffect::TRUESTRIKE);
+    const bool trueStrike = (c.getEffect() == CardEffect::TRUESTRIKE
+                          || c.getEffect() == CardEffect::TRUE_DOUBLE);
     if (enemyInvulnerable && !trueStrike) return 0;
 
     const bool pierce = trueStrike || (c.getEffect() == CardEffect::PIERCE);
-    const int  hits   = (c.getEffect() == CardEffect::DOUBLE_HIT) ? 2 : 1;
+    const int  hits   = (c.getEffect() == CardEffect::DOUBLE_HIT
+                      || c.getEffect() == CardEffect::TRUE_DOUBLE) ? 2 : 1;
 
     DamageType weakness = enemy.getWeakness();
     bool hitsWeakness = weakness != DamageType::NONE &&
@@ -552,7 +677,7 @@ int Game::previewDamage(const Card& c) const {
                           (c.getPhysType() == resistance || c.getPhysType2() == resistance
                            || c.getElemType() == resistance);
 
-    int dmg = std::max(0, c.getValue() + upgrades.getDamageBonus() + equipDamageBonus);
+    int dmg = atkWithGear(c.getValue());
     dmg = (int)(dmg * playerStatus.getWeakMultiplier() * playerStatus.getStrengthMultiplier());
     if (hitsWeakness)   dmg = (int)(dmg * 1.5);
     if (hitsResistance) dmg = (int)(dmg * 0.5);
@@ -566,6 +691,29 @@ int Game::previewDamage(const Card& c) const {
         armor  = std::max(0, armor - dealt);
     }
     return std::min(lost, enemy.getHealth());
+}
+
+// Rounded, not truncated. Integer division silently ate small gains: at +8% a
+// 6-damage Strike came out 6.48 and displayed as 6, so a whole weapon drop
+// changed nothing visible on any card below 13 damage.
+static int applyPct(int base, int pct) {
+    if (base <= 0) return 0;
+    return (base * (100 + pct) + 50) / 100;
+}
+
+int Game::atkWithGear(int rawValue) const {
+    return applyPct(rawValue + upgrades.getDamageBonus(), equipDamagePercent);
+}
+
+int Game::defWithGear(int rawValue) const {
+    return applyPct(rawValue + upgrades.getArmorBonus(), equipArmorPercent);
+}
+
+// SPECIAL cards (heals, buffs, taunts) are deliberately untouched by gear.
+int Game::gearedValue(const Card& c, int rawValue) const {
+    if (c.getType() == CardType::ATTACK) return atkWithGear(rawValue);
+    if (c.getType() == CardType::DEFEND) return defWithGear(rawValue);
+    return rawValue;
 }
 
 int Game::calculateDamage(int attackValue, int defenseValue) const {
@@ -591,7 +739,7 @@ void Game::resetEnergy() {
 // apart the way the two copies of the effect table did.
 static bool provokeFizzles() {
     static thread_local std::mt19937 g(std::random_device{}());
-    return std::uniform_int_distribution<>(1, 100)(g) <= 10;
+    return std::uniform_int_distribution<>(1, 100)(g) <= 20;
 }
 
 void Game::applyCardEffect(const Card& card) {
@@ -658,7 +806,8 @@ void Game::applyCardEffect(const Card& card) {
             int before = playerHealth;
             {
                 int before = playerHealth;
-                playerHealth = std::min(maxPlayerHealth, playerHealth + val);
+                const int healed = Card::healAmount(val, playerHealth, maxPlayerHealth);
+                playerHealth = std::min(maxPlayerHealth, playerHealth + healed);
                 if (playerHealth > before)
                     EnemyArt::popNumber(playerHealth - before, false, EnemyArt::PopKind::HEAL);
             }
@@ -744,6 +893,25 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
 
 // Same idea in reverse; false means warded (caller skips its own "applied" message).
 bool Game::applyEnemyStatus(StatusType type, int amount, double weakMultiplier) {
+    // The skeleton stands between you and its master, so a cloud, a curse or a
+    // hex lands on it the same way a blade does. It has no status of its own, so
+    // it takes the stack as damage.
+    if (lichAddAlive) {
+        const int soaked = std::max(1, amount);
+        lichAddHp = std::max(0, lichAddHp - soaked);
+        EnemyArt::popNumberAdd(soaked, EnemyArt::PopKind::DAMAGE);
+        Audio::playSFX(lichAddHp <= 0 ? "dead" : "special");
+        std::cout << "  " << Color::MAGENTA << "The summoned skeleton takes it instead: "
+                  << soaked << " damage." << Color::RESET
+                  << " (Skeleton HP: " << lichAddHp << "/" << lichAddMaxHp << ")\n";
+        if (lichAddHp <= 0) {
+            lichAddAlive = false;
+            EnemyArt::setCompanion("");
+            std::cout << "  " << Color::MAGENTA << "The summoned skeleton crumbles to dust!" << Color::RESET << "\n";
+        }
+        UIHelper::pause(200);
+        return false;
+    }
     if (enemyStatusWardActive) {
         enemyStatusWardActive = false;
         std::cout << "  " << Color::CYAN << "The shadow's guard blocks the ailment!" << Color::RESET << "\n";
@@ -754,45 +922,30 @@ bool Game::applyEnemyStatus(StatusType type, int amount, double weakMultiplier) 
 }
 
 // Silent when warded - callers already have their own "resisted" fallback message.
-// Fear needs something to work on. Roughly three quarters of the roster has no
-// defensive move at all, and bracing them would be inventing armor for creatures
-// that never block, so the card refuses instead.
-//
-// Two lists because enemyTurn() dispatches in two stages: a named signature
-// first, then a generic per-type fallback for enemies without one. A named enemy
-// guards only if its own branch says so; an unnamed one inherits its type, and
-// CASTER and UNDEAD have no brace there. test_fear re-derives both lists straight
-// from enemyTurn() and fails if this drifts out of step with it.
+// Fear needs something to work on, so it refuses against an enemy with no
+// self-protective move. "Guard" is wider than armor: phasing out, a parry
+// stance, a summon and a self-heal all count, since all are turns not spent
+// attacking. test_fear re-derives this straight from enemyTurn().
 bool Game::enemyCanDefend() const {
     // Bosses never reach enemyTurn() - bossAction() has no brace path at all.
     if (enemy.isBoss()) return false;
 
-    static const char* kGuarded[] = {
-        "Knight", "Guardian", "Barbarian", "Sentinel", "Warden",
-        "Paladin", "Bastion", "Fortress", "Orc", "Wolf",
-    };
-    static const char* kNamed[] = {
-        "Goblin", "Bandit", "Raider", "Warrior", "Knight", "Berserker",
-        "Gladiator", "Enforcer", "Guardian", "Barbarian", "Sentinel", "Warden",
-        "Paladin", "Bastion", "Fortress", "Orc", "Sage", "Archon",
-        "Spellmaster", "Enchanter", "Sorcerer", "Vampire", "Mystic", "Deadeye",
-        "Wyvern", "Omneye", "Falcon", "Wolf", "Spider", "Serpent",
-        "Basilisk", "Cockatrice", "Manticore", "Fleshmass", "Ghoul", "Banshee",
-        "Specter", "Wraith", "Revenant", "Moonstruck", "Lich",
-    };
-    const std::string n = enemy.getName();
-    auto has = [&](const char* k) { return n.find(k) != std::string::npos; };
-
-    for (const char* g : kGuarded) if (has(g)) return true;
-    for (const char* m : kNamed)   if (has(m)) return false;  // named, but no guard
-
+    // The archetype kit is the answer: TANK, CASTER, BEAST and UNDEAD each have
+    // a defensive or restorative turn in their three moves, MELEE and RANGED do
+    // not. Deriving it here keeps Fear from needing a hand-kept name list.
     switch (enemy.getType()) {
-        case EnemyType::MELEE:
-        case EnemyType::RANGED:
         case EnemyType::TANK:
-        case EnemyType::BEAST:  return true;
-        default:                return false;   // CASTER and UNDEAD never brace
+        case EnemyType::CASTER:
+        case EnemyType::BEAST:
+        case EnemyType::UNDEAD:
+            return true;
+        default:
+            break;
     }
+
+    // One exception: the Knight is MELEE but its signature is a shield bash, so
+    // it does raise a guard even though its archetype template never would.
+    return enemy.getName().find("Knight") != std::string::npos;
 }
 
 bool Game::tryStunEnemy() {
@@ -856,9 +1009,10 @@ void Game::playCardFromHand(int index) {
             tickPlayerRend();
             // Reckoning: ignores defense like PIERCE, and additionally refuses
             // every reduction the enemy can put in the way.
-            bool trueStrike     = (playedCard.getEffect() == CardEffect::TRUESTRIKE);
-            bool pierce         = trueStrike || (playedCard.getEffect() == CardEffect::PIERCE);
-            bool doubleHit      = (playedCard.getEffect() == CardEffect::DOUBLE_HIT);
+            const CardEffect eff = playedCard.getEffect();
+            bool trueStrike     = (eff == CardEffect::TRUESTRIKE || eff == CardEffect::TRUE_DOUBLE);
+            bool pierce         = trueStrike || (eff == CardEffect::PIERCE);
+            bool doubleHit      = (eff == CardEffect::DOUBLE_HIT || eff == CardEffect::TRUE_DOUBLE);
             int  hits           = doubleHit ? 2 : 1;
             double weakMult     = playerStatus.getWeakMultiplier();
             double strengthMult = playerStatus.getStrengthMultiplier();
@@ -881,7 +1035,7 @@ void Game::playCardFromHand(int index) {
             double parryFactor = revenantParried ? 0.5 : 1.0;
 
             for (int hitNum = 1; hitNum <= hits && (lichAddAlive || enemy.isAlive()); hitNum++) {
-                int bonusDamage  = std::max(0, playedCard.getValue() + upgrades.getDamageBonus() + equipDamageBonus);
+                int bonusDamage  = atkWithGear(playedCard.getValue());
                 bonusDamage = (int)(bonusDamage * weakMult * strengthMult);
                 if (hitsWeakness) bonusDamage = (int)(bonusDamage * 1.5);
                 if (hitsResistance) bonusDamage = (int)(bonusDamage * 0.5);
@@ -903,8 +1057,10 @@ void Game::playCardFromHand(int index) {
                     int before = lichAddHp;
                     lichAddHp = std::max(0, lichAddHp - std::max(0, bonusDamage));
                     int lost = before - lichAddHp;
-                    EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(), lost > 0);
-                    EnemyArt::popNumber(lost, true, EnemyArt::PopKind::DAMAGE);
+                    // On the skeleton, not on the Lich standing behind it.
+                    EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), playedCard.getElemType(),
+                                             lost > 0, /*onCompanion*/true);
+                    EnemyArt::popNumberAdd(lost, EnemyArt::PopKind::DAMAGE);
                     Audio::playSFX(lichAddHp <= 0 ? "dead" : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << lost << " damage to the summoned skeleton!"
                               << Color::RESET << " (Skeleton HP: " << lichAddHp << "/" << lichAddMaxHp << ")";
@@ -974,7 +1130,8 @@ void Game::playCardFromHand(int index) {
             if (revenantParried && playerHealth > 0 && enemy.isAlive()) {
                 std::cout << "  " << Color::MAGENTA << "The Revenant ripostes!" << Color::RESET << "\n";
                 UIHelper::pause(150);
-                enemyStrikePlayer(std::max(1, enemy.getBaseAttack() / 2), false, enemy.getWeakMultiplier());
+                enemyStrikePlayer(std::max(1, (enemy.getBaseAttack() + enemy.getBonusAttack()) / 2),
+                                  false, enemy.getWeakMultiplier());
             }
 
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
@@ -985,9 +1142,12 @@ void Game::playCardFromHand(int index) {
                 std::cout << "  " << Color::STRENGTH_CLR << "Strength surges! x" << strengthBuff << " damage for 2 turns!" << Color::RESET << "\n";
             }
         } else if (playedCard.getType() == CardType::DEFEND) {
-            int bonusArmor = playedCard.getValue() + upgrades.getArmorBonus() + equipArmorBonus;
+            int bonusArmor = defWithGear(playedCard.getValue());
             playerArmor += bonusArmor;
-            EnemyArt::printBattleBlock(enemy.getType(), enemy.getBossType());
+            // Shield Bash hits as well as guards, so it plays the lunge in its own
+            // block below rather than bracing in place and striking from afar.
+            if (playedCard.getEffect() != CardEffect::CHIP)
+                EnemyArt::printBattleBlock(enemy.getType(), enemy.getBossType());
             Audio::playSFX("defend");
             std::cout << "  " << Color::ARMOR_CLR << "Gained " << bonusArmor << " armor!"
                       << Color::RESET << " (Total: " << Color::ARMOR_CLR << playerArmor << Color::RESET << ")\n";
@@ -1010,12 +1170,14 @@ void Game::playCardFromHand(int index) {
             }
             if (playedCard.getEffect() == CardEffect::CHIP) {
                 if (enemyInvulnerable) {
+                    EnemyArt::printBattleShieldBash(enemy.getType(), enemy.getBossType(), false);
                     std::cout << "  " << Color::DIM << "The shield's edge passes through the phased form. No damage." << Color::RESET << "\n";
                 } else {
                 int chipDmg = 3;
                 int hpBefore = enemy.getHealth();
                 enemy.takeDamageRaw(chipDmg);
                 int hpLost = hpBefore - enemy.getHealth();
+                EnemyArt::printBattleShieldBash(enemy.getType(), enemy.getBossType(), hpLost > 0);
                 Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "hit");
                 std::cout << "  " << Color::PLAYER_ATTACK << "The shield's edge bites, dealing " << hpLost << " damage!"
                           << Color::RESET << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -1075,12 +1237,63 @@ bool Game::tickEnemyRend() {
     return enemy.getHealth() <= 0;
 }
 
-void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
+// Archers shoot and casters cast; neither walks into sword range to do it.
+// The Wyvern and the Falcon attack at range by diving in and pulling away, so
+// they throw nothing and Parry closes on empty air as they climb back out.
+// The projectile this enemy throws. Looked up by name from the generated table
+// so the art and the index addressing it are produced together; anything with
+// no entry falls back to its archetype.
+static const ProjectileTable::Entry* projEntryFor(const std::string& n) {
+    for (int i = 0; i < ProjectileTable::kByNameCount; i++)
+        if (n.find(ProjectileTable::kByName[i].enemy) != std::string::npos)
+            return &ProjectileTable::kByName[i];
+    return nullptr;
+}
+
+// -1 means "fall back to the value derived from the sprite sheet".
+int Game::enemyMuzzleX() const {
+    const ProjectileTable::Entry* e = projEntryFor(enemy.getName());
+    return e ? e->muzzleX : -1;
+}
+int Game::enemyMuzzleY() const {
+    const ProjectileTable::Entry* e = projEntryFor(enemy.getName());
+    return e ? e->muzzleY : -1;
+}
+
+int Game::enemyProjectile() const {
+    const ProjectileTable::Entry* e = projEntryFor(enemy.getName());
+    if (e) return e->frame;
+    switch (enemy.getType()) {
+        case EnemyType::RANGED: return ProjectileTable::GEN_RANGED;
+        case EnemyType::CASTER: return ProjectileTable::GEN_CASTER;
+        case EnemyType::BEAST:  return ProjectileTable::GEN_BEAST;
+        case EnemyType::UNDEAD: return ProjectileTable::GEN_UNDEAD;
+        default:                return ProjectileTable::GEN_MELEE;
+    }
+}
+
+bool Game::enemyIsFlyer() const {
+    const std::string n = enemy.getName();
+    return n.find("Wyvern") != std::string::npos || n.find("Falcon") != std::string::npos;
+}
+
+bool Game::archetypeIsRanged() const {
+    return enemy.getType() == EnemyType::RANGED || enemy.getType() == EnemyType::CASTER;
+}
+
+void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, bool ranged,
+                             bool useAttackFrames, int projectile, bool closeIn,
+                             bool fromCompanion) {
     // Weak scales it down, Strength scales it up - the mirror of what the
     // player's own two buffs do to their attacks.
     atk = (int)(atk * weakMult * enemy.getStrengthMultiplier());
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
-    EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
+    if (fromCompanion)
+        EnemyArt::printCompanionAttack(enemy.getType(), enemy.getBossType());
+    else
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0, ranged,
+                                    useAttackFrames, projectile,
+                                    enemyMuzzleX(), enemyMuzzleY(), closeIn);
     // Dodge Reversal fires before Parry when both are active (uncapped, higher priority)
     if (counterAttackActive) {
         counterAttackActive = false;
@@ -1102,11 +1315,18 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
         int parryCap = playerArmor + parryBonusValue * 3; // current armor + Parry's own bonus - stack armor first to parry bigger hits
         parryActive = false;
         if (atk <= parryCap) {
-            bool tooFarToRiposte = !enemy.isBoss() && enemy.getType() == EnemyType::RANGED;
+            // The same flag the sprite uses. A blow that never closed the distance -
+            // an arrow, a spell, a thrown dagger - can be caught, but there is
+            // nothing standing in front of you to hit back at.
+            bool tooFarToRiposte = !enemy.isBoss() && ranged;
             if (tooFarToRiposte) {
                 Audio::playSFX("special");
-                std::cout << Color::CYAN << "Parry! You block the shot. No damage taken, but they're too far away to riposte."
-                          << Color::RESET << "\n";
+                if (enemyIsFlyer())
+                    std::cout << Color::CYAN << "Parried!! But the creature flew away."
+                              << Color::RESET << "\n";
+                else
+                    std::cout << Color::CYAN << "Parry! You block the shot. No damage taken, but they're too far away to riposte."
+                              << Color::RESET << "\n";
                 UIHelper::pause(300);
                 return;
             }
@@ -1114,12 +1334,14 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult) {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
+            // Before the animation, so the cue lands with the blow.
+            Audio::playSFX(hpLost > 0 ? "attack" : "special");
             EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
             EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
-            Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "special");
+            if (!enemy.isAlive()) Audio::playSFX(deathSfx(enemy.isBoss()));
             std::cout << Color::CYAN << "Parry! You deflect the blow. No damage taken. Riposte for " << hpLost
                       << " damage!" << (stunned ? " Enemy is stunned!" : " Enemy resists the stun!") << Color::RESET
                       << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -1162,7 +1384,11 @@ void Game::triggerAssassinAmbush() {
     assassinAmbushArmed = false;
     UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::RED + "The Assassin strikes from the shadows!" + Color::RESET + "\n");
     UIHelper::pause(200);
-    enemyStrikePlayer(enemy.getBaseAttack(), true, enemy.getWeakMultiplier());
+    // Thrown from the dark, like the Bandit's dagger: it never closes, so Parry
+    // catches it without a riposte and the sprite holds its ground.
+    enemyStrikePlayer(enemy.getBaseAttack() + enemy.getBonusAttack(), true,
+                      enemy.getWeakMultiplier(), /*ranged*/true, /*useFrames*/true,
+                      enemyProjectile());
     refreshBattleAuras();
 }
 
@@ -1261,7 +1487,13 @@ void Game::enemyTurn() {
     enemy.processWeak();
 
     bool volleyBroken = false;
-    auto doAttack = [&](int atk, bool pierceHalfArmor) {
+    // One body, two entry points. A lambda cannot take a default argument that
+    // touches `this`, so instead of defaulting the flag the common case wraps the
+    // explicit one: doAttack takes its range from the archetype (RANGED and
+    // CASTER never close), and a melee enemy with a thrown move calls
+    // doAttackAt directly.
+    auto doAttackAt = [&](int atk, bool pierceHalfArmor, bool ranged, bool useFrames = true,
+                          int projectile = -1, bool closeIn = false) {
         if (enemy.hasStun()) {
             if (!volleyBroken) {
                 volleyBroken = true;
@@ -1271,11 +1503,20 @@ void Game::enemyTurn() {
             }
             return;
         }
-        enemyStrikePlayer(atk, pierceHalfArmor, weakMult);
+        enemyStrikePlayer(atk, pierceHalfArmor, weakMult, ranged, useFrames, projectile, closeIn);
+    };
+    auto doAttack = [&](int atk, bool pierceHalfArmor) {
+        // enemyProjectile(), not the default: doAttackAt defaults to -1 and the art
+        // layer reads a negative frame as "nothing crosses the gap". Leaving it out
+        // silently stripped the projectile from every generic ranged attack - the
+        // archer's double shot and the wizard's bolt among them.
+        doAttackAt(atk, pierceHalfArmor, archetypeIsRanged(), true, enemyProjectile());
     };
 
     auto doDefend = [&](int amt) {
         enemy.gainArmor(amt);
+        // The player's own defend cue, pitched down: same action, other side.
+        Audio::playSFXPitched("defend", 0.8f);
         bool fizzled = counterAttackActive || parryActive;
         counterAttackActive = false;
         parryActive = false;
@@ -1288,8 +1529,59 @@ void Game::enemyTurn() {
     };
 
     EnemyType t = enemy.getType();
-    int atk = enemy.getBaseAttack();
+    // bonusAttack MUST be included here. bossAction() has always added it, but
+    // this path never did, so every +2 a regular enemy earned - the Berserker's
+    // roar, the Banshee's scream, and the wind-up and frenzy in the archetype
+    // kits - was spent on a turn that did literally nothing.
+    int atk = enemy.getBaseAttack() + enemy.getBonusAttack();
     int def = enemy.getBaseDefense();
+
+    // How often this enemy reaches for its own moves. The rest of the time it
+    // runs its archetype template. Rolled separately from `roll`, which the few
+    // enemies with two signature moves use to pick between them.
+    const int SIGNATURE_CHANCE = signatureChanceFor(enemy.getName());
+    const int sigRoll = rollDist(gen);
+
+    // Every enemy move that inflicts something now shows it crossing the field.
+    // Before this a hex, a web trap or a crippling shot printed a line of text
+    // while both sprites stood perfectly still.
+    // proj picks the art that crosses the field. -1 keeps the generic status orb,
+    // which is right for an ailment with no object of its own.
+    auto cast = [&](EnemyArt::CastGlow g, int proj = -1) {
+        EnemyArt::printEnemyCast(enemy.getType(), enemy.getBossType(), g, proj, enemyMuzzleX(), enemyMuzzleY());
+    };
+    // For a status that RIDES an attack. The blow already crossed the field, so
+    // firing a second bolt after it would read as two separate attacks; this just
+    // washes the knight in the ailment colour.
+    auto flash = [&](EnemyArt::CastGlow g) {
+        EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), g, false);
+    };
+    // A status delivered by CONTACT rather than at range: the enemy closes the
+    // gap the way an attack does, then the ailment lands. A chilling touch that
+    // reached across the room without either sprite moving was the odd one out.
+    auto touch = [&](EnemyArt::CastGlow g) {
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
+                                    /*ranged*/false);
+        EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), g, false);
+    };
+    // A dive: crosses the field like a brawler, throws nothing, and is away
+    // again before Parry can answer it.
+    auto dive = [&](int a) {
+        doAttackAt(a, true, /*ranged*/true, /*useFrames*/true, EnemyArt::Proj::NONE, /*closeIn*/true);
+    };
+    auto themedGeneric = [&](const char* msg) {
+        UIHelper::typeWrite(std::string(Color::MAGENTA) + msg + Color::RESET + "\n");
+        UIHelper::pause(150);
+    };
+    auto applyEnemyStatusOnPlayerPoison = [&](int amt) {
+        EnemyArt::printEnemyCast(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::POISON,
+                                 enemyProjectile(), enemyMuzzleX(), enemyMuzzleY());
+        applyPlayerStatus(StatusType::POISON, amt);
+        Audio::playSFX("poison");
+        std::cout << Color::POISON_CLR << "Grave rot sets in. Poison " << amt << "."
+                  << Color::RESET << "\n";
+        UIHelper::pause(150);
+    };
 
     // Fear resolves here, once, rather than threaded through every branch below
     // the way Taunt is. Taunt can force the roll into an attack bucket because
@@ -1307,16 +1599,137 @@ void Game::enemyTurn() {
         }
     }
 
-    // --- Per-name signature moves. Reuse the doAttack/doDefend/applyPlayerStatus
-    // helpers in scope; return when handled, else fall through to the generic
-    // type behavior below. Enemies without a signature (Wizard, Skeleton, Archer,
-    // Falcon, and the unchanged beasts) simply aren't matched here.
+    // --- Archetype kits --------------------------------------------------
+    // Three kinds of turn per archetype. MELEE and RANGED deliberately have no
+    // brace in their template: they are the archetypes Fear is supposed to fail
+    // against, and enemyCanDefend() keys off exactly that.
+    auto archetypeTurn = [&](int r) {
+        switch (enemy.getType()) {
+            case EnemyType::MELEE:
+                if (r < 60) { themedGeneric("It swings at you."); doAttack(atk, false); }
+                else if (r < 85 && enemy.getBonusAttack() < 6) {
+                    enemy.addBonusAttack(2);
+                    std::cout << Color::RED << "It winds up, gaining +2 attack." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                } else { themedGeneric("It throws its weight into a heavy swing!"); doAttack(atk + 3, false); }
+                break;
+            case EnemyType::TANK:
+                if (r < 45) doDefend(def + 2);
+                else if (r < 85) { themedGeneric("It brings its weapon down hard!"); doAttack(atk + 2, false); }
+                else {
+                    // gainArmor, NOT doDefend: doDefend means "brace INSTEAD of
+                    // attacking" and fizzles a pending Parry or Dodge Reversal. This
+                    // move braces and then swings, so fizzling the stance meant the
+                    // follow-up landed unopposed - the Guardian shove bug.
+                    enemy.gainArmor(def);
+                    std::cout << Color::ARMOR_CLR << "It raises its guard (+" << def << " armor)."
+                              << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                    themedGeneric("It shoves forward behind its guard.");
+                    doAttack(std::max(1, atk / 2), false);
+                }
+                break;
+            case EnemyType::RANGED:
+                // A flyer has no bow. It is RANGED so that Parry closes on empty
+                // air as it climbs away, but a shot and a double shot were the
+                // wrong moves entirely: it dives, rakes and beats its wings.
+                if (enemyIsFlyer()) {
+                    if (r < 60) { themedGeneric("It folds its wings and dives at you!"); dive(atk); }
+                    else if (r < 85) {
+                        cast(EnemyArt::CastGlow::WEAK, EnemyArt::Proj::NONE);
+                        applyPlayerStatus(StatusType::WEAK, 2);
+                        Audio::playSFXPitched("special", 0.85f);
+                        std::cout << Color::WEAK_CLR << "Its wings beat the air into your face. You are Weakened." << Color::RESET << "\n";
+                        UIHelper::pause(150);
+                    } else {
+                        themedGeneric("It rakes past twice, turning on a wingtip!");
+                        dive(std::max(1, atk / 2));
+                        if (playerHealth > 0) dive(std::max(1, atk / 2));
+                    }
+                    break;
+                }
+                if (r < 60) { themedGeneric("It looses a shot straight through your guard."); doAttack(atk, true); }
+                else if (r < 85) {
+                    cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
+                    applyPlayerStatus(StatusType::WEAK, 2);
+                    Audio::playSFXPitched("special", 0.85f);
+                    std::cout << Color::WEAK_CLR << "A shot clips your arm. You are Weakened." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                } else {
+                    themedGeneric("It fires twice in quick succession!");
+                    doAttack(std::max(1, atk / 2), true);
+                    if (playerHealth > 0) doAttack(std::max(1, atk / 2), true);
+                }
+                break;
+            case EnemyType::CASTER:
+                if (r < 45) { themedGeneric("It hurls a bolt of raw force."); doAttack(atk, false); }
+                else if (r < 75) {
+                    cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
+                    applyPlayerStatus(StatusType::WEAK, 2);
+                    Audio::playSFXPitched("special", 0.85f);
+                    std::cout << Color::WEAK_CLR << "A hex settles over you. You are Weakened." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                } else if (enemy.getHealth() < enemy.getMaxHealth() / 2) {
+                    int h = 6 + def;
+                    enemy.heal(h);
+                    std::cout << Color::HEAL << "It knits its wounds closed, healing " << h << " HP." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                } else doDefend(def);
+                break;
+            case EnemyType::BEAST:
+                if (r < 55) { themedGeneric("It lunges at you with teeth and claws."); doAttack(atk, false); }
+                else if (r < 85 && enemy.getBonusAttack() < 6) {
+                    enemy.addBonusAttack(2);
+                    std::cout << Color::RED << "It works itself into a frenzy, gaining +2 attack." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                } else doDefend(def);
+                break;
+            case EnemyType::UNDEAD:
+                if (r < 50) { themedGeneric("It claws at you with dead hands."); doAttack(atk, false); }
+                else if (r < 80) {
+                    applyEnemyStatusOnPlayerPoison(3);
+                } else {
+                    int h = 5 + def;
+                    enemy.heal(h);
+                    themedGeneric("It drains the air around it and knits itself together.");
+                    std::cout << Color::HEAL << "It heals " << h << " HP." << Color::RESET << "\n";
+                    UIHelper::pause(150);
+                }
+                break;
+            default:
+                doAttack(atk, false);
+                break;
+        }
+    };
+
+    // The skeleton claws on every turn once it has stood for one, whichever way
+    // its master spends its own turn.
+    const bool skeletonActs = lichAddAlive;   // a just-summoned skeleton waits a turn
+    auto skeletonStrike = [&]() {
+        if (!skeletonActs || !lichAddAlive || playerHealth <= 0 || !enemy.isAlive()) return;
+        std::cout << Color::MAGENTA << "The summoned skeleton claws at you!" << Color::RESET << "\n";
+        UIHelper::pause(150);
+        enemyStrikePlayer(lichAddAtk, false, 1.0, /*ranged*/false, /*useFrames*/true,
+                          /*projectile*/-1, /*closeIn*/false, /*fromCompanion*/true);
+    };
+
+    // The signature fires on its own roll. Taunt skips the gate: it exists to
+    // force an attack, and every branch below attacks when taunted.
+    if (!taunted && sigRoll >= SIGNATURE_CHANCE) { archetypeTurn(roll); skeletonStrike(); return; }
+
+    // --- Signature moves ---------------------------------------------------
+    // When the gate opens the move happens, so the odds the player is shown are
+    // the odds they get. A move that cannot be used right now (a curse already
+    // ticking, a skeleton already up) hands the turn to the archetype kit, and
+    // only enemies with two moves of their own split the gate between them.
     auto nameHas = [&](const char* k){ return enemy.getName().find(k) != std::string::npos; };
     auto themed  = [&](const char* msg){ UIHelper::typeWrite(std::string(Color::MAGENTA) + msg + Color::RESET + "\n"); UIHelper::pause(150); };
 
     // MELEE
     if (nameHas("Goblin"))    { themed("Goblin jabs at you!"); doAttack(atk, false); return; }
-    if (nameHas("Bandit"))    { themed("Bandit hurls a dagger!"); doAttack(atk, false); return; }
+    // Thrown, not swung: a MELEE enemy making a ranged attack. It holds its
+    // ground and Parry catches the dagger without a riposte.
+    if (nameHas("Bandit"))    { themed("Bandit hurls a dagger!"); doAttackAt(atk, false, /*ranged*/true, /*useFrames*/true, enemyProjectile()); return; }
     if (nameHas("Raider"))    { themed("Raider bashes with brute force!"); doAttack(atk, false); return; }
     if (nameHas("Warrior"))   { themed("Warrior lunges, piercing your guard!"); doAttack(atk, !taunted); return; }
     if (nameHas("Knight")) {
@@ -1328,7 +1741,8 @@ void Game::enemyTurn() {
         return;
     }
     if (nameHas("Berserker")) {
-        if (!taunted && roll < 45) {
+        // Two moves of its own, so this one still splits. Capped at +6.
+        if (!taunted && roll < 45 && enemy.getBonusAttack() < 6) {
             enemy.addBonusAttack(2);
             std::cout << Color::RED << "Berserker roars, growing stronger! (+2 attack)" << Color::RESET << "\n";
             UIHelper::pause(200); return;
@@ -1343,43 +1757,42 @@ void Game::enemyTurn() {
         return;
     }
 
-    // TANK
-    if (nameHas("Guardian"))  { if (taunted || roll < 60) { themed("Guardian sweeps a WHIRLWIND!"); doAttack(atk, true); } else doDefend(def); return; }
+    // TANK. Their braces live in the kit now, so the signature is the move itself.
+    if (nameHas("Guardian"))  { themed("Guardian sweeps a WHIRLWIND!"); doAttack(atk, true); return; }
     if (nameHas("Barbarian")) {
         if (taunted) { doAttack(atk, false); return; }
-        if (roll < 60) {
-            enemy.gainArmor(def + 6);
-            std::cout << Color::ARMOR_CLR << "Barbarian hardens its IRON SKIN (+" << (def + 6) << " armor)!" << Color::RESET << "\n";
-            UIHelper::pause(150);
-            if (roll < 30) applyPlayerStatus(StatusType::WEAK, 2);
-            return;
-        }
-        doAttack(atk, false); return;
+        enemy.gainArmor(def + 6);
+        std::cout << Color::ARMOR_CLR << "Barbarian hardens its IRON SKIN (+" << (def + 6) << " armor)!" << Color::RESET << "\n";
+        UIHelper::pause(150);
+        if (roll < 50) { flash(EnemyArt::CastGlow::WEAK); applyPlayerStatus(StatusType::WEAK, 2);
+                         Audio::playSFXPitched("special", 0.85f); }
+        return;
     }
     if (nameHas("Sentinel")) {
         if (taunted) { doAttack(atk, false); return; }
-        if (roll < 60) { enemy.gainArmor(def + 4); std::cout << Color::ARMOR_CLR << "Sentinel FORTIFIES (+" << (def + 4) << " armor)!" << Color::RESET << "\n"; UIHelper::pause(150); }
-        else doAttack(atk, false);
+        enemy.gainArmor(def + 4);
+        std::cout << Color::ARMOR_CLR << "Sentinel FORTIFIES (+" << (def + 4) << " armor)!" << Color::RESET << "\n";
+        UIHelper::pause(150);
         return;
     }
-    if (nameHas("Warden"))    { if (taunted || roll < 60) { themed("Warden delivers a SMACKDOWN!"); doAttack(atk + 1, false); } else doDefend(def); return; }
-    if (nameHas("Paladin"))   { if (taunted || roll < 60) { themed("Paladin CLEAVES through your guard!"); doAttack(atk + 2, true); } else doDefend(def); return; }
+    if (nameHas("Warden"))    { themed("Warden delivers a SMACKDOWN!"); doAttack(atk + 1, false); return; }
+    if (nameHas("Paladin"))   { themed("Paladin CLEAVES through your guard!"); doAttack(atk + 2, true); return; }
     if (nameHas("Bastion")) {
         if (taunted) { doAttack(atk, false); return; }
-        if (roll < 45) {
+        if (roll < 60) {
             enemy.gainArmor(def + 8);
             std::cout << Color::ARMOR_CLR << "Bastion raises an impenetrable wall (+" << (def + 8)
                       << " armor)!" << Color::RESET << "\n";
             UIHelper::pause(150);
-        } else if (roll < 75) {
+        } else {
             // The challenge is the point of the armor: it stops you waiting
             // the wall out behind your own guard.
             playerAttackOnly = true;
-            Audio::playSFX("special");
+            Audio::playSFXPitched("special", 0.85f);
             std::cout << Color::RED << "Bastion HAMMERS its shield and dares you to break it!" << Color::RESET
                       << " Next turn you can only play " << Color::CARD_ATTACK << "ATTACK" << Color::RESET << " cards.\n";
             UIHelper::pause(250);
-        } else doAttack(atk, false);
+        }
         return;
     }
     if (nameHas("Fortress")) {
@@ -1390,126 +1803,140 @@ void Game::enemyTurn() {
         doAttack(std::max(1, atk / 2), false);
         return;
     }
-    if (nameHas("Orc"))       { if (taunted || roll < 60) { themed("Orc hurls a crushing BODY SLAM!"); doAttack(atk + 2, false); } else doDefend(def); return; }
+    if (nameHas("Orc"))       { themed("Orc hurls a crushing BODY SLAM!"); doAttack(atk + 2, false); return; }
 
-    // CASTER (still leans on the low-HP heal instinct)
+    // CASTER. The big three still heal when badly hurt.
+    const bool lowHp = enemy.getHealth() < enemy.getMaxHealth() / 3;
     if (nameHas("Sage")) {
-        if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 40) { int h = 8 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Sage channels a healing light (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
-        else if (!taunted && roll < 70) { applyPlayerStatus(StatusType::BURN, 5); Audio::playSFX("fire"); std::cout << Color::BURN_CLR << "Sage hurls a TORCH! Burn 5." << Color::RESET << "\n"; UIHelper::pause(250); }
-        else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (lowHp && roll < 40) { int h = 8 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Sage channels a healing light (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
+        else { cast(EnemyArt::CastGlow::BURN, enemyProjectile()); applyPlayerStatus(StatusType::BURN, 5); Audio::playSFX("fire"); std::cout << Color::BURN_CLR << "Sage hurls a TORCH! Burn 5." << Color::RESET << "\n"; UIHelper::pause(250); }
         return;
     }
     if (nameHas("Archon")) {
-        if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 35) { int h = 10 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Archon mends itself (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
-        else if (!taunted && roll < 70) { applyPlayerStatus(StatusType::BURN, 12); Audio::playSFX("fire"); std::cout << Color::BURN_CLR << "Archon calls down HELLFIRE! Burn 12." << Color::RESET << "\n"; UIHelper::pause(250); }
-        else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (lowHp && roll < 35) { int h = 10 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Archon mends itself (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
+        else {
+            // Its own frames show fire climbing out of the floor around its feet.
+            // Hellfire is that, spread across the arena, rising as it goes.
+            EnemyArt::printGroundFlames(enemy.getType(), enemy.getBossType(),
+                                        ProjectileTable::FX_PILLAR);
+            applyPlayerStatus(StatusType::BURN, 12);
+            Audio::playSFX("fire");
+            std::cout << Color::BURN_CLR << "Archon calls down HELLFIRE! Burn 12." << Color::RESET << "\n";
+            UIHelper::pause(250);
+        }
         return;
     }
     if (nameHas("Spellmaster")) {
-        if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 35) { int h = 10 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Spellmaster mends itself (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
-        else if (!taunted && roll < 70) { applyPlayerStatus(StatusType::POISON, 14); Audio::playSFX("poison"); std::cout << Color::POISON_CLR << "Spellmaster spreads a VIRULENT PLAGUE! Poison 14." << Color::RESET << "\n"; UIHelper::pause(250); }
-        else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (lowHp && roll < 35) { int h = 10 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "Spellmaster mends itself (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
+        else { cast(EnemyArt::CastGlow::POISON, enemyProjectile()); applyPlayerStatus(StatusType::POISON, 14); Audio::playSFX("poison"); std::cout << Color::POISON_CLR << "Spellmaster spreads a VIRULENT PLAGUE! Poison 14." << Color::RESET << "\n"; UIHelper::pause(250); }
         return;
     }
     if (nameHas("Enchanter")) {
-        if (!taunted && roll < 60) {
-            nextHandPenalty = 2;
-            Audio::playSFX("special");
-            std::cout << Color::MAGENTA << "Enchanter TEMPTS you into hesitation." << Color::RESET
-                      << " Your next hand is only " << Color::CYAN << "3 cards" << Color::RESET << ".\n";
-            UIHelper::pause(250);
-        } else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        nextHandPenalty = 2;
+        Audio::playSFXPitched("special", 0.85f);
+        // Relative, not "3 cards": the hand size moves with Endurance and upgrades.
+        std::cout << Color::MAGENTA << "Enchanter TEMPTS you into hesitation." << Color::RESET
+                  << " Your next hand is " << Color::CYAN << "2 cards smaller" << Color::RESET << ".\n";
+        UIHelper::pause(250);
         return;
     }
     if (nameHas("Sorcerer")) {
-        if (!taunted && roll < 60) {
-            applyPlayerStatus(StatusType::WEAK, 2);
-            nextHandPenalty = std::max(nextHandPenalty, 1);
-            Audio::playSFX("special");
-            std::cout << Color::BLUE << "Sorcerer hurls an ICE BLAST!" << Color::RESET
-                      << " You are " << Color::WEAK_CLR << "Weakened 2" << Color::RESET
-                      << " and your next hand loses a card.\n";
-            UIHelper::pause(250);
-        } else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
+        applyPlayerStatus(StatusType::WEAK, 2);
+        nextHandPenalty = std::max(nextHandPenalty, 1);
+        Audio::playSFXPitched("special", 0.85f);
+        std::cout << Color::BLUE << "Sorcerer hurls an ICE BLAST!" << Color::RESET
+                  << " You are " << Color::WEAK_CLR << "Weakened 2" << Color::RESET
+                  << " and your next hand loses a card.\n";
+        UIHelper::pause(250);
         return;
     }
     if (nameHas("Vampire")) {
         if (taunted) { doAttack(atk, false); return; }
-        if (roll < 65) {
-            std::cout << Color::MAGENTA << "Vampire sinks in a VAMPIRIC DRAIN!" << Color::RESET << "\n";
-            UIHelper::pause(150);
-            doAttack(10, false);
-            if (enemy.isAlive()) {
-                enemy.heal(6); enemy.addBonusAttack(1);
-                std::cout << Color::HEAL << "She drinks deep, mending herself (+6 HP) and growing stronger (+1 attack)." << Color::RESET << "\n";
-            }
-            if (playerHealth > 0) applyPlayerStatus(StatusType::WEAK, 2);
-            UIHelper::pause(200);
-        } else doAttack(atk, false);
+        std::cout << Color::MAGENTA << "Vampire sinks in a VAMPIRIC DRAIN!" << Color::RESET << "\n";
+        UIHelper::pause(150);
+        // A bite, not a spell. She closes the distance, so Parry can catch and
+        // riposte it, but her attack frames show her CASTING - playing them for
+        // a bite was the wrong picture, so this swings without them. Her CASTER
+        // archetype would otherwise have made the whole move ranged.
+        doAttackAt(10, false, /*ranged*/false, /*useFrames*/false);
+        if (enemy.isAlive()) {
+            enemy.heal(6); enemy.addBonusAttack(1);
+            std::cout << Color::HEAL << "She drinks deep, mending herself (+6 HP) and growing stronger (+1 attack)." << Color::RESET << "\n";
+        }
+        if (playerHealth > 0) { flash(EnemyArt::CastGlow::WEAK); applyPlayerStatus(StatusType::WEAK, 2);
+                                Audio::playSFXPitched("special", 0.85f); }
+        UIHelper::pause(200);
         return;
     }
     if (nameHas("Mystic")) {
-        if (!taunted && roll < 50 && !enemyInvulnerable) {
-            enemyInvulnerable = true;
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Mystic weaves an ILLUSION, splitting into fading copies." << Color::RESET
-                      << " It takes no damage next turn.\n";
-            UIHelper::pause(250);
-        } else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (enemyInvulnerable) { archetypeTurn(roll); return; }
+        enemyInvulnerable = true;
+        Audio::playSFXPitched("special", 0.85f);
+        std::cout << Color::CYAN << "Mystic weaves an ILLUSION, splitting into fading copies." << Color::RESET
+                  << " It takes no damage next turn.\n";
+        UIHelper::pause(250);
         return;
     }
 
     // RANGED
-    if (nameHas("Deadeye")) { themed("Deadeye lines up a DEAD SHOT!"); doAttack(atk, true); return; }
-    if (nameHas("Wyvern"))  { themed("Wyvern dives with a FLYING GNASH!"); doAttack(atk + 2, true); return; }
+    if (nameHas("Deadeye")) { themed("Deadeye lines up a DEAD SHOT!");
+                              doAttackAt(atk, true, true, true, enemyProjectile()); return; }
+    if (nameHas("Wyvern"))  { themed("Wyvern dives with a FLYING GNASH!");
+                              doAttackAt(atk + 2, true, true, true, EnemyArt::Proj::NONE, /*closeIn*/true); return; }
     if (nameHas("Omneye")) {
-        if (!taunted && roll < 30) { applyPlayerStatus(StatusType::WEAK, 2); std::cout << Color::WEAK_CLR << "Omneye's gaze unsettles you. Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); return; }
-        themed("Omneye fires a searing eye-beam!"); doAttack(atk + 2, true); return;
+        if (!taunted && roll < 30) { cast(EnemyArt::CastGlow::WEAK); applyPlayerStatus(StatusType::WEAK, 2); Audio::playSFXPitched("special", 0.85f); std::cout << Color::WEAK_CLR << "Omneye's gaze unsettles you. Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); return; }
+        themed("Omneye fires a searing eye-beam!");
+        // A beam, not a bolt: it stays joined to the pupil.
+        EnemyArt::printEnemyBeam(enemy.getType(), enemy.getBossType(), ProjectileTable::FX_BEAM,
+                                 enemyMuzzleX(), enemyMuzzleY());
+        doAttackAt(atk + 2, true, true, /*useFrames*/false, EnemyArt::Proj::NONE); return;
     }
-
     if (nameHas("Falcon")) {
-        // Gouge rides the dive. Enemy attacks carry no elemental tag in this game,
-        // so the wind shows up where it would actually matter: the gust opens your
-        // guard and the talons get in past armor.
-        if (taunted || roll < 65) { themed("The falcon stoops and GOUGES on a howling gust!"); doAttack(atk + 1, true); }
-        else doAttack(atk, false);
+        // Nothing crosses the gap: it dives in and pulls out again, so Proj::NONE.
+        themed("The falcon stoops and GOUGES on a howling gust!");
+        doAttackAt(atk + 1, true, true, true, EnemyArt::Proj::NONE, /*closeIn*/true);
         return;
     }
 
     // BEAST
-    if (nameHas("Wolf"))    { if (roll < 70) { themed("Wolf lunges with a BITE!"); doAttack(atk, false); } else doDefend(std::max(1, def - 1)); return; }
-    if (nameHas("Spider"))  { if (!taunted && roll < 50) { applyPlayerStatus(StatusType::WEAK, 2); std::cout << Color::WEAK_CLR << "Spider snares you in a WEB TRAP! Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); } else doAttack(atk, false); return; }
-    if (nameHas("Serpent")) { if (!taunted && roll < 50) { applyPlayerStatus(StatusType::WEAK, 3); std::cout << Color::WEAK_CLR << "Serpent ENTANGLES you! Weakened 3." << Color::RESET << "\n"; UIHelper::pause(200); } else doAttack(atk, false); return; }
+    if (nameHas("Wolf"))    { themed("Wolf lunges with a BITE!"); doAttack(atk, false); return; }
+    if (nameHas("Spider"))  { if (taunted) { doAttack(atk, false); return; } cast(EnemyArt::CastGlow::WEAK, enemyProjectile()); applyPlayerStatus(StatusType::WEAK, 2); Audio::playSFXPitched("special", 0.85f); std::cout << Color::WEAK_CLR << "Spider snares you in a WEB TRAP! Weakened 2." << Color::RESET << "\n"; UIHelper::pause(200); return; }
+    if (nameHas("Serpent")) { if (taunted) { doAttack(atk, false); return; } cast(EnemyArt::CastGlow::WEAK, enemyProjectile()); applyPlayerStatus(StatusType::WEAK, 3); Audio::playSFXPitched("special", 0.85f); std::cout << Color::WEAK_CLR << "Serpent ENTANGLES you! Weakened 3." << Color::RESET << "\n"; UIHelper::pause(200); return; }
     if (nameHas("Basilisk")) {
-        if (!taunted && curseTurnsLeft == 0 && roll < 40) {
-            curseTurnsLeft = 5;
-            Audio::playSFX("special");
-            std::cout << Color::BOLD << Color::MAGENTA << "Basilisk fixes you with a petrifying CURSE!" << Color::RESET << "\n"
-                      << "  " << Color::RED << "Defeat it within 5 turns or turn to stone." << Color::RESET << "\n";
-            UIHelper::pause(300);
-        } else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (curseTurnsLeft != 0) { archetypeTurn(roll); return; }
+        // Breathed at you, like any other curse.
+        cast(EnemyArt::CastGlow::STUN);
+        curseTurnsLeft = 7;
+        Audio::playSFXPitched("special", 0.85f);
+        std::cout << Color::BOLD << Color::MAGENTA << "Basilisk fixes you with a petrifying CURSE!" << Color::RESET << "\n"
+                  << "  " << Color::RED << "Defeat it within 7 turns or turn to stone." << Color::RESET << "\n";
+        UIHelper::pause(300);
         return;
     }
     if (nameHas("Cockatrice")) {
-        // Petrifying Bite draws blood and starts the clock. It reuses the Basilisk
-        // curse slot, so a countdown can never be stacked twice, and the == 0 guard
-        // means one cockatrice only ever casts it once per fight.
-        if (!taunted && curseTurnsLeft == 0 && roll < 35) {
-            themed("Cockatrice sinks in a PETRIFYING BITE!");
-            doAttack(atk, false);
-            if (playerHealth > 0) {
-                curseTurnsLeft = 3;
-                Audio::playSFX("special");
-                std::cout << "  " << Color::BOLD << Color::MAGENTA << "Stone creeps out from the wound!" << Color::RESET << "\n"
-                          << "  " << Color::RED << "Defeat it within 3 turns or turn to stone." << Color::RESET << "\n";
-                UIHelper::pause(300);
-            }
-        } else doAttack(atk, false);
+        // Reuses the Basilisk curse slot, so a countdown can never stack.
+        if (taunted) { doAttack(atk, false); return; }
+        if (curseTurnsLeft != 0) { archetypeTurn(roll); return; }
+        themed("Cockatrice sinks in a PETRIFYING BITE!");
+        doAttack(atk, false);
+        if (playerHealth > 0) {
+            curseTurnsLeft = 5;
+            Audio::playSFXPitched("special", 0.85f);
+            std::cout << "  " << Color::BOLD << Color::MAGENTA << "Stone creeps out from the wound!" << Color::RESET << "\n"
+                      << "  " << Color::RED << "Defeat it within 5 turns or turn to stone." << Color::RESET << "\n";
+            UIHelper::pause(300);
+        }
         return;
     }
     if (nameHas("Manticore")) {
-        // Two heads, two bites. enemyStrikePlayer already closes on a 350ms beat,
-        // so the hits read as separate without an extra pause between them.
         themed("Manticore lunges with a TWIN MAW - both heads at once!");
         doAttack(atk, false);
         if (playerHealth > 0 && enemy.isAlive()) doAttack(atk, false);
@@ -1522,9 +1949,9 @@ void Game::enemyTurn() {
         // BIND: a lash that draws blood coils on. Skips whiffs (dodged/parried/armor-eaten).
         if (playerHealth < hpBefore && playerHealth > 0) {
             fleshmassBindPending = true;
-            Audio::playSFX("special");
+            Audio::playSFXPitched("special", 0.85f);
             std::cout << Color::BOLD << Color::MAGENTA << "Tentacles coil around you! BOUND:" << Color::RESET
-                      << " you can only play one card next turn.\n";
+                      << " you draw a single card next turn.\n";
             UIHelper::pause(250);
         }
         return;
@@ -1534,16 +1961,22 @@ void Game::enemyTurn() {
     if (nameHas("Ghoul")) {
         if (taunted) { doAttack(atk, false); return; }
         themed("Ghoul CHOMPS down, feeding on you!");
+        // It feeds on what it takes: a bite your armor eats whole feeds it nothing.
+        int hpBefore = playerHealth;
         doAttack(atk, false);
-        if (enemy.isAlive()) { int h = 8; enemy.heal(h); std::cout << Color::HEAL << "Ghoul heals " << h << " HP from the bite." << Color::RESET << "\n"; }
-        if (playerHealth > 0) applyPlayerStatus(StatusType::POISON, 3);
+        const int fed = playerHealth < hpBefore ? 8 : 0;
+        if (enemy.isAlive() && fed > 0) { enemy.heal(fed); std::cout << Color::HEAL << "Ghoul heals " << fed << " HP from the bite." << Color::RESET << "\n"; }
+        else if (enemy.isAlive()) { std::cout << "  " << Color::DIM << "It draws no blood, and feeds on nothing." << Color::RESET << "\n"; }
+        if (playerHealth > 0) { flash(EnemyArt::CastGlow::POISON); applyPlayerStatus(StatusType::POISON, 3);
+                                Audio::playSFX("poison"); }
         UIHelper::pause(200);
         return;
     }
     if (nameHas("Banshee")) {
         if (taunted) { doAttack(atk, false); return; }
+        cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
         applyPlayerStatus(StatusType::WEAK, 2);
-        enemy.addBonusAttack(2);
+        if (enemy.getBonusAttack() < 6) enemy.addBonusAttack(2);
         std::cout << Color::MAGENTA << "Banshee looses a WAILING SCREAM!" << Color::RESET
                   << " You are " << Color::WEAK_CLR << "Weakened 2" << Color::RESET
                   << " and she grows stronger (+2 attack).\n";
@@ -1551,62 +1984,58 @@ void Game::enemyTurn() {
         return;
     }
     if (nameHas("Specter") || nameHas("Wraith")) {
-        if (!taunted && roll < 50 && !enemyInvulnerable) {
-            enemyInvulnerable = true;
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "The spirit turns GHOSTLY, fading half out of sight." << Color::RESET
-                      << " It takes no damage next turn.\n";
-            UIHelper::pause(250);
-        } else doAttack(atk, false);
+        if (taunted) { doAttack(atk, false); return; }
+        if (enemyInvulnerable) { archetypeTurn(roll); return; }
+        enemyInvulnerable = true;
+        Audio::playSFXPitched("special", 0.85f);
+        std::cout << Color::CYAN << "The spirit turns GHOSTLY, fading half out of sight." << Color::RESET
+                  << " It takes no damage next turn.\n";
+        UIHelper::pause(250);
         return;
     }
-    // One trick, used often. The taunt it used to share this slot with now
-    // belongs to the Bastion, where it plays off that wall of armor.
     if (nameHas("Revenant")) {
         if (taunted) { doAttack(atk, false); return; }
-        if (roll < 50) {
-            enemyParryStance = true;
-            Audio::playSFX("special");
-            std::cout << Color::CYAN << "Revenant raises a PARRY stance, ready to catch your next blow." << Color::RESET << "\n";
-            UIHelper::pause(250);
-        } else doAttack(atk, false);
+        enemyParryStance = true;
+        // With a challenge attached, so the turn is a real decision.
+        playerAttackOnly = true;
+        Audio::playSFXPitched("special", 0.85f);
+        std::cout << Color::CYAN << "Revenant raises a PARRY stance and dares you to swing." << Color::RESET
+                  << " Next turn you can only play " << Color::CARD_ATTACK << "ATTACK" << Color::RESET << " cards.\n";
+        UIHelper::pause(250);
         return;
     }
-    // Moon Scent. It works itself up rather than reaching for you: the same
-    // effect the player's Strengthen grants, on the other side of the field.
-    // Only cast when the last one has lapsed, so it tops out at x1.6 instead
-    // of riding a permanent buff.
+    // The secret fight. Moon Scent when calm, and while the scent lasts its
+    // signature turns become the Maul, so its own moves never go quiet the way
+    // they did when a lapsed-scent check dropped it to a plain attack.
     if (nameHas("Moonstruck")) {
-        if (!taunted && !enemy.hasStrength() && roll < 45) {
+        if (!taunted && !enemy.hasStrength()) {
             enemy.applyStatus(StatusType::STRENGTH, 3, 1.5, 1.6);
-            Audio::playSFX("special");
+            Audio::playSFXPitched("special", 0.85f);
             EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(),
                                           EnemyArt::SelfGlow::STRENGTH);
             std::cout << Color::BOLD << Color::MAGENTA << "The Moonstruck takes your MOON SCENT!"
                       << Color::RESET << " Its blows hit " << Color::STRENGTH_CLR << "x1.6"
                       << Color::RESET << " harder for 3 turns.\n";
             UIHelper::pause(300);
-        } else doAttack(atk, false);
+        } else {
+            themed("The Moonstruck tears into you with a MOONLIT MAUL!");
+            doAttack(atk + 3, false);
+        }
         return;
     }
     if (nameHas("Lich")) {
-        bool skeletonActs = lichAddAlive; // a just-summoned skeleton waits a turn before it swings
-        if (!taunted && !lichAddAlive && roll < 45) {
+        if (taunted) doAttack(atk, false);
+        else if (lichAddAlive) archetypeTurn(roll);
+        else {
             lichAddMaxHp = 24; lichAddHp = 24; lichAddAtk = 6;
             lichAddAlive = true;
             EnemyArt::setCompanion("Skeleton");
-            Audio::playSFX("special");
+            Audio::playSFXPitched("special", 0.85f);
             std::cout << Color::BOLD << Color::MAGENTA << "Lich RAISES an undead skeleton to fight at its side!" << Color::RESET
                       << " (Skeleton HP: " << lichAddHp << "/" << lichAddMaxHp << ")\n";
             UIHelper::pause(300);
-        } else {
-            doAttack(atk, false);
         }
-        if (skeletonActs && lichAddAlive && playerHealth > 0 && enemy.isAlive()) {
-            std::cout << Color::MAGENTA << "The summoned skeleton claws at you!" << Color::RESET << "\n";
-            UIHelper::pause(150);
-            enemyStrikePlayer(lichAddAtk, false, 1.0);
-        }
+        skeletonStrike();
         return;
     }
 
@@ -1625,8 +2054,9 @@ void Game::enemyTurn() {
             } else if (roll < 80) {
                 doDefend(std::max(1, def - 1));
             } else {
+                cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
                 applyPlayerStatus(StatusType::WEAK, 2);
-                Audio::playSFX("special");
+                Audio::playSFXPitched("special", 0.85f);
                 std::cout << Color::WEAK_CLR << "Enemy fires a crippling shot! You are Weakened for 2 turns." << Color::RESET << "\n";
             }
             break;
@@ -1641,10 +2071,12 @@ void Game::enemyTurn() {
                 std::cout << "Enemy casts heal and recovers " << healAmt << " HP! ("
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
             } else if (roll < 40) {
+                cast(EnemyArt::CastGlow::POISON, enemyProjectile());
                 applyPlayerStatus(StatusType::POISON, 3);
                 Audio::playSFX("poison");
                 std::cout << Color::POISON_CLR << "Enemy casts Poison Bolt! Poison 3: 2 damage a turn for 6 turns." << Color::RESET << "\n";
             } else if (roll < 60) {
+                cast(EnemyArt::CastGlow::BURN, enemyProjectile());
                 applyPlayerStatus(StatusType::BURN, 2);
                 Audio::playSFX("fire");
                 std::cout << Color::BURN_CLR << "Enemy casts Fireball! Burn 2: 3 damage a turn for 2 turns." << Color::RESET << "\n";
@@ -1656,6 +2088,7 @@ void Game::enemyTurn() {
             if (roll < 60) {
                 doAttack(atk, false);
             } else if (roll < 85) {
+                cast(EnemyArt::CastGlow::POISON, enemyProjectile());
                 applyPlayerStatus(StatusType::POISON, 3);
                 Audio::playSFX("poison");
                 std::cout << Color::POISON_CLR << "Enemy sinks its fangs in with a venomous bite! You are poisoned for 3 stacks." << Color::RESET << "\n";
@@ -1667,8 +2100,9 @@ void Game::enemyTurn() {
             if (roll < 75) {
                 doAttack(atk, false);
             } else {
+                touch(EnemyArt::CastGlow::WEAK);
                 applyPlayerStatus(StatusType::WEAK, 2);
-                Audio::playSFX("special");
+                Audio::playSFXPitched("special", 0.85f);
                 std::cout << Color::WEAK_CLR << "Enemy's chilling touch saps your strength! Weakened for 2 turns." << Color::RESET << "\n";
             }
             break;
@@ -1760,7 +2194,10 @@ void Game::endPlayerTurn() {
         // Discard remaining hand cards and draw a fresh hand for next turn
         // (Tempt/Ice Blast shrink the next hand via nextHandPenalty).
         playerDeck.resetDeck();
-        int drawCount = std::max(1, 5 + upgrades.getDrawBonus() - nextHandPenalty);
+        int drawCount = std::max(1, BASE_HAND_SIZE + handSizeBonus
+                                    + upgrades.getDrawBonus() - nextHandPenalty);
+        // BOUND deals one card, not a full hand you may only spend one of.
+        if (fleshmassBindPending) drawCount = 1;
         nextHandPenalty = 0;
         for (int i = 0; i < drawCount; ++i) {
             try { playerDeck.drawCard(); } catch (...) { break; }
@@ -1823,9 +2260,12 @@ bool Game::handleGameOverInput() {
     // Clear first: the picker draws over the console rather than replacing
     // it, so the run summary printed above would show through the buttons.
     UIHelper::clearScreen();
+    // Two columns, matching the Rest site, the Continue/End run screen and the
+    // upgrade list this leads into. Bare labels get centred instead, which made
+    // the last three screens of a run each look laid out differently.
     std::vector<CardBar::Action> overActs{
-        CardBar::Action{ "Play again", false },
-        CardBar::Action{ "Quit", false },
+        CardBar::Action{ "Play again", "keep your unlocks, carry one card into a fresh run", false },
+        CardBar::Action{ "Quit",       "stop here and see your lifetime stats", false },
     };
     const std::string title = "Run over        "
         + std::to_string(currentRun.getEncountersWon()) + " encounters won        "
@@ -1840,7 +2280,7 @@ bool Game::selectCardToCarryOver(Card& outCard) {
     if (allCards.empty()) return false;
 
     std::vector<CardBar::Card> widgets;
-    for (const Card& c : allCards) widgets.push_back(toWidget(c, c.getValue()));
+    for (const Card& c : allCards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
     std::vector<CardBar::Action> carryActs{ CardBar::Action{ "Leave them all behind", false } };
 
     int choice;
@@ -1892,27 +2332,46 @@ void Game::syncHud() {
 
         h.playerHp = playerHealth; h.playerMax = maxPlayerHealth;
         h.playerArmor = playerArmor;
-        int totalDmg = upgrades.getDamageBonus() + equipDamageBonus;
-        int totalArm = upgrades.getArmorBonus()  + equipArmorBonus;
+        int totalDmg = upgrades.getDamageBonus();
+        int totalArm = upgrades.getArmorBonus();
         // Shown as a permanent readout beside the bar, the way the enemy's
         // ATK/DEF are - they used to appear only as tags once non-zero.
         h.playerAtk = totalDmg;
         h.playerDef = totalArm;
+        h.playerAtkPct = equipDamagePercent;
+        h.playerDefPct = equipArmorPercent;
         // Colour is kept, not stripped: the panel renders the escapes, so an
         // ailment reads in its own colour exactly as it does in the log.
         std::string ptags;
         if (playerArmorPersistTurns > 0)
             ptags += std::string(Color::CYAN) + "[Fortified "
                    + std::to_string(playerArmorPersistTurns) + "] " + Color::RESET;
+        // Otherwise the ward is invisible until something is blocked by it.
+        if (statusWardTurns > 0)
+            ptags += std::string(" ") + Color::CYAN + "[Guard:"
+                   + std::to_string(statusWardTurns) + "t]" + Color::RESET;
         ptags += playerStatus.summary();
         h.playerTags = ptags;
 
         h.enemyName = enemy.getName();
         h.enemyHp = enemy.getHealth(); h.enemyMax = enemy.getMaxHealth();
-        h.enemyAtk = enemy.getBaseAttack();
+        // Both readouts show what the enemy is working with right now: ATK includes
+        // anything it has buffed itself by, DEF includes armor it has raised. The
+        // ATK half was missing, so a wind-up visibly changed nothing.
+        h.enemyAtk = enemy.getBaseAttack() + enemy.getBonusAttack();
         h.enemyDef = enemy.getBaseDefense() + enemy.getArmor();
         std::string etags = enemy.statusSummary();
         if (enemyInvulnerable) etags += std::string(" ") + Color::CYAN + "[Phased: immune]" + Color::RESET;
+        // Both last two enemy turns and both change what it is about to do, so
+        // without a readout the player is guessing at their own card's effect.
+        // Kept short: this row already carries poison, burn, rend, weak and stun,
+        // and a spelled-out reminder pushed the rest off the panel.
+        if (enemyTauntTurns > 0)
+            etags += std::string(" ") + Color::RED + "[Taunt:"
+                   + std::to_string(enemyTauntTurns) + "t]" + Color::RESET;
+        if (enemyFearTurns > 0)
+            etags += std::string(" ") + Color::CYAN + "[Fear:"
+                   + std::to_string(enemyFearTurns) + "t]" + Color::RESET;
         h.enemyTags = etags;
 
         if (curseTurnsLeft > 0)
@@ -1920,7 +2379,7 @@ void Game::syncHud() {
                      + (curseTurnsLeft == 1 ? " turn" : " turns")
                      + " unless the " + enemy.getName() + " falls";
         else if (playerAttackOnly) h.notice = "TAUNTED - attack cards only this turn";
-        else if (playerBoundTurn)  h.notice = std::string("BOUND - one card this turn")
+        else if (playerBoundTurn)  h.notice = std::string("BOUND - a single card this turn")
                                             + (cardsPlayedThisTurn >= 1 ? " (spent)" : "");
 
         h.addActive = lichAddAlive;
@@ -1967,8 +2426,6 @@ void Game::handleInput() {
 
     
     int handCount = playerDeck.handSize();
-    int dmgBonus  = upgrades.getDamageBonus() + equipDamageBonus;
-    int armBonus  = upgrades.getArmorBonus()  + equipArmorBonus;
     double weakMult = playerStatus.getWeakMultiplier();
     double strengthMult = playerStatus.getStrengthMultiplier();
 
@@ -2010,9 +2467,13 @@ void Game::handleInput() {
             leftLines.push_back(""); optionIndices.push_back(-1);
         } else {
             const Card& c = playerDeck.getCardFromHand(i);
-            int dispVal = c.getValue();
-            if      (c.getType() == CardType::ATTACK) dispVal = (int)(std::max(0, dispVal + dmgBonus) * weakMult * strengthMult);
-            else if (c.getType() == CardType::DEFEND) dispVal = dispVal + armBonus;
+            // What it will actually land for: the printed value through gear, then
+            // through Weak/Strength. Gear became a multiplier and this was still
+            // adding a flat bonus that had been zeroed, so every card in hand was
+            // showing its raw printed number.
+            int dispVal = gearedValue(c, c.getValue());
+            if (c.getType() == CardType::ATTACK)
+                dispVal = (int)(std::max(0, dispVal) * weakMult * strengthMult);
 
             const char* typeColor = (c.getTypeString() == "ATTACK") ? Color::CARD_ATTACK
                                   : (c.getTypeString() == "DEFEND") ? Color::CARD_DEFEND
@@ -2102,7 +2563,10 @@ void Game::handleInput() {
         if (ci >= 0 && ci < handCount && !playerDeck.isCardUsed(ci)) {
             const Card& c = playerDeck.getCardFromHand(ci);
             CardBar::showDetail(widgets[ci], c.getDescription(), c.getTypeString(),
-                                c.isSuperRare() ? "SUPER RARE" : c.isRare() ? "RARE" : "",
+                                // rarityWord(), not a second copy of the ladder: this one
+                                // never checked isLegendary(), so Bloodlust (which carries
+                                // both flags) read as SUPER RARE and Reckoning read as RARE.
+                                rarityWord(c),
                                 c.getUpgradeCount());
         }
         return;   // redraw the turn cleanly rather than resuming a stale layout
@@ -2147,8 +2611,12 @@ void Game::handleInput() {
 }
 
 Enemy Game::generateBossEnemy() {
-    int bossHealth  = currentRun.getEnemyHealth() * 2;
-    int bossAttack  = currentRun.getEnemyAttack() + 4;
+    // x1.4 and +1, down from x2 and +4. Modelled on the new player curve, the old
+    // multiplier made every boss from encounter 10 on a fight the player lost;
+    // this is the mildest change that makes all four winnable, with encounter 20
+    // still the tightest.
+    int bossHealth  = currentRun.getEnemyHealth() * 14 / 10;
+    int bossAttack  = currentRun.getEnemyAttack() + 1;
     int bossDefense = currentRun.getEnemyDefense();
 
     std::string name;
@@ -2188,7 +2656,11 @@ Enemy Game::generateBossEnemy() {
             break;
     }
 
-    if (btype == BossType::SHADOW_KNIGHT) bossHealth = bossHealth * 5 / 4;
+    // The Shadow Knight is pinned to the player rather than the encounter curve.
+    // At encounter 50 the old formula gave it 1880 HP, which turned the fight into
+    // a grind. Its threat was never its pool - it is that it plays your own deck
+    // back at you, and that already scales with how good your deck is.
+    if (btype == BossType::SHADOW_KNIGHT) bossHealth = 200 + maxPlayerHealth;
 
     int cycle = currentRun.getCycle();
     if (cycle == 1) name = "Ancient " + name;
@@ -2201,10 +2673,14 @@ Enemy Game::generateBossEnemy() {
 }
 
 // Shared by bossAction() and the Shadow Knight's mirrored attacks (can't be a lambda - those resolve outside bossAction()).
-void Game::bossStrikesPlayer(int damage, bool raw) {
+void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn) {
     double weakMult = enemy.getWeakMultiplier() * enemy.getStrengthMultiplier();
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
-    EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0);
+    // Bosses take their range from their archetype - the Undead Dragon is RANGED
+    // and should breathe from where it stands rather than walking over first.
+    EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
+                                archetypeIsRanged(), /*useAttackFrames*/true,
+                                /*projectile*/-1, enemyMuzzleX(), enemyMuzzleY(), closeIn);
     // Dodge Reversal fires before Parry when both are active (uncapped, higher priority)
     if (counterAttackActive) {
         counterAttackActive = false;
@@ -2230,12 +2706,14 @@ void Game::bossStrikesPlayer(int damage, bool raw) {
             int hpBefore = enemy.getHealth();
             enemy.takeDamage(riposteDmg); // ignores defense - takeDamage only accounts for armor
             int hpLost = hpBefore - enemy.getHealth();
+            // Before the animation, so the cue lands with the blow.
+            Audio::playSFX(hpLost > 0 ? "attack" : "special");
             EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
             EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
             bool stunned = tryStunEnemy();
             if (stunned && enemy.isAlive())
                 EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), EnemyArt::CastGlow::STUN, true);
-            Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "special");
+            if (!enemy.isAlive()) Audio::playSFX(deathSfx(enemy.isBoss()));
             std::cout << Color::CYAN << "Parry! You deflect the blow. No damage taken. Riposte for " << hpLost
                       << " damage!" << (stunned ? " Boss is stunned!" : " Boss resists the stun!") << Color::RESET
                       << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
@@ -2320,8 +2798,24 @@ void Game::bossAction() {
     enemy.processStrength();
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
+    // Every boss move that is not a plain attack shows something crossing the
+    // field or landing on one of the two fighters.
+    auto bossCast = [&](EnemyArt::CastGlow g, int proj = -1, int scalePct = 30) {
+        EnemyArt::printEnemyCast(enemy.getType(), enemy.getBossType(), g, proj,
+                                 enemyMuzzleX(), enemyMuzzleY(), scalePct);
+    };
+    auto bossTouch = [&](EnemyArt::CastGlow g) {
+        EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
+                                    /*ranged*/false);
+        EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), g, false);
+    };
+    auto bossMend = [&]() {
+        EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(),
+                                      EnemyArt::SelfGlow::HEAL);
+    };
+
     bool bossVolleyBroken = false;
-    auto doAttack = [&](int damage, bool raw) {
+    auto doAttack = [&](int damage, bool raw, bool closeIn = false) {
         if (enemy.hasStun()) {   // see the note on the regular doAttack
             if (!bossVolleyBroken) {
                 bossVolleyBroken = true;
@@ -2331,7 +2825,7 @@ void Game::bossAction() {
             }
             return;
         }
-        bossStrikesPlayer(damage, raw);
+        bossStrikesPlayer(damage, raw, closeIn);
     };
 
     switch (enemy.getBossType()) {
@@ -2341,6 +2835,9 @@ void Game::bossAction() {
                 UIHelper::pause(300);
                 doAttack(15, true);
             } else if (roll < 45) {
+                EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(),
+                                              EnemyArt::SelfGlow::STRENGTH);
+                Audio::playSFXPitched("defend", 0.8f);
                 enemy.gainArmor(8);
                 std::cout << Color::MAGENTA << "Stone Colossus hardens!" << Color::RESET
                           << " +" << Color::ARMOR_CLR << 8 << Color::RESET
@@ -2359,6 +2856,8 @@ void Game::bossAction() {
                 UIHelper::pause(200);
                 doAttack(atk, false);
             } else if (roll < 70) {
+                // Thrown from the staff head she holds high on the left.
+                bossCast(EnemyArt::CastGlow::POISON, enemyProjectile());
                 applyPlayerStatus(StatusType::POISON, 4);
                 applyPlayerStatus(StatusType::BURN, 2);
                 Audio::playSFX("poison");
@@ -2368,13 +2867,18 @@ void Game::bossAction() {
                 UIHelper::pause(350);
             } else if (roll < 85) {
                 int healAmt = 20;
+                // It drains YOU: the pull crosses the field, then she mends.
+                bossCast(EnemyArt::CastGlow::WEAK, enemyProjectile());
                 enemy.heal(healAmt);
+                bossMend();
                 std::cout << Color::MAGENTA << "Vile Witch siphons life, healing " << Color::HEAL
                           << healAmt << " HP!" << Color::RESET << " ("
                           << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(250);
             } else {
+                // Thrown larger than a bolt: the ground itself comes up.
+                bossCast(EnemyArt::CastGlow::POISON, enemyProjectile(), 55);
                 applyPlayerStatus(StatusType::POISON, 6);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
@@ -2385,26 +2889,33 @@ void Game::bossAction() {
 
         case BossType::WARLORD:
             if (roll < 12) {
+                bossCast(EnemyArt::CastGlow::STUN);
                 applyPlayerStatus(StatusType::STUN, 1);
-                Audio::playSFX("volt");
+                Audio::playSFXPitched("volt", 0.85f);
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast unleashes a THUNDERSTRIKE!" + Color::RESET
                     + " You are " + Color::STUN_CLR + "STUNNED" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 27) {
+                // A roar is thrown at you, not cast: it works itself up and the
+                // sound rolls over the knight.
+                EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(),
+                                              EnemyArt::SelfGlow::STRENGTH);
                 applyPlayerStatus(StatusType::WEAK, 3);
-                Audio::playSFX("special");
+                Audio::playSFXPitched("special", 0.85f);
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast roars a BATTLECRY!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
                 UIHelper::pause(350);
-            }
-            UIHelper::typeWrite(std::string(Color::MAGENTA) + "Thunder Beast attacks!" + Color::RESET + "\n");
-            UIHelper::pause(200);
-            doAttack(atk, false);
-            if (enemy.getBonusAttack() < 6) {
-                enemy.addBonusAttack(1);
-                std::cout << Color::MAGENTA << "Thunder Beast grows stronger!" << Color::RESET
-                          << " (total bonus +" << Color::RED << enemy.getBonusAttack() << Color::RESET << " attack)\n";
+            } else {
+                // Exclusive with the two above: a stun or a roar costs it the swing.
+                UIHelper::typeWrite(std::string(Color::MAGENTA) + "Thunder Beast attacks!" + Color::RESET + "\n");
                 UIHelper::pause(200);
+                doAttack(atk, false);
+                if (enemy.getBonusAttack() < 10) {
+                    enemy.addBonusAttack(1);
+                    std::cout << Color::MAGENTA << "Thunder Beast grows stronger!" << Color::RESET
+                              << " (total bonus +" << Color::RED << enemy.getBonusAttack() << Color::RESET << " attack)\n";
+                    UIHelper::pause(200);
+                }
             }
             break;
 
@@ -2412,12 +2923,15 @@ void Game::bossAction() {
             if (roll < 20) {
                 int healAmt = 18;
                 enemy.heal(healAmt);
+                bossMend();
                 std::cout << Color::MAGENTA << "Hydra regrows a severed head, healing " << Color::HEAL
                           << healAmt << " HP!" << Color::RESET << " ("
                           << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(250);
             } else if (roll < 50) {
+                // Fangs, not a spell: it closes, bites, and the venom follows.
+                bossTouch(EnemyArt::CastGlow::POISON);
                 applyPlayerStatus(StatusType::POISON, 5);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Hydra sinks its fangs in with a VENOMOUS BITE!" + Color::RESET
@@ -2437,25 +2951,31 @@ void Game::bossAction() {
 
         case BossType::DRAGON:
             if (roll < 20) {
-                applyPlayerStatus(StatusType::BURN, 4);
+                // A wall of flame out of the jaws, at well over a bolt's size.
+                bossCast(EnemyArt::CastGlow::BURN, enemyProjectile(), 80);
+                // Burn 8: four stacks was two ticks of chip damage at encounter 40.
+                applyPlayerStatus(StatusType::BURN, 8);
                 Audio::playSFX("fire");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon unleashes FIRE BREATH!" + Color::RESET
-                    + " You gain " + Color::BURN_CLR + "Burn 4" + Color::RESET + "!\n");
+                    + " You gain " + Color::BURN_CLR + "Burn 8" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 45) {
+                // A gust, not a bolt: wind has its own art now.
+                bossCast(EnemyArt::CastGlow::WEAK, ProjectileTable::FX_WIND, 70);
                 applyPlayerStatus(StatusType::WEAK, 3);
-                Audio::playSFX("special");
+                Audio::playSFXPitched("special", 0.85f);
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon's WING BUFFET knocks you off balance!" + Color::RESET
                     + " You are " + Color::WEAK_CLR + "Weakened 3" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 70) {
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon rakes with CLAW RAKE!" + Color::RESET + "\n");
                 UIHelper::pause(200);
-                doAttack(atk + 5, true);
+                // Claws mean closing, even though its breath is a ranged move.
+                doAttack(atk + 5, true, /*closeIn*/true);
             } else {
                 UIHelper::typeWrite(std::string(Color::MAGENTA) + "Dragon claws at you!" + Color::RESET + "\n");
                 UIHelper::pause(200);
-                doAttack(atk, false);
+                doAttack(atk, false, /*closeIn*/true);
             }
             break;
 
@@ -2465,7 +2985,10 @@ void Game::bossAction() {
                 knightPreparedMoves.clear();
                 UIHelper::typeWrite(std::string(Color::MAGENTA) + "Shadow Knight strikes!" + Color::RESET + "\n");
                 UIHelper::pause(200);
-                doAttack(atk, false);
+                // Its plain swing is deliberately weak. The mirrored cards carry the
+                // damage and already scale with your own deck, so a full-strength
+                // strike on top of them was double-dipping.
+                doAttack(std::max(1, atk * 55 / 100), false);
                 break;
             }
             while (!knightPreparedMoves.empty() && enemy.isAlive() && playerHealth > 0) {
@@ -2570,7 +3093,11 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
     } else { // SPECIAL
         switch (mirrored.getEffect()) {
             case CardEffect::HEAL: {
-                int healAmt = v * 2;
+                // Your heal card mirrored back, run through the same floor rule against
+                // ITS pool, then halved - the boss pool dwarfs yours and a full-strength
+                // mirror undid two whole turns of damage.
+                int healAmt = std::max(1, Card::healAmount(v, enemy.getHealth(),
+                                                           enemy.getMaxHealth()) / 2);
                 enemy.heal(healAmt);
                 std::cout << Color::MAGENTA << "The shadow knits itself back together, healing " << Color::HEAL
                           << healAmt << " HP!" << Color::RESET << " ("
@@ -2618,7 +3145,9 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
 }
 
 void Game::offerBossReward() {
-    std::vector<Card> rewards = rewardPool.generateRareRewards(3, maxEnergy, playerDeck.getAllCardNames());
+    std::vector<Card> rewards = rewardPool.generateRareRewards(3 + rewardChoiceBonus, maxEnergy,
+                                    playerDeck.getAllCardNames(), currentRun.getBossIndex(),
+                                    luckBonus());
 
     // Without this the loop below builds an empty option list and still puts up
     // a "choose one" screen with nothing on it but Skip. The rare pool runs dry
@@ -2658,7 +3187,7 @@ void Game::offerBossReward() {
     options.push_back("Skip");
 
     std::vector<CardBar::Card> bossWidgets;
-    for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, c.getValue()));
+    for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
 
     while (true) {
         std::vector<CardBar::Action> bossActs{ CardBar::Action{ "Skip", false } };
@@ -2691,7 +3220,10 @@ void Game::offerBossReward() {
 }
 
 void Game::offerExtraPlay() {
-    const int MAX_ENERGY_CAP = 5;
+    // Raised from 5. With three cards a turn instead of five, the back half of a
+    // run needs somewhere for a boss kill to go, and hitting the ceiling at the
+    // fourth boss meant the last two gave nothing at all.
+    const int MAX_ENERGY_CAP = 8;
     UIHelper::clearScreen();
     if (maxEnergy >= MAX_ENERGY_CAP) {
         notice("You are already at the max of " + std::to_string(MAX_ENERGY_CAP)
@@ -2831,7 +3363,9 @@ bool Game::rollSecretEncounter() {
     if (currentRun.getCurrentEncounter() < SECRET_EARLIEST) return false;
     static thread_local std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<> d(1, 100);
-    return d(gen) <= SECRET_CHANCE_PERCENT;
+    // Luck applies here above all: a run that has not found this yet is exactly
+    // the run that should get better odds for having invested in Fortune.
+    return d(gen) <= SECRET_CHANCE_PERCENT + luckBonus();
 }
 
 void Game::beginSecretEncounter() {
@@ -2855,7 +3389,7 @@ void Game::beginSecretEncounter() {
     Audio::playBGM("bgm_secret");   // off the zone rotation entirely
     Audio::playSFX("boss");
     playerDeck.resetDeck();
-    int drawCount = 5 + upgrades.getDrawBonus();
+    int drawCount = BASE_HAND_SIZE + handSizeBonus + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
@@ -2910,24 +3444,21 @@ void Game::handleSecretWin() {
     UIHelper::waitForKey("");
     UIHelper::showHeadline("", 0, 0, 0);
 
-    // One in four that the thing was carrying something legendary. This and
-    // finishing a run are the only ways to get one now.
+    // Always a legendary: the encounter is a 2% roll, once a run. Super rare is
+    // the fallback for a deck that already owns every legendary.
     std::vector<Card> prize;
     {
         static thread_local std::mt19937 lg(std::random_device{}());
-        std::uniform_int_distribution<> d(1, 100);
-        if (d(lg) <= 25) {
-            std::vector<Card> legs = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
-            if (!legs.empty()) {
-                std::uniform_int_distribution<> pick(0, (int)legs.size() - 1);
-                prize.push_back(legs[pick(lg)]);
-            }
+        std::vector<Card> legs = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
+        if (!legs.empty()) {
+            std::uniform_int_distribution<> pick(0, (int)legs.size() - 1);
+            prize.push_back(legs[pick(lg)]);
         }
     }
     if (prize.empty())
         prize = rewardPool.generateSuperRareReward(playerDeck.getAllCardNames());
     if (!prize.empty()) {
-        std::vector<CardBar::Card> w{ toWidget(prize[0], prize[0].getValue()) };
+        std::vector<CardBar::Card> w{ toWidget(prize[0], gearedValue(prize[0], prize[0].getValue())) };
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Take it", false } };
         while (true) {
             int ch = CardBar::pick("The beast was carrying this", w, acts, 1);
@@ -2995,7 +3526,7 @@ void Game::startEncounter() {
     // per-segment files (bgm2..bgm5) exist in sounds/.
     Audio::playBGM(((currentRun.getCurrentEncounter() - 1) / 10) % 5);
     playerDeck.resetDeck();
-    int drawCount = 5 + upgrades.getDrawBonus();
+    int drawCount = BASE_HAND_SIZE + handSizeBonus + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
@@ -3149,8 +3680,16 @@ bool Game::forgeMenu(const std::string& baseTitle) {
     }
 
     std::vector<Card> allCards = playerDeck.getAllCardsOrdered();
+    // Anything that cannot be upgraded sinks to the bottom. It is greyed out and
+    // unpickable, so leaving it interleaved by rarity pushed the cards you can
+    // actually act on down the list and onto later pages.
     std::stable_sort(allCards.begin(), allCards.end(),
-        [](const Card& a, const Card& b) { return rarityRank(a) > rarityRank(b); });
+        [](const Card& a, const Card& b) {
+            const bool aDone = a.getUpgradeCount() >= a.getMaxUpgrades();
+            const bool bDone = b.getUpgradeCount() >= b.getMaxUpgrades();
+            if (aDone != bDone) return bDone;          // upgradable first
+            return rarityRank(a) > rarityRank(b);
+        });
 
     // Group identical cards together - picking a group upgrades every copy at once.
     std::vector<const Card*> groupCard;
@@ -3194,14 +3733,12 @@ bool Game::forgeMenu(const std::string& baseTitle) {
             bool maxed = upgradesLeft <= 0;
             // Only ATTACK and DEFEND get the flat bonuses; specials use the
             // raw card value, so they show unmodified.
-            const int gearBonus =
-                  (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
-                : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
-                                                    : 0;
-            CardBar::Card w = toWidget(c, c.getValue() + gearBonus, maxed);
+            const int nowVal  = gearedValue(c, c.getValue());
+            const int nextVal = gearedValue(c, upgradedValue(c));
+            CardBar::Card w = toWidget(c, nowVal, maxed);
             // On the forge the useful number is what it becomes, not what
             // it currently is - that is the decision being made here.
-            if (!maxed) w.effect = upgradeFaceLine(c, gearBonus);
+            if (!maxed) w.effect = upgradeFaceLine(c, nowVal, nextVal);
             if (groupCount[g] > 1) w.name += " x" + std::to_string(groupCount[g]);
             w.note = maxed ? "maxed"
                            : (std::to_string(upgradesLeft) + " upgrade"
@@ -3227,21 +3764,22 @@ bool Game::forgeMenu(const std::string& baseTitle) {
             int ci = -2 - choice;
             if (ci >= 0 && ci < shown) {
                 const Card& c = *groupCard[startIdx + ci];
-                const int gearBonus =
-                      (c.getType() == CardType::ATTACK) ? upgrades.getDamageBonus() + equipDamageBonus
-                    : (c.getType() == CardType::DEFEND) ? upgrades.getArmorBonus()  + equipArmorBonus
-                                                        : 0;
                 int left = c.getMaxUpgrades() - c.getUpgradeCount();
                 std::string text = c.getDescription();
                 if (left > 0) {
                     // showDetail word-wraps and has no newline handling, so
                     // this has to read as another sentence rather than a row.
-                    text += "   Upgrading takes it to " + std::to_string(upgradedValue(c) + gearBonus);
+                    // Geared at the upgraded value, not the current value plus a
+                    // fixed delta - with a percentage those are different numbers.
+                    text += "   Upgrading takes it to " + std::to_string(gearedValue(c, upgradedValue(c)));
                     text += (c.getType() == CardType::DEFEND) ? " armor" 
                           : (c.getType() == CardType::ATTACK) ? " damage" : " value";
                     if (upgradedCost(c) < c.getCost())
                         text += " and drops the cost from " + std::to_string(c.getCost())
                               + " to " + std::to_string(upgradedCost(c));
+                    else if (c.getCost() <= c.minCost())
+                        text += " (cost stays at " + std::to_string(c.getCost())
+                              + "; this card will not go lower)";
                     // upgradesLeft counts the one about to be applied, so
                     // what remains afterwards is one fewer.
                     const int after = left - 1;
@@ -3368,7 +3906,7 @@ void Game::viewDeckManage() {
         std::vector<CardBar::Card> widgets;
         for (int i = 0; i < count; i++) {
             const Card& c = *groupCard[first + i];
-            CardBar::Card w = toWidget(c, c.getValue());
+            CardBar::Card w = toWidget(c, gearedValue(c, c.getValue()));
             if (groupCount[first + i] > 1) w.name += " x" + std::to_string(groupCount[first + i]);
             widgets.push_back(w);
         }
@@ -3501,6 +4039,10 @@ void Game::handleEncounterWin() {
     if (currentRun.getCurrentEncounter() % 3 == 0)
         offerEquipmentDrop();
 
+    // Every 12th encounter, for as long as the run lasts.
+    if (currentRun.getCurrentEncounter() % BOON_INTERVAL == 0)
+        offerBoon();
+
     restSite();
 
     offerContinueOrEndRun();
@@ -3594,7 +4136,7 @@ void Game::handleGameVictory() {
         startEncounter();
         return;
     }
-    deleteSave();
+    deleteCurrentSave();
     currentRun.loseRun(); // main loop routes to finishRun()
 }
 
@@ -3619,11 +4161,14 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
         else startEncounter(); // the loaded encounter hasn't been fought yet - don't skip past it
     } else {
         if (choice == 1) {
+            const int slot = chooseSaveSlot("Save this run", /*forSaving*/true);
+            if (slot == 0) return offerContinueOrEndRun(justWonEncounter);  // backed out
             // Saving skips nextEncounter(), so advance the counter here or the
             // save would point at the fight just won and replay it on load.
             if (justWonEncounter) currentRun.nextEncounter();
-            saveGame();
-            notice("Progress saved. Pick Load Save on the main menu to carry on.");
+            saveGame(slot);
+            notice("Saved to slot " + std::to_string(slot)
+                   + ". Pick Load Save on the main menu to carry on.");
         }
         inEncounter = false;
     Hud::setActive(false);   // the panel belongs to the fight
@@ -3651,8 +4196,8 @@ void Game::offerExhaustedReward() {
     // allowed. generateWeightedRewards still erases each pick from its pool, so
     // the three on screen are distinct from each other.
     std::vector<Card> dupes = rewardPool.generateWeightedRewards(
-        3, upgrades.isActive(4), maxEnergy, {},
-        std::min(2, currentRun.getCurrentEncounter() / 10));
+        3 + rewardChoiceBonus, upgrades.isActive(4), maxEnergy, {},
+        std::min(2, currentRun.getCurrentEncounter() / 10), luckBonus());
     if (dupes.empty()) { notice("Nothing left to offer."); return; }
 
     presentCardChoice(dupes, "Nothing new left   take a second copy",
@@ -3664,7 +4209,9 @@ void Game::offerCardReward() {
     bool rarityBoost = upgrades.isActive(4);
     // Gated by bosses defeated: Uncommon only, +Rare after 1st boss, +Super Rare after 2nd.
     int maxRarityUnlocked = std::min(2, currentRun.getCurrentEncounter() / 10);
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(3, rarityBoost, maxEnergy, playerDeck.getAllCardNames(), maxRarityUnlocked);
+    std::vector<Card> rewards = rewardPool.generateWeightedRewards(
+        3 + rewardChoiceBonus, rarityBoost, maxEnergy,
+        playerDeck.getAllCardNames(), maxRarityUnlocked, luckBonus());
 
     if (rewards.empty()) { offerExhaustedReward(); return; }
 
@@ -3677,7 +4224,7 @@ void Game::offerCardReward() {
 void Game::presentCardChoice(const std::vector<Card>& rewards,
                              const std::string& title, const std::string& skipPrompt) {
     std::vector<CardBar::Card> widgets;
-    for (const Card& c : rewards) widgets.push_back(toWidget(c, c.getValue()));
+    for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
 
     while (true) {
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Skip", false } };
@@ -3717,6 +4264,77 @@ void Game::applyUpgrades() {
     playerHealth = maxPlayerHealth;
 }
 
+// Each point of Luck adds this many percentage points to every roll in the
+// run. Kept in one place so "increases all odds" stays literally true rather
+// than something that has to be remembered at each call site.
+int Game::luckBonus() const { return runLuck * 2; }
+
+void Game::offerBoon() {
+    UIHelper::clearScreen();
+    // Shown as cards rather than plain buttons so they read as something you are
+    // picking up, and so they can carry the white boon stripe.
+    auto boonCard = [](const char* name, const char* face, const char* note) {
+        CardBar::Card b;
+        b.name = name; b.effect = face; b.note = note;
+        b.elemTag = "[BOON]";
+        b.tint = Console::xterm256Public(Stripe::BOON);
+        b.nameColor = Console::xterm256Public(Stripe::BOON);
+        return b;
+    };
+    std::vector<CardBar::Card> widgets{
+        boonCard("Fortune",   "+2% all rolls", "rarity, drops, every chance roll"),
+        boonCard("Endurance", "+1 card/turn",  "every turn, for the rest of the run"),
+        boonCard("Foresight", "+1 reward",     "one more card to choose from on every reward"),
+    };
+    std::vector<CardBar::Action> acts{ CardBar::Action{ "Take none", "walk on empty-handed", false } };
+    // The face only has room for a few words; this is what "+" shows.
+    const char* details[] = {
+        "Every chance roll for the rest of this run is 2 percentage points kinder, "
+        "including card rarity and reward drops. Stacks each time you take it.",
+        "Draw one extra card at the start of every turn for the rest of this run.",
+        "Every card reward screen offers one extra card to choose from for the rest of "
+        "this run.",
+    };
+    const char* names[] = { "Fortune", "Endurance", "Foresight" };
+    int choice = -1;
+    while (true) {
+        choice = CardBar::pick("A moment of respite. Take one, and keep it.", widgets, acts, 3);
+        // "+" opens the details and comes back to the same three. It used to fall
+        // through to a "< 0 means the first one" guard and silently take Fortune.
+        if (choice <= -2) {
+            const int ci = -2 - choice;
+            if (ci >= 0 && ci < (int)widgets.size())
+                CardBar::showDetail(widgets[ci], details[ci], "BOON", "", 0);
+            continue;
+        }
+        // Escape and "Take none" both mean walking away, which cannot be undone.
+        if (choice < 0 || choice >= (int)widgets.size()) {
+            if (!confirm("Walk on without taking a boon?")) continue;
+            notice("You walk on, taking nothing.");
+            return;
+        }
+        if (!confirm(std::string("Take ") + names[choice] + "? It lasts the whole run.")) continue;
+        break;
+    }
+
+    if (choice == 1) {
+        handSizeBonus++;
+        Audio::playSFX("upgrade");
+        notice("Endurance. You will draw " + std::to_string(BASE_HAND_SIZE + handSizeBonus)
+               + " cards a turn from here on.");
+    } else if (choice == 2) {
+        rewardChoiceBonus++;
+        Audio::playSFX("upgrade");
+        notice("Foresight. Reward screens will offer "
+               + std::to_string(3 + rewardChoiceBonus) + " cards from here on.");
+    } else {
+        runLuck++;
+        Audio::playSFX("upgrade");
+        notice("Fortune. Every roll this run is " + std::to_string(luckBonus())
+               + " points kinder.");
+    }
+}
+
 void Game::offerEquipmentDrop() {
     EquipTier weapon = weaponTierAt(weaponTier);
     EquipTier armor  = armorTierAt(armorTier);
@@ -3728,17 +4346,17 @@ void Game::offerEquipmentDrop() {
     {
         CardBar::Card w;
         w.name = weapon.name; w.elemTag = "[WEAPON]";
-        w.effect = "+" + std::to_string(weapon.bonus) + " dmg";
+        w.effect = "+" + std::to_string(weapon.bonus) + "% dmg";
         w.note = "on every attack";
-        w.tint = Console::xterm256Public(9);
+        w.tint = Console::xterm256Public(Stripe::ITEM);
         w.nameColor = Console::xterm256Public(equipTintFor(weaponTier));
         widgets.push_back(w);
 
         CardBar::Card a2;
         a2.name = armor.name; a2.elemTag = "[ARMOR]";
-        a2.effect = "+" + std::to_string(armor.bonus) + " armor";
+        a2.effect = "+" + std::to_string(armor.bonus) + "% armor";
         a2.note = "on every defend";
-        a2.tint = Console::xterm256Public(12);
+        a2.tint = Console::xterm256Public(Stripe::ITEM);
         a2.nameColor = Console::xterm256Public(equipTintFor(armorTier));
         widgets.push_back(a2);
 
@@ -3746,15 +4364,38 @@ void Game::offerEquipmentDrop() {
         h.name = "Health Pouch"; h.elemTag = "[VIGOR]";
         h.effect = "+" + std::to_string(hpBoost) + " max HP";
         h.note = std::to_string(maxPlayerHealth) + " to " + std::to_string(maxPlayerHealth + hpBoost);
-        h.tint = Console::xterm256Public(10);
+        h.tint = Console::xterm256Public(Stripe::ITEM);
         h.nameColor = Console::xterm256Public(120);
         widgets.push_back(h);
     }
 
+    // What "+" shows. The face only fits a few words, and the running total is
+    // what tells the player whether another tier is worth more than the HP.
+    const std::string details[] = {
+        "Every attack card deals " + std::to_string(weapon.bonus) + "% more damage for the rest "
+        "of this run. Your weapon bonus goes from +" + std::to_string(equipDamagePercent)
+        + "% to +" + std::to_string(gearPercentFor(weaponTier + 1, true)) + "%, and the "
+        "numbers on your cards update to match.",
+        "Every defend card gives " + std::to_string(armor.bonus) + "% more armor for the rest "
+        "of this run. Your armor bonus goes from +" + std::to_string(equipArmorPercent)
+        + "% to +" + std::to_string(gearPercentFor(armorTier + 1, false)) + "%, and the "
+        "numbers on your cards update to match.",
+        "Raises your max HP by " + std::to_string(hpBoost) + " for the rest of this run and "
+        "heals you by the same amount. Max HP goes from " + std::to_string(maxPlayerHealth)
+        + " to " + std::to_string(maxPlayerHealth + hpBoost) + ".",
+    };
+    const char* typeLabels[] = { "WEAPON", "ARMOR", "VIGOR" };
+
     while (true) {
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Leave it behind", false } };
         int choice = CardBar::pick("You spot some gear on the ground", widgets, acts, 3);
-        if (choice <= -2) continue;   // the "+" button has nothing extra to show here
+        // "+" opens the item's description and comes back to the same three.
+        if (choice <= -2) {
+            const int ci = -2 - choice;
+            if (ci >= 0 && ci < (int)widgets.size())
+                CardBar::showDetail(widgets[ci], details[ci], typeLabels[ci], "", 0);
+            continue;
+        }
 
         if (choice == 3 || choice < 0) {
             notice("You leave it behind.");
@@ -3769,17 +4410,19 @@ void Game::offerEquipmentDrop() {
 
         std::string result;
         if (choice == 0) {
-            equipDamageBonus += weapon.bonus;
             weaponTier++;
+            equipDamagePercent = gearPercentFor(weaponTier, true);
             Audio::playSFX("upgrade");
             result = "You equip the " + weapon.name + ". +"
-                   + std::to_string(weapon.bonus) + " damage.";
+                   + std::to_string(weapon.bonus) + "% damage (now +"
+                   + std::to_string(equipDamagePercent) + "%).";
         } else if (choice == 1) {
-            equipArmorBonus += armor.bonus;
             armorTier++;
+            equipArmorPercent = gearPercentFor(armorTier, false);
             Audio::playSFX("upgrade");
             result = "You equip the " + armor.name + ". +"
-                   + std::to_string(armor.bonus) + " armor per defend.";
+                   + std::to_string(armor.bonus) + "% armor per defend (now +"
+                   + std::to_string(equipArmorPercent) + "%).";
         } else {
             maxPlayerHealth += hpBoost;
             playerHealth += hpBoost;
@@ -3804,7 +4447,7 @@ void Game::displayRunStats() const {
 
 int Game::showMainMenu() {
     while (true) {
-        bool hasSave = saveExists();
+        bool hasSave = anySaveExists();
         std::cout << "\n";
         std::vector<std::string> opts = {"Start Game"};
         if (hasSave) opts.push_back("Load Save");
@@ -3829,16 +4472,79 @@ int Game::showMainMenu() {
     }
 }
 
-std::string Game::savePath() const {
-    return Audio::exeDir() + "save.dat";
+std::string Game::savePath(int slot) const {
+    return Audio::exeDir() + "save" + std::to_string(slot) + ".dat";
 }
 
-bool Game::saveExists() const {
-    return std::filesystem::exists(savePath());
+bool Game::saveExists(int slot) const {
+    return std::filesystem::exists(savePath(slot));
 }
 
-void Game::saveGame() const {
-    std::ofstream out(savePath(), std::ios::trunc);
+bool Game::anySaveExists() const {
+    for (int i = 1; i <= SAVE_SLOTS; i++)
+        if (saveExists(i)) return true;
+    return false;
+}
+
+// The single-file save this game used to write. Moved into slot 1 rather than
+// abandoned, so an in-progress run survives the update.
+void Game::migrateLegacySave() const {
+    const std::string legacy = Audio::exeDir() + "save.dat";
+    if (!std::filesystem::exists(legacy) || saveExists(1)) return;
+    std::error_code ec;
+    std::filesystem::rename(legacy, savePath(1), ec);
+}
+
+// Enough of the file to tell the slots apart, read without disturbing the run.
+std::string Game::saveSummary(int slot) const {
+    std::ifstream in(savePath(slot));
+    if (!in.is_open()) return "";
+    std::string line;
+    if (!std::getline(in, line) || line != "SAVE_V1") return "damaged save";
+    int encounter = 0, won = 0;
+    while (std::getline(in, line)) {
+        std::istringstream iss(line);
+        std::string tag;
+        iss >> tag;
+        if (tag == "ENCOUNTER") iss >> encounter;
+        else if (tag == "WON")  iss >> won;
+        else if (line.rfind("CARD|", 0) == 0) break;   // the header is all above the deck
+    }
+    if (encounter <= 0) return "damaged save";
+    return "Encounter " + std::to_string(encounter) + ", "
+         + std::to_string(won) + (won == 1 ? " win" : " wins");
+}
+
+// Shared by saving and loading. Saving offers every slot (an occupied one is
+// overwritten, after a confirmation); loading offers only the filled ones.
+int Game::chooseSaveSlot(const std::string& title, bool forSaving) {
+    while (true) {
+        // Rows, not card widgets: a slot is a line of text.
+        std::vector<CardBar::Action> acts;
+        std::vector<int> slotOf;
+        for (int i = 1; i <= SAVE_SLOTS; i++) {
+            const std::string summary = saveSummary(i);
+            const bool empty = summary.empty();
+            acts.push_back(CardBar::Action{ "Slot " + std::to_string(i),
+                                            empty ? "empty" : summary,
+                                            /*disabled*/!forSaving && empty });
+            slotOf.push_back(i);
+        }
+        acts.push_back(CardBar::Action{ forSaving ? "Don't save" : "Back",
+                                        forSaving ? "carry on without saving" : "back to the menu", false });
+        int choice = CardBar::pick(title, {}, acts, 0);
+        if (choice < 0 || choice >= (int)slotOf.size()) return 0;
+        const int slot = slotOf[choice];
+        if (!forSaving && saveSummary(slot).empty()) continue;   // an empty slot has nothing to load
+        if (forSaving && !saveSummary(slot).empty()
+            && !confirm("Overwrite slot " + std::to_string(slot) + "?")) continue;
+        return slot;
+    }
+}
+
+void Game::saveGame(int slot) {
+    currentSaveSlot = slot;
+    std::ofstream out(savePath(slot), std::ios::trunc);
     if (!out.is_open()) {
         std::cout << Color::YELLOW << "Warning: couldn't write the save file." << Color::RESET << "\n";
         return;
@@ -3849,8 +4555,12 @@ void Game::saveGame() const {
     out << "MAXHP " << maxPlayerHealth << "\n";
     out << "HP " << playerHealth << "\n";
     out << "MAXENERGY " << maxEnergy << "\n";
-    out << "EQUIPDMG " << equipDamageBonus << "\n";
-    out << "EQUIPARM " << equipArmorBonus << "\n";
+    // Written for readability only - both are rebuilt from the tiers on load.
+    out << "EQUIPDMG " << equipDamagePercent << "\n";
+    out << "EQUIPARM " << equipArmorPercent << "\n";
+    out << "LUCK " << runLuck << "\n";
+    out << "HANDBONUS " << handSizeBonus << "\n";
+    out << "REWARDBONUS " << rewardChoiceBonus << "\n";
     out << "WEAPONTIER " << weaponTier << "\n";
     out << "ARMORTIER " << armorTier << "\n";
     for (int i = 0; i < 5; i++)
@@ -3865,20 +4575,31 @@ void Game::saveGame() const {
     }
 }
 
-void Game::deleteSave() const {
+void Game::deleteSave(int slot) const {
     std::error_code ec;
-    std::filesystem::remove(savePath(), ec);
+    std::filesystem::remove(savePath(slot), ec);
 }
 
-bool Game::loadGame() {
-    std::ifstream in(savePath());
+// Dying only costs the run that was being played.
+void Game::deleteCurrentSave() {
+    if (currentSaveSlot <= 0) return;
+    deleteSave(currentSaveSlot);
+    currentSaveSlot = 0;
+}
+
+bool Game::loadGame(int slot) {
+    std::ifstream in(savePath(slot));
     if (!in.is_open()) return false;
+    currentSaveSlot = slot;
 
     std::string line;
     if (!std::getline(in, line) || line != "SAVE_V1") return false;
 
     int savedEncounter = 1, savedWon = 0, savedMaxHp = 100, savedHp = 100, savedMaxEnergy = 3;
     int savedEquipDmg = 0, savedEquipArm = 0, savedWeaponTier = 0, savedArmorTier = 0;
+    // Boons. Default 0, so a save written before they existed loads as a run that
+    // simply never took one rather than failing to parse.
+    int savedLuck = 0, savedHandBonus = 0, savedRewardBonus = 0;
     std::vector<bool> unlockedFlags(5, false), activeFlags(5, false);
     std::vector<Card> loadedCards;
 
@@ -3914,6 +4635,9 @@ bool Game::loadGame() {
         else if (tag == "MAXENERGY") iss >> savedMaxEnergy;
         else if (tag == "EQUIPDMG") iss >> savedEquipDmg;
         else if (tag == "EQUIPARM") iss >> savedEquipArm;
+        else if (tag == "LUCK")        iss >> savedLuck;
+        else if (tag == "HANDBONUS")   iss >> savedHandBonus;
+        else if (tag == "REWARDBONUS") iss >> savedRewardBonus;
         else if (tag == "WEAPONTIER") iss >> savedWeaponTier;
         else if (tag == "ARMORTIER") iss >> savedArmorTier;
         else if (tag == "UPGRADE") {
@@ -3936,10 +4660,16 @@ bool Game::loadGame() {
     playerHealth     = std::min(savedHp, savedMaxHp);
     maxEnergy        = savedMaxEnergy;
     playerEnergy     = maxEnergy;
-    equipDamageBonus = savedEquipDmg;
-    equipArmorBonus  = savedEquipArm;
     weaponTier       = savedWeaponTier;
     armorTier        = savedArmorTier;
+    runLuck           = savedLuck;
+    handSizeBonus     = savedHandBonus;
+    rewardChoiceBonus = savedRewardBonus;
+    // Recomputed rather than restored, so a save written before gear became a
+    // percentage loads as the right percentage instead of a stale flat number.
+    (void)savedEquipDmg; (void)savedEquipArm;
+    equipDamagePercent = gearPercentFor(weaponTier, true);
+    equipArmorPercent  = gearPercentFor(armorTier, false);
     for (int i = 0; i < 5; i++) upgrades.setUpgradeState(i, unlockedFlags[i], activeFlags[i]);
 
     turnNumber = 1;
@@ -4081,7 +4811,7 @@ void Game::showTutorial() {
     inEncounter = true;
     resetEnergy();
     playerDeck.resetDeck();
-    int drawCount = 5 + upgrades.getDrawBonus();
+    int drawCount = BASE_HAND_SIZE + handSizeBonus + upgrades.getDrawBonus();
     for (int i = 0; i < drawCount; ++i) {
         try { playerDeck.drawCard(); } catch (...) { break; }
     }
@@ -4178,17 +4908,26 @@ void Game::showTutorial() {
     playerDeck.resetDeck();
 }
 
-void Game::run() {
-    init();
-
-    UIHelper::printTitle();
-
-    int menuChoice = showMainMenu();
-    if (menuChoice == 2) {
-        return;
+// The main menu, lifted out of run() so finishRun() can come back to it.
+// "Play again" used to drop straight into a fresh encounter, which meant the
+// only way to reach Load Save was to quit the program and relaunch.
+// Returns false if the player chose to quit.
+bool Game::mainMenuFlow() {
+    int menuChoice = 0;
+    int loadSlot = 0;
+    while (true) {
+        menuChoice = showMainMenu();
+        if (menuChoice == 2) return false;
+        if (menuChoice != 1) break;
+        // Backing out of the slot list returns to the menu.
+        loadSlot = chooseSaveSlot("Load a run", /*forSaving*/false);
+        if (loadSlot > 0) break;
+        UIHelper::clearScreen();
+        Hud::setActive(false);
+        UIHelper::printTitle();
     }
 
-    if (menuChoice == 1 && loadGame()) {
+    if (menuChoice == 1 && loadSlot > 0 && loadGame(loadSlot)) {
         upgrades.displayUpgradeInfo();
         notice("Save loaded. Encounter " + std::to_string(currentRun.getCurrentEncounter())
                + ", " + std::to_string(currentRun.getEncountersWon()) + " enemies defeated so far.");
@@ -4197,10 +4936,12 @@ void Game::run() {
         // no live combat for the loop below to detect via checkGameOver() - wrap up here instead.
         if (!inEncounter) finishRun();
     } else {
-        if (menuChoice == 1) {
-            std::cout << "\n" << Color::YELLOW << "Warning: the save file could not be loaded - starting a new game instead." << Color::RESET << "\n";
+        if (menuChoice == 1 && loadSlot > 0) {
+            std::cout << "\n" << Color::YELLOW << "Warning: that save could not be loaded - starting a new game instead." << Color::RESET << "\n";
             UIHelper::waitForKey();
         }
+        // A fresh run owns no slot until it is saved, so dying cannot take one.
+        currentSaveSlot = 0;
         upgrades.checkAndUnlockUpgrades(0, 0);
         upgrades.displayUpgradeInfo();
 
@@ -4208,6 +4949,16 @@ void Game::run() {
         secretUsedThisRun = false;   // once per RUN, not once per launch
         startEncounter();
     }
+    return true;
+}
+
+void Game::run() {
+    init();
+    migrateLegacySave();   // an older save.dat becomes slot 1
+
+    UIHelper::printTitle();
+
+    if (!mainMenuFlow()) return;
 
     while (running) {
         handleInput();
@@ -4221,7 +4972,7 @@ void Game::run() {
                 currentRun.loseRun();
                 inEncounter = false;
     Hud::setActive(false);   // the panel belongs to the fight
-                deleteSave(); // dying invalidates any existing save - no reloading out of a loss
+                deleteCurrentSave(); // no reloading out of a loss, but other slots are safe
             } else {
                 handleEncounterWin();
                 if (inEncounter) {
@@ -4251,8 +5002,11 @@ void Game::finishRun() {
         playerArmor = 0;
         playerEnergy = 3;
         maxEnergy = 3;
-        equipDamageBonus = 0;
-        equipArmorBonus  = 0;
+        equipDamagePercent = 0;
+        equipArmorPercent  = 0;
+        handSizeBonus      = 0;
+        runLuck            = 0;
+        rewardChoiceBonus  = 0;
         weaponTier = 0;
         armorTier  = 0;
         turnNumber = 1;
@@ -4269,11 +5023,18 @@ void Game::finishRun() {
         runStats.resetRunStats();
         currentRun = Run();
         Console::clearHistory();   // a new run starts a fresh log
-        currentRun.startRun();
         secretUsedThisRun = false;
 
-        upgrades.displayUpgradeInfo();
-        startEncounter();
+        // Back to the menu, so a new run or a save can be picked without quitting.
+        // The title banner has to go back up first: the menu draws its options
+        // through it, and without it the menu is live but invisible.
+        UIHelper::clearScreen();
+        Hud::setActive(false);
+        UIHelper::printTitle();
+        if (!mainMenuFlow()) {
+            running = false;
+            runStats.displayCumulativeStats();
+        }
     } else {
         running = false;
         runStats.displayCumulativeStats();

@@ -41,11 +41,18 @@ void UpgradeSystem::selectActiveUpgrades() {
 
         std::vector<CardBar::Action> options;
         for (int i : idxMap) {
-            std::string status = activeUpgrades[i] ? "[ON]   " : "[  ]   ";
+            // Name in the label, effect in the description column, the way the rest
+            // site and the reward screens do it. Packing all three into one label left
+            // Action::desc empty, and drawActions centres labels when nothing in the
+            // set has a description - so every row was centred in a button sized to the
+            // longest one and none of the toggles, names or effects lined up.
+            //
+            // Both markers are five characters wide so the names stay in one column.
             options.push_back(CardBar::Action{
-                status + allUpgrades[i].getName() + "    " + allUpgrades[i].getDescription(), false });
+                std::string(activeUpgrades[i] ? "[ON] " : "[  ] ") + allUpgrades[i].getName(),
+                allUpgrades[i].getDescription(), false });
         }
-        options.push_back(CardBar::Action{ "Done", false });
+        options.push_back(CardBar::Action{ "Done", "start the next run", false });
 
         int choice = CardBar::pick("Upgrades, select to toggle", {}, options, 0);
 

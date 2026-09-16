@@ -8,6 +8,7 @@
 // hold it for the same durations the terminal version paused for, so combat
 // keeps the exact rhythm it was authored with.
 #include "EnemyArt.h"
+#include "ProjectileTable.h"
 #include "Audio.h"
 #include "Console.h"
 #include "Platform.h"
@@ -78,6 +79,20 @@ struct Sheet {
     // Mean colour of this art's darker half, computed once at load. Backdrops
     // use it to tint the window ground; everything else just ignores it.
     SDL_Color darkAvg{ 13, 13, 15, 255 };
+    // Where a projectile should leave this sprite, as a percentage of frame
+    // height. Taken from the vertical centroid of the attack frame's opaque
+    // pixels, so a bolt leaves a tall caster's hands and a low crawling beast's
+    // mouth instead of every enemy firing from the same spot near the top.
+    int muzzlePct = 50;
+    // The knight casts with his arm up, so the body centroid sits well below
+    // where the spell actually leaves him. This is the centroid of the upper
+    // half of the cast frame, which lands on the hand.
+    int castMuzzlePct = 40;
+    // Horizontal companion to muzzlePct, and the colour of the attack itself.
+    // Both come from the pixels that differ between the idle and attack frames,
+    // i.e. the part of the sprite that actually moves to make the attack.
+    int muzzleXPct = 50;
+
     bool ok() const { return tex != nullptr && count > 0; }
 };
 
@@ -136,6 +151,53 @@ Sheet loadSheet(const std::string& path, int frameW) {
         }
     }
 
+    // Muzzle: vertical centroid of the opaque pixels in the attack frame (frame 2
+    // where the sheet has one, else the first frame).
+    {
+        const int fw = s.frameW > 0 ? s.frameW : w;
+        const int f  = (s.count > 2) ? 2 : 0;
+        unsigned long long sy = 0, n = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = f * fw; x < (f + 1) * fw && x < w; x++)
+                if (data[((size_t)y * w + x) * 4 + 3] > 8) { sy += (unsigned)y; n++; }
+        if (n && h > 0) s.muzzlePct = (int)((sy / n) * 100 / (unsigned)h);
+        // Where the attack comes FROM, and what colour it is. Comparing the attack
+        // frame against the idle frame isolates the arm, hand or jaws - the part
+        // that moved - and everything static (torso, legs, robe) drops out.
+        if (s.count > 4) {
+            const int fi = 0, fa = 4;   // idle A vs the furthest attack frame
+            unsigned long long mx = 0, my = 0, mn = 0;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < fw; x++) {
+                    const size_t ia = ((size_t)y * w + (size_t)(fi * fw + x)) * 4;
+                    const size_t ib = ((size_t)y * w + (size_t)(fa * fw + x)) * 4;
+                    if (fa * fw + x >= w) continue;
+                    const int d = std::abs((int)data[ia+0] - (int)data[ib+0])
+                                + std::abs((int)data[ia+1] - (int)data[ib+1])
+                                + std::abs((int)data[ia+2] - (int)data[ib+2])
+                                + std::abs((int)data[ia+3] - (int)data[ib+3]);
+                    if (d < 60) continue;                  // unchanged
+                    if (data[ib+3] < 100) continue;        // changed to nothing
+                    mx += (unsigned)x; my += (unsigned)y; mn++;
+                }
+            }
+            if (mn) {
+                s.muzzleXPct = (int)((mx / mn) * 100 / (unsigned)fw);
+                s.muzzlePct  = (int)((my / mn) * 100 / (unsigned)h);
+            }
+        }
+
+        // Cast muzzle: frame 7 is the knight's cast pose. Only the top half of its
+        // opaque pixels count, so the raised arm wins over the legs.
+        if (s.count > 7) {
+            unsigned long long cy = 0, cn = 0;
+            for (int y = 0; y < h / 2; y++)
+                for (int x = 7 * fw; x < 8 * fw && x < w; x++)
+                    if (data[((size_t)y * w + x) * 4 + 3] > 8) { cy += (unsigned)y; cn++; }
+            if (cn && h > 0) s.castMuzzlePct = (int)((cy / cn) * 100 / (unsigned)h);
+        }
+    }
+
     stbi_image_free(data);
 
     if (s.tex) {
@@ -181,6 +243,9 @@ struct Library {
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
     ArtSet named[45];
     Sheet player, slashFx, castFx;
+    // Real projectiles: arrow, dagger, arcane bolt, fang. The cast-orb sheet
+    // was standing in for all of them, so an archer's shot read as a spell.
+    Sheet projFx;   // see include/ProjectileTable.h for what each frame is
     Sheet bg[5], tutorialBg, titleBg, bloodMoonBg;
 
     Library() {
@@ -201,6 +266,7 @@ struct Library {
         player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
         slashFx = loadSheet(basePath() + "assets/sprites/player_slash_fx.png", 30);
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
+        projFx  = loadSheet(basePath() + "assets/sprites/projectiles.png", 30);
         const char* bgFiles[5] = {
             // TODO: the two dungeon sheets are one layout recoloured, with a torch
             // on a strict 16-column period and no variation across 512px, so the
@@ -258,6 +324,10 @@ const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
 const ArtSet* gNamedVariant = nullptr;
 // The summoned add, if the fight has one standing.
 const ArtSet* gCompanion = nullptr;
+// The add swings and flinches on its own, rather than its master reacting for it.
+int  gCompanionNudge = 0;
+int  gCompanionFrame = -1;
+Tint gCompanionTint;
 
 const ArtSet& artSet(EnemyType type, BossType boss) {
     Library& L = lib();
@@ -312,6 +382,13 @@ int spriteW() { return 30 * charScale(); }
 int spriteH() { return 32 * charScale(); }
 int backdropW() { return 94 * spriteScale(); } // same bg:sprite ratio the terminal had
 int backdropH() { return 32 * spriteScale(); }
+// Clear space between the two fighters at rest, derived from the same layout
+// drawScene() builds: the knight sits spread-left of centre, the enemy
+// spread-right, and both are spriteW() wide. It works out around 150% of a
+// sprite width, which is why a lunge measured against the SPRITE looked like
+// nothing - it closed barely a fifth of the distance and the blade still fell
+// well short. A lunge is a fraction of this instead.
+int restingGap() { return std::max(0, backdropW() - 2 * spriteW() + 4 * spriteScale()); }
 
 EnemyType gType = EnemyType::MELEE;
 BossType  gBoss = BossType::NONE;
@@ -320,6 +397,28 @@ int  gEnemyFrame = F_IDLE_A;
 int  gPlayerFrame = F_IDLE_A;
 Tint gEnemyTint, gPlayerTint;
 int  gEnemyNudge = 0;   // lunge toward the player
+int  gPlayerNudge = 0;  // and the knight stepping in to meet them
+// A bolt in flight between the two sprites. gProjT runs 0 (at the caster) to
+// 1 (at the target); -1 on the frame means nothing is in the air.
+int   gProjFrame = -1;
+float gProjT = 0.0f;
+Tint  gProjTint;   // lets a physical shot read differently from a spell
+bool  gProjReverse = false;  // true = travelling from the knight to the enemy
+int   gProjSrcPct = 50, gProjDstPct = 50;  // muzzle heights, % of sprite height
+int   gProjSrcXPct = 50, gProjDstXPct = 50; // and horizontally, % of sprite width
+bool  gProjIsCast = false;  // true = the status-orb sheet, false = a real projectile
+bool  gProjFall = false;    // true = drops under gravity onto the target (the knight's spells)
+int   gProjScalePct = 30;   // size of the thing in flight, % of a sprite
+// A beam is anchored at the shooter and grows toward the target instead of
+// travelling, so it needs its own state rather than another flavour of gProj*.
+int   gBeamFrame = -1;
+float gBeamT = 0.0f;
+int   gBeamSrcXPct = 50, gBeamSrcYPct = 50;
+int   gBeamAlpha = 255;
+// Pillars of flame standing on the floor between the fighters, climbing as
+// gFlameT runs 0 to 1.
+int   gFlameFrame = -1;
+float gFlameT = 0.0f;
 int  gSlashFrame = -1;  // sword-trail overlay on the player, -1 = none
 int  gCastFrame = -1;   // cast-orb overlay on the player
 bool gGhost = false;
@@ -372,6 +471,25 @@ bool pickAura(const AuraFlags& f, Tint& out) {
     if (n == 0) return false;
     out = active[(SDL_GetTicks() / 2000) % (Uint32)n];
     return true;
+}
+
+// Same as blit(), with an optional horizontal flip. Projectile art is drawn
+// pointing right; a shot travelling the other way has to be mirrored or the
+// arrowhead trails the shaft.
+void blitFlipped(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, bool flip,
+                 double angle = 0.0) {
+    if (!s.ok() || frame < 0 || frame >= s.count) return;
+    SDL_Renderer* r = Platform::renderer();
+    SDL_Rect src{ frame * s.frameW, 0, s.frameW, s.frameH };
+    Uint8 mr = (Uint8)std::min(255, (int)(tint.mulR * 255.0f + 0.5f));
+    Uint8 mg = (Uint8)std::min(255, (int)(tint.mulG * 255.0f + 0.5f));
+    Uint8 mb = (Uint8)std::min(255, (int)(tint.mulB * 255.0f + 0.5f));
+    SDL_SetTextureColorMod(s.tex, mr, mg, mb);
+    // Clockwise degrees with y pointing down, so atan2(dy, dx) of the flight path
+    // can be passed straight through.
+    SDL_RenderCopyEx(r, s.tex, &src, &dst, angle, nullptr,
+                     flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    SDL_SetTextureColorMod(s.tex, 255, 255, 255);
 }
 
 void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha = 255) {
@@ -443,6 +561,7 @@ std::vector<Spark> gSparks;
 // Where the two fighters were drawn this frame. The overlay needs them and
 // runs outside drawScene(), so drawScene records them on the way past.
 SDL_Rect gPlayerRect{ 0,0,0,0 };
+SDL_Rect gCompanionRect{ 0,0,0,0 };
 SDL_Rect gEnemyRect { 0,0,0,0 };
 
 void drawGlyphColumnText(SDL_Renderer* r, const std::string& t, int x, int y,
@@ -621,7 +740,7 @@ void drawScene() {
     // Pushed apart by an extra 8 units each: the backdrop reaches the window
     // edges now, so the pair no longer has to huddle inside a 94-wide island.
     const int spread = spriteScale() * 8;
-    SDL_Rect pdst{ originX + spriteScale() * 6 - spread, floorY, sprW, sprH };
+    SDL_Rect pdst{ originX + spriteScale() * 6 - spread + gPlayerNudge, floorY, sprW, sprH };
     int pframe = gPlayerFrame;
     if (pframe == F_IDLE_A || pframe == F_IDLE_B)
         pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
@@ -643,19 +762,112 @@ void drawScene() {
     gEnemyRect = edst;
     blit(es.sheet, eframe, edst, et, gGhost ? 110 : 255);
 
+    // The bolt, drawn last so it passes in front of both fighters.
+    if (gProjFrame >= 0) {
+        const float t = gProjT < 0.0f ? 0.0f : (gProjT > 1.0f ? 1.0f : gProjT);
+        const SDL_Rect& from = gProjReverse ? pdst : edst;
+        const SDL_Rect& to   = gProjReverse ? edst : pdst;
+        // Drawn at a fraction of the sprite, not stretched across the whole rect -
+        // a full-rect blit put the bolt wherever the orb happened to sit inside
+        // its 30x32 frame, which read as "always near the top" for every enemy.
+        SDL_Rect r;
+        // A cast orb is a small mark inside its frame, so it flies at full sprite
+        // size and matches the orb in the hand. Projectile art fills its frame, so
+        // it flies at a fraction of that or it dwarfs the caster.
+        const int scalePct = gProjIsCast ? 100 : gProjScalePct;
+        r.w = std::max(8, from.w * scalePct / 100);
+        r.h = std::max(8, from.h * scalePct / 100);
+        const int x0 = from.x + from.w * gProjSrcXPct / 100;
+        const int x1 = to.x   + to.w   * gProjDstXPct / 100;
+        const int y0 = from.y + from.h * gProjSrcPct  / 100;
+        const int y1 = to.y   + to.h   * gProjDstPct  / 100;
+        // A falling spell keeps a steady horizontal pace but drops as t*t, so it
+        // leaves the hand level and comes down onto the target. A straight line
+        // from a raised hand read as flying over the enemy's head.
+        const float ty = gProjFall ? t * t : t;
+        r.x = x0 + (int)((x1 - x0) * t)  - r.w / 2;
+        r.y = y0 + (int)((y1 - y0) * ty) - r.h / 2;
+        double angle = 0.0;
+        if (gProjFall) {
+            const double dx = (double)(x1 - x0);
+            const double dy = 2.0 * (double)(y1 - y0) * t;   // slope of the t*t drop
+            angle = std::atan2(dy, dx) * 57.29577951;
+        }
+        // Cast orbs are symmetric; projectile art is drawn pointing right, so
+        // anything travelling leftward is mirrored or the arrowhead trails.
+        const Sheet& ps = gProjIsCast ? lib().castFx : lib().projFx;
+        blitFlipped(ps, gProjFrame, r, gProjTint, !gProjIsCast && !gProjReverse, angle);
+    }
+
+    // One end stays on the eye, the other advances: the frame is stretched to
+    // the length reached so far, so the ray stays joined to its source.
+    if (gBeamFrame >= 0) {
+        const Sheet& ps = lib().projFx;
+        if (ps.ok()) {
+            const int bx0 = edst.x + edst.w * gBeamSrcXPct / 100;
+            const int bx1 = pdst.x + pdst.w / 2;
+            const float bt = gBeamT < 0.0f ? 0.0f : (gBeamT > 1.0f ? 1.0f : gBeamT);
+            const int len = (int)((bx0 - bx1) * bt);
+            // Drawn over the full sprite box. The ray sits at its own height inside
+            // the frame, so it comes out at the size and position the sheet paints
+            // it rather than at a thickness picked here.
+            if (len > 2) {
+                SDL_Rect bdst{ bx0 - len, edst.y, len, sprH };
+                SDL_Rect bsrc{ gBeamFrame * ps.frameW, 0, ps.frameW, ps.frameH };
+                SDL_SetTextureAlphaMod(ps.tex, (Uint8)gBeamAlpha);
+                SDL_RenderCopyEx(r, ps.tex, &bsrc, &bdst, 0.0, nullptr, SDL_FLIP_HORIZONTAL);
+                SDL_SetTextureAlphaMod(ps.tex, 255);
+            }
+        }
+    }
+
+    // The pillar art is bottom-anchored in its frame, so cropping the top away
+    // and matching the destination height reveals it from the ground up.
+    if (gFlameFrame >= 0) {
+        const Sheet& ps = lib().projFx;
+        if (ps.ok()) {
+            const int cols = 7;
+            const int groundY = floorY + sprH;
+            const int fx0 = pdst.x + pdst.w / 2, fx1 = edst.x + edst.w / 2;
+            // Full sprite width: the flame is a narrow strip inside its frame, so
+            // drawing the frame at sprite size puts the column at the same
+            // thickness the Archon raises at its own feet.
+            const int fw = sprW;
+            for (int i = 0; i < cols; i++) {
+                // The near pillar leads and the far one lags, so the fire rolls.
+                const float lead = 0.10f * (float)(cols - 1 - i);
+                float t = (gFlameT - lead) / std::max(0.20f, 1.0f - lead);
+                if (t <= 0.0f) continue;
+                if (t > 1.0f) t = 1.0f;
+                const int fh = (int)(sprH * 1.05f * t);
+                if (fh < 4) continue;
+                const int cx = fx0 + (fx1 - fx0) * i / (cols - 1);
+                SDL_Rect fdst{ cx - fw / 2, groundY - fh, fw, fh };
+                const int srcH = std::max(1, (int)(ps.frameH * t));
+                SDL_Rect fsrc{ gFlameFrame * ps.frameW, ps.frameH - srcH, ps.frameW, srcH };
+                SDL_RenderCopy(r, ps.tex, &fsrc, &fdst);
+            }
+        }
+    }
+
     // The add stands inside the enemy, toward the middle of the field, at one
     // scale step down. Integer scaling only: a fractional step drops the
     // one-pixel features these sprites are mostly made of.
     if (gCompanion && gCompanion->loaded) {
         const int cs = std::max(2, charScale() - 1);
         const int cwid = 30 * cs, chgt = 32 * cs;
-        SDL_Rect cdst{ edst.x - cwid + spriteScale() * 2,
+        // Anchored to where the enemy STANDS, not to its current lunge, so the add
+        // keeps its ground while its master swings.
+        SDL_Rect cdst{ edst.x + gEnemyNudge - cwid + spriteScale() * 2 - gCompanionNudge,
                        floorY + (sprH - chgt), cwid, chgt };
         int cframe = F_IDLE_A;
-        if (gCompanion->animated)
+        if (gCompanion->animated && gCompanionFrame >= 0) cframe = gCompanionFrame;
+        else if (gCompanion->animated)
             cframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
         // A shade cooler than the enemy: raised, not native to the fight.
-        Tint ct; ct.mulR = 0.78f; ct.mulG = 0.82f; ct.mulB = 0.95f;
+        Tint ct = gCompanionTint;
+        if (ct.identity()) { ct.mulR = 0.78f; ct.mulG = 0.82f; ct.mulB = 0.95f; }
+        gCompanionRect = cdst;
         blit(gCompanion->sheet, cframe, cdst, ct);
     }
 
@@ -674,6 +886,14 @@ void resetPose() {
     gSlashFrame = -1;
     gCastFrame = -1;
     gEnemyNudge = 0;
+    gPlayerNudge = 0;
+    gProjFrame = -1;
+    gProjT = 0.0f;
+    gProjTint = Tint{};
+    gProjReverse = false;
+    gProjScalePct = 30;
+    gBeamFrame = -1;
+    gFlameFrame = -1;
 }
 
 // TODO: the slash sheets are still mostly empty - 0, 7 and 12 opaque pixels
@@ -703,9 +923,7 @@ void ensureInstalled() {
 // screen owns the transition, not the battle code.
 void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 
-void popNumber(int amount, bool onEnemy, PopKind kind) {
-    ensureInstalled();
-    const SDL_Rect& box = onEnemy ? gEnemyRect : gPlayerRect;
+static void popIn(const SDL_Rect& box, int amount, PopKind kind) {
     if (box.w <= 0) return;
 
     std::string txt;
@@ -730,9 +948,18 @@ void popNumber(int amount, bool onEnemy, PopKind kind) {
     if (gPopups.size() > 12) gPopups.erase(gPopups.begin());
 }
 
-void popSparks(bool onEnemy) {
+void popNumber(int amount, bool onEnemy, PopKind kind) {
     ensureInstalled();
-    const SDL_Rect& box = onEnemy ? gEnemyRect : gPlayerRect;
+    popIn(onEnemy ? gEnemyRect : gPlayerRect, amount, kind);
+}
+
+void popNumberAdd(int amount, PopKind kind) {
+    ensureInstalled();
+    popIn(gCompanionRect, amount, kind);
+}
+
+void popSparksIn(const SDL_Rect& box, bool onEnemy) {
+    ensureInstalled();
     if (box.w <= 0) return;
     // Contact point: the side the blow arrives from.
     float cx = (float)(onEnemy ? box.x + box.w/4 : box.x + box.w*3/4);
@@ -749,6 +976,8 @@ void popSparks(bool onEnemy) {
         gSparks.push_back(s);
     }
 }
+
+void popSparks(bool onEnemy) { popSparksIn(onEnemy ? gEnemyRect : gPlayerRect, onEnemy); }
 
 // --- public interface -------------------------------------------------
 
@@ -790,7 +1019,43 @@ void animateBattleIdleAt(EnemyType type, BossType boss) {
     showScene();
 }
 
-void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
+// Sends a bolt between the two fighters; reverse=true sends it the other way,
+// for the knight's own spells. muzzleX/muzzleY are percentages of the shooter's
+// sprite, -1 meaning "use the value derived from the sheet"; ProjectileTable.h
+// supplies them per enemy, since the derived answer misses a raised weapon.
+void flyProjectile(int frame, const Tint& tint, int msPerStep, bool reverse = false,
+                   bool isCast = true, int muzzleX = -1, int muzzleY = -1,
+                   int dstX = -1, int dstY = -1, bool fall = false) {
+    // Leaves the attacker at its own muzzle height and arrives at the target's.
+    // The knight casts with his arm raised, so his own spells leave from a
+    // separate cast muzzle rather than from his body centre.
+    const Sheet& shooter = reverse ? lib().player : artSet(gType, gBoss).sheet;
+    const Sheet& target  = reverse ? artSet(gType, gBoss).sheet : lib().player;
+    gProjSrcPct  = muzzleY >= 0 ? muzzleY
+                 : (reverse ? shooter.castMuzzlePct : shooter.muzzlePct);
+    gProjSrcXPct = muzzleX >= 0 ? muzzleX
+                 : (reverse ? 62 : shooter.muzzleXPct);
+    gProjDstPct  = dstY >= 0 ? dstY : target.muzzlePct;
+    gProjDstXPct = dstX >= 0 ? dstX : 50;
+    gProjIsCast  = isCast;
+    gProjFrame = frame;
+    gProjTint  = tint;
+    gProjReverse = reverse;
+    gProjFall = fall;
+    // A curve needs more positions than a straight line to read as a curve.
+    const int steps = fall ? 8 : 4;
+    for (int i = 0; i <= steps; i++) { gProjT = (float)i / steps; hold(msPerStep); }
+    gProjFrame = -1;
+    gProjT = 0.0f;
+    gProjTint = Tint{};
+    gProjReverse = false;
+    gProjIsCast = true;
+    gProjFall = false;
+}
+
+void printBattleAttack(EnemyType type, BossType boss, bool knightGuard, bool ranged,
+                       bool useAttackFrames, int projectile, int muzzleX, int muzzleY,
+                       bool closeIn) {
     ensureInstalled();
     gPortraitOnly = false;
     gType = type; gBoss = boss;
@@ -799,19 +1064,49 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard) {
 
     // With armor up the knight holds his shield brace instead of standing idle.
     gPlayerFrame = knightGuard ? 6 /*block brace*/ : F_IDLE_A;
-    if (s.animated) {
+    // A ranged attacker holds its ground: the shot travels, not the shooter.
+    // Without this an archer lunged into the knight to fire point blank, which
+    // made it read identically to a brawler.
+    // Fractions of the distance between the two, so the blow actually arrives.
+    // A diving flyer is ranged for every rule but this one: it does cross.
+    const bool holdsGround = ranged && !closeIn;
+    const int gap   = restingGap();
+    const int step2 = holdsGround ? 0 : gap * 35 / 100;
+    const int step3 = holdsGround ? 0 : gap * 85 / 100;
+    // A shot we draw is released on atk3 and let go almost at once. Most firing
+    // sheets paint their own projectile into that frame, so holding it for the
+    // full beat and only then launching ours put two on screen together.
+    const bool launches = ranged && projectile >= 0;
+    if (s.animated && useAttackFrames) {
         gEnemyFrame = F_ATK1; hold(90);
-        gEnemyFrame = F_ATK2; gEnemyNudge = spriteScale() * 2; hold(90);
-        gEnemyFrame = F_ATK3; gEnemyNudge = spriteScale() * 4; hold(150);
+        gEnemyFrame = F_ATK2; gEnemyNudge = step2; hold(90);
+        gEnemyFrame = F_ATK3; gEnemyNudge = step3; hold(launches ? 70 : 150);
     } else {
-        // No frames: nudge the enemy toward the knight for a beat.
-        gEnemyNudge = spriteScale() * 3; hold(120);
+        // Either the sheet has no attack frames, or the caller asked us not to use
+        // them. Both cases still close the distance if the blow is a melee one.
+        gEnemyNudge = holdsGround ? 0 : gap * 35 / 100; hold(110);
+        if (!holdsGround) { gEnemyNudge = gap * 85 / 100; hold(130); }
     }
+
+    // A ranged attack crosses the gap the same way a cast does. The caller passes
+    // the frame from the generated table; anything negative means nothing crosses,
+    // as for the Wyvern and the Falcon. Not an early return - the resets below
+    // still have to run, or a flyer stays frozen mid-lunge.
+    if (ranged && projectile >= 0) {
+        // Drop to idle as it leaves: the painted shot disappears from the hand
+        // on the same frame ours appears at that spot, so it reads as one
+        // object leaving rather than a copy.
+        if (s.animated && useAttackFrames) gEnemyFrame = F_IDLE_A;
+        flyProjectile(projectile, Tint{}, 40, /*reverse*/false, /*isCast*/false,
+                      muzzleX, muzzleY);
+    }
+
     gEnemyNudge = 0;
     gEnemyFrame = F_IDLE_A;
 }
 
-void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool connected) {
+void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool connected,
+                    bool onCompanion) {
     ensureInstalled();
     gPortraitOnly = false;
     gType = type; gBoss = boss;
@@ -822,25 +1117,59 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool co
     const int v = (int)slashVariant(trailElem) * 3;
     const ArtSet& s = artSet(type, boss);
 
-    gPlayerFrame = 2; gSlashFrame = v + 0; hold(70);
-    gPlayerFrame = 3; gSlashFrame = v + 1; hold(70);
-    gPlayerFrame = 4; gSlashFrame = v + 2;
+    // Step in on the wind-up, furthest forward on the swing itself. The knight
+    // used to swing from his idle spot, so a melee exchange looked like two
+    // figures hitting the air between them.
+    // Same fractions as the enemy lunge: a step in, then the blade arrives.
+    const int gap = restingGap();
+    gPlayerFrame = 2; gSlashFrame = v + 0; gPlayerNudge = gap * 35 / 100; hold(70);
+    gPlayerFrame = 3; gSlashFrame = v + 1; gPlayerNudge = gap * 70 / 100; hold(70);
+    gPlayerFrame = 4; gSlashFrame = v + 2; gPlayerNudge = gap * 85 / 100;
     // Only a landed blow shakes the screen - a whiff already reads as a whiff
     // because the enemy holds its pose.
-    if (connected) { Platform::shake(180, 9.0f); popSparks(true); }
+    if (connected) { Platform::shake(180, 9.0f);
+                     popSparksIn(onCompanion ? gCompanionRect : gEnemyRect, true); }
     // The swing always plays - the knight committed to it. Only the enemy's
     // reaction is conditional: armor or defense soaking the blow entirely leaves
     // nothing to flinch at, so it holds its pose while the blade goes by.
     if (connected) {
-        if (s.animated) gEnemyFrame = F_HIT;
-        gEnemyTint = HIT_FLASH;
+        if (onCompanion) {
+            gCompanionFrame = F_HIT;
+            gCompanionTint = HIT_FLASH;
+        } else {
+            if (s.animated) gEnemyFrame = F_HIT;
+            gEnemyTint = HIT_FLASH;
+        }
     }
     hold(150);
 
     gSlashFrame = -1;
+    gPlayerNudge = 0;
     gPlayerFrame = F_IDLE_A;
     gEnemyFrame = F_IDLE_A;
     gEnemyTint = Tint{};
+    gCompanionFrame = -1;
+    gCompanionTint = Tint{};
+}
+
+// The add's own swing. It stands between the two fighters, so it has a shorter
+// way to go than its master.
+void printCompanionAttack(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gCompanion || !gCompanion->loaded) return;
+    const int gap = restingGap();
+    const bool anim = gCompanion->animated;
+    if (anim) gCompanionFrame = F_ATK1;
+    gCompanionNudge = gap * 25 / 100; hold(90);
+    if (anim) gCompanionFrame = F_ATK2;
+    gCompanionNudge = gap * 45 / 100; hold(90);
+    if (anim) gCompanionFrame = F_ATK3;
+    gCompanionNudge = gap * 55 / 100; hold(120);
+    gCompanionNudge = 0;
+    gCompanionFrame = -1;
 }
 
 void printBattleBlock(EnemyType type, BossType boss) {
@@ -851,6 +1180,138 @@ void printBattleBlock(EnemyType type, BossType boss) {
     gPlayerFrame = 5; hold(90);
     gPlayerFrame = 6; hold(260);
     gPlayerFrame = F_IDLE_A;
+}
+
+void printBattleShieldBash(EnemyType type, BossType boss, bool connected) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+    // Shield up on the step in, braced on the drive, and arriving at the same
+    // 85% of the gap a sword swing reaches.
+    const int gap = restingGap();
+    gPlayerFrame = 5; gPlayerNudge = gap * 35 / 100; hold(80);
+    gPlayerFrame = 6; gPlayerNudge = gap * 70 / 100; hold(70);
+    gPlayerNudge = gap * 85 / 100;
+    if (connected) {
+        Platform::shake(140, 6.0f);
+        if (s.animated) gEnemyFrame = F_HIT;
+        gEnemyTint = HIT_FLASH;
+    }
+    hold(150);
+    gPlayerNudge = 0;
+    gPlayerFrame = F_IDLE_A;
+    gEnemyFrame = F_IDLE_A;
+    gEnemyTint = Tint{};
+}
+
+void printEnemyCast(EnemyType type, BossType boss, CastGlow glow, int projectile,
+                    int muzzleX, int muzzleY, int scalePct) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+
+    int fxIdx = 0; // fx sheet order: poison, burn, stun, weak, rend
+    switch (glow) {
+        case CastGlow::POISON: fxIdx = 0; break;
+        case CastGlow::BURN:   fxIdx = 1; break;
+        case CastGlow::STUN:   fxIdx = 2; break;
+        case CastGlow::WEAK:   fxIdx = 3; break;
+        case CastGlow::REND:   fxIdx = 4; break;
+    }
+
+    // Wind-up on the enemy's own frames. atk3 is where most sheets paint the
+    // spell: a move that throws nothing holds it, anything that flies shows it
+    // for a beat and lets go.
+    const bool noFlight = (projectile == Proj::NONE);
+    if (s.animated) {
+        gEnemyFrame = F_ATK1; hold(80);
+        gEnemyFrame = F_ATK2; hold(80);
+        gEnemyFrame = F_ATK3; hold(noFlight ? 260 : 70);
+        if (!noFlight) gEnemyFrame = F_IDLE_A;
+    } else {
+        hold(90);
+    }
+
+    // Then the bolt crosses the field. Five steps is enough to read as travel
+    // without holding up the turn.
+    // A named move with its own art flies that; a generic ailment keeps the orb.
+    if (noFlight) {
+        // Nothing crosses; the flash below is the whole hit.
+    } else if (projectile >= 0) {
+        gProjScalePct = scalePct;
+        flyProjectile(projectile, Tint{}, 45, /*reverse*/false, /*isCast*/false,
+                      muzzleX, muzzleY);
+        gProjScalePct = 30;
+    } else {
+        flyProjectile(fxIdx, Tint{}, 45, /*reverse*/false, /*isCast*/true,
+                      muzzleX, muzzleY);
+    }
+
+    // Land it on the knight: the same flash the player's own casts use.
+    gPlayerTint = statusTint(glow);
+    hold(120);
+    gPlayerTint = Tint{};
+    gEnemyFrame = F_IDLE_A;
+}
+
+// A beam extends rather than travels: it stays joined to the eye, reaches the
+// knight, holds, and fades.
+void printEnemyBeam(EnemyType type, BossType boss, int projectile,
+                    int muzzleX, int muzzleY) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+    if (s.animated) {
+        gEnemyFrame = F_ATK1; hold(90);
+        gEnemyFrame = F_ATK2; hold(90);
+        gEnemyFrame = F_ATK3;
+    }
+    gBeamFrame   = projectile;
+    gBeamSrcXPct = muzzleX >= 0 ? muzzleX : s.sheet.muzzleXPct;
+    gBeamSrcYPct = muzzleY >= 0 ? muzzleY : s.sheet.muzzlePct;
+    gBeamAlpha   = 255;
+    // Reaches across in about a third of a second, then burns for a beat.
+    for (int i = 0; i <= 8; i++) { gBeamT = (float)i / 8.0f; hold(26); }
+    hold(150);
+    // Fades rather than vanishing: a beam that blinks out looks like a dropped frame.
+    for (int a = 255; a > 40; a -= 55) { gBeamAlpha = a; hold(28); }
+    gBeamFrame = -1;
+    gBeamT = 0.0f;
+    gBeamAlpha = 255;
+    gEnemyFrame = F_IDLE_A;
+}
+
+// The Archon's own frames show fire climbing out of the floor at its feet.
+// Hellfire is that, spread across the arena.
+void printGroundFlames(EnemyType type, BossType boss, int projectile) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+    // The fire rises WITH the cast: the sprite's own frames raise flame at its
+    // feet, and the arena follows them up rather than lighting afterwards.
+    gFlameFrame = projectile;
+    gFlameT = 0.0f;
+    if (s.animated) gEnemyFrame = F_ATK1;
+    for (int i = 0; i <= 12; i++) {
+        if (s.animated && i == 4) gEnemyFrame = F_ATK2;
+        if (s.animated && i == 8) gEnemyFrame = F_ATK3;
+        gFlameT = (float)i / 12.0f;
+        hold(34);
+    }
+    hold(220);
+    // Sink back the way they came up.
+    for (int i = 10; i >= 0; i -= 2) { gFlameT = (float)i / 12.0f; hold(26); }
+    gFlameFrame = -1;
+    gFlameT = 0.0f;
+    gEnemyFrame = F_IDLE_A;
 }
 
 void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
@@ -866,9 +1327,28 @@ void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
         case CastGlow::WEAK:   fxIdx = 3; break;
         case CastGlow::REND:   fxIdx = 4; break;
     }
+    // Wind-up in his hand, then the spell actually travels. It used to glow on
+    // the knight and take effect on the enemy with nothing crossing between.
     gPlayerFrame = 7; gCastFrame = fxIdx;
-    hold(320);
+    hold(200);
     gCastFrame = -1;
+    // The orb in his hand (every cast-fx frame puts it at x83-93%, y3-15%) leaves
+    // from exactly there as the enemy orb shape in the same colour, and drops
+    // onto the middle of the enemy. It used to fly the whole cast-fx frame from
+    // (70, 46): the orb sits at the top-right of that frame, so the visible orb
+    // travelled high and landed over the enemy's head.
+    int orb = ProjectileTable::PC_POISON;
+    switch (glow) {
+        case CastGlow::POISON: orb = ProjectileTable::PC_POISON; break;
+        case CastGlow::BURN:   orb = ProjectileTable::PC_BURN;   break;
+        case CastGlow::STUN:   orb = ProjectileTable::PC_STUN;   break;
+        case CastGlow::WEAK:   orb = ProjectileTable::PC_WEAK;   break;
+        case CastGlow::REND:   orb = ProjectileTable::PC_REND;   break;
+    }
+    flyProjectile(orb, Tint{}, 28, /*reverse*/true, /*isCast*/false, 88, 9, 50, 50, /*fall*/true);
+    gEnemyTint = statusTint(glow);
+    hold(120);
+    gEnemyTint = Tint{};
     gPlayerFrame = F_IDLE_A;
 }
 
@@ -879,7 +1359,9 @@ void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool o
     showScene();
     Tint t = statusTint(glow);
     if (onEnemy) gEnemyTint = t; else gPlayerTint = t;
-    hold(1000);
+    // Long enough to read as a hit of colour, short enough that a move made only
+    // of a status does not stall the turn.
+    hold(360);
     gEnemyTint = Tint{};
     gPlayerTint = Tint{};
 }

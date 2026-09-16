@@ -23,14 +23,22 @@ private:
     int maxPlayerHealth;
     int playerArmor;
     int playerArmorPersistTurns; // FORTIFY defend cards: turns remaining before armor resets on its own
+    // Four, down from five. Halving the action advantage needed both the cost
+    // floor and a smaller hand; extra cards come from the encounter-15/30/45
+    // boon instead of being free from the start.
+    static constexpr int BASE_HAND_SIZE = 4;
+    int handSizeBonus = 0;      // boon: +1 card drawn each turn
+    int runLuck = 0;            // boon: raises every roll in the run, see luckBonus()
+    int rewardChoiceBonus = 0;  // boon: +1 card to choose from on reward screens
     int playerEnergy;
     int maxEnergy;
     int turnNumber;
     bool playerTurnActive;
     bool running;
     bool inEncounter;
-    int equipDamageBonus;
-    int equipArmorBonus;
+    // Percent, not flat. See the note on weaponTierAt() in Game.cpp.
+    int equipDamagePercent;
+    int equipArmorPercent;
     int weaponTier; // number of weapon upgrades claimed so far (picks the gear name/bonus tier)
     int armorTier;  // number of armor upgrades claimed so far
     bool counterAttackActive;
@@ -77,6 +85,12 @@ private:
     DamageType lastPlayedPhysType = DamageType::NONE;
     DamageType lastPlayedPhysType2 = DamageType::NONE;
 
+    // A card's value after the flat meta upgrade and the gear percentage.
+    // Every place that used to write "value + bonus + equipBonus" goes through
+    // these, so the two can never drift apart again.
+    int atkWithGear(int rawValue) const;
+    int defWithGear(int rawValue) const;
+    int gearedValue(const Card& c, int rawValue) const;  // dispatches on card type
     int calculateDamage(int attackValue, int defenseValue) const;
     // HP the enemy would lose to this card right now, for the hover preview.
     // 0 for anything that would not land: non-attacks, a phased enemy, or
@@ -92,7 +106,17 @@ private:
     bool tickEnemyRend(); // Rend fires on the enemy's swing; true if it killed them
     bool enemyCanDefend() const; // Fear only works on something that has a guard to raise
     bool tryStunEnemy(); // enemy.tryApplyStun(), blockable by a mirrored ward
-    void enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult); // regular-enemy attack resolution (armor/counter/parry), no boss second-wind
+    // ranged: the blow never closes the distance - a shot, a spell or a thrown
+    // weapon. It drives both the sprite (the attacker holds its ground) and the
+    // rules (Parry blocks it but has nothing in reach to riposte), so what the
+    // scene shows and what the fight does stay in agreement.
+    void enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, bool ranged = false,
+                           bool useAttackFrames = true, int projectile = -1, bool closeIn = false, bool fromCompanion = false);
+    int  enemyProjectile() const;    // frame from the generated ProjectileTable
+    int  enemyMuzzleX() const;       // and where on its sprite the shot leaves
+    int  enemyMuzzleY() const;
+    bool enemyIsFlyer() const;       // Wyvern, Falcon: dives in, pulls away, throws nothing
+    bool archetypeIsRanged() const;  // RANGED and CASTER fight at a distance by nature
     void triggerAssassinAmbush(); // Assassin only: one free strike after a random card the player plays
     void armPerTurnEnemyMechanics(); // re-arms Assassin ambush at the start of each player turn
     void refreshBattleAuras(); // syncs the battle scene's persistent status glows to current playerStatus/enemy state
@@ -116,7 +140,9 @@ private:
     void restSite();
     Enemy generateBossEnemy();
     void  bossAction();
-    void  bossStrikesPlayer(int damage, bool raw); // shared boss-attack resolution (armor, Dodge Reversal/Parry interception, damage)
+    // closeIn: a RANGED boss that lunges for this particular move - the dragon
+    // rakes with its claws, which means crossing the field to reach you.
+    void  bossStrikesPlayer(int damage, bool raw, bool closeIn = false); // shared boss-attack resolution (armor, Dodge Reversal/Parry interception, damage)
     bool  trySecondWind(); // clamps a lethal playerHealth to 1 and consumes bossSecondWindAvailable; false if already 0 or already used
     void  prepareShadowKnightMoves(); // Shadow Knight only: secretly pick up to 3 cards to mirror this turn
     void  executeShadowKnightMirror(const Card& mirrored); // plays out one mirrored card's effect against the player
@@ -131,21 +157,37 @@ private:
                            const std::string& title, const std::string& skipPrompt);
     bool forgeMenu(const std::string& baseTitle); // true only if a card was upgraded
     void offerEquipmentDrop();
+    void offerBoon();       // every 12th encounter
+    int  luckBonus() const; // percentage points added to the run's rolls
     void applyUpgrades();
     void selectUpgrades();
     void viewDeckManage(); // browse/discard cards; never costs the rest site visit - always returns to its menu
     int  showMainMenu();   // 0 = Start Game, 1 = Load Save, 2 = Quit/ESC
+    bool mainMenuFlow();   // the menu plus whatever it starts; false if quit
     void showHowToPlay();
     void showTutorial();   // interactive practice fight vs. a Training Dummy; restores state on exit
 
-    // Single-slot save system: only ever written at the Continue/End Run choice
-    // (i.e. between encounters, never mid-combat), so it can't be abused as a
-    // combat checkpoint. Any existing save is wiped the moment the player dies.
-    std::string savePath() const;
-    bool saveExists() const;
-    void saveGame() const;
-    bool loadGame(); // false if no save file, or it couldn't be parsed
-    void deleteSave() const;
+    // Three save slots, only ever written at the Continue/End Run choice (i.e.
+    // between encounters, never mid-combat), so they can't be abused as a combat
+    // checkpoint. Dying wipes the slot THIS run came from and no other: with one
+    // shared file, starting a new game and dying deleted a saved run the player
+    // had never touched.
+    static const int SAVE_SLOTS = 3;
+    int  currentSaveSlot = 0;        // 1-3 once this run is tied to a slot, else 0
+    std::string savePath(int slot) const;
+    bool saveExists(int slot) const;
+    bool anySaveExists() const;
+    // "Encounter 12, 11 defeated" for the slot picker, or an empty string.
+    std::string saveSummary(int slot) const;
+    // The slot picker itself. Returns 1-3, or 0 if the player backed out.
+    int  chooseSaveSlot(const std::string& title, bool forSaving);
+    void saveGame(int slot);
+    bool loadGame(int slot); // false if no save file, or it couldn't be parsed
+    void deleteSave(int slot) const;
+    // Dying: only the slot this run was loaded from or saved into.
+    void deleteCurrentSave();
+    // One-time move of an old single-file save into slot 1.
+    void migrateLegacySave() const;
 
 public:
     Game();

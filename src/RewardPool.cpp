@@ -57,7 +57,7 @@ void RewardPool::initializeCardPool() {
 }
 
 
-std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames, int maxRarityUnlocked) {
+std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames, int maxRarityUnlocked, int luck) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -65,8 +65,9 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     // Fixed odds per slot: 80% Uncommon / 15% Rare / 5% Super Rare, or
     // 60% / 25% / 15% with the "Fortunate Soul" rarity boost active.
     // Legendary (Dodge Reversal) is intentionally excluded - it only ever drops from boss rewards.
-    int superRareChance  = rarityBoost ? 15 : 5;
-    int rareChance       = rarityBoost ? 25 : 15;
+    // Luck widens both good slots at the uncommon slot's expense.
+    int superRareChance  = (rarityBoost ? 15 : 5)  + luck;
+    int rareChance       = (rarityBoost ? 25 : 15) + luck;
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
@@ -104,24 +105,25 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     return choices;
 }
 
-std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const std::vector<std::string>& ownedNames) {
+std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const std::vector<std::string>& ownedNames, int bossIndex, int luck) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    // Boss rewards are Rare-or-better: 70% Rare / 30% Super Rare.
+    // Early bosses: 70% Rare / 30% Super Rare, no Legendary.
     //
-    // Legendaries are deliberately absent. They used to hold a 5% slot here,
-    // which was fine while there was one of them; with three, a boss kill
-    // handed them out often enough that they stopped reading as special.
-    // They now come from the ??? encounter and from finishing a run.
-    std::vector<Card> rarePool, superRarePool;
+    // Bosses 3 and 4 (Hydra, Undead Dragon) sit late enough that a plain Rare is
+    // not worth a boss kill any more, so they drop Super Rare only, with a 2%
+    // Legendary. That is far narrower than the old flat 5% on every boss, which
+    // is what made Legendaries stop feeling special.
+    const bool lateBoss = (bossIndex == 3 || bossIndex == 4);
+    std::vector<Card> rarePool, superRarePool, legendaryPool;
     for (const auto& c : rareCards) {
-        if (c.isLegendary() || c.getCost() > maxCost
-            || owned.find(c.getName()) != owned.end()) continue;
-        if (c.isSuperRare()) superRarePool.push_back(c);
+        if (c.getCost() > maxCost || owned.find(c.getName()) != owned.end()) continue;
+        if (c.isLegendary()) { if (lateBoss) legendaryPool.push_back(c); }
+        else if (c.isSuperRare()) superRarePool.push_back(c);
         else rarePool.push_back(c);
     }
 
@@ -129,11 +131,14 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     for (int i = 0; i < count; ++i) {
         int roll = rollDis(gen);
-        std::vector<Card>* pool = (roll <= 30) ? &superRarePool : &rarePool;
+        std::vector<Card>* pool;
+        if (lateBoss) pool = (roll <= 2 + luck && !legendaryPool.empty()) ? &legendaryPool : &superRarePool;
+        else          pool = (roll <= 30) ? &superRarePool : &rarePool;
 
         if (pool->empty()) {
-            if (!rarePool.empty()) pool = &rarePool;
-            else if (!superRarePool.empty()) pool = &superRarePool;
+            if (!superRarePool.empty()) pool = &superRarePool;
+            else if (!rarePool.empty()) pool = &rarePool;
+            else if (!legendaryPool.empty()) pool = &legendaryPool;
             else break;
         }
         std::uniform_int_distribution<> idxDis(0, (int)pool->size() - 1);

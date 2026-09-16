@@ -148,8 +148,13 @@ void draw() {
     int tx = pb.x + pb.w + cw;
     put(tx, std::to_string(gState.playerHp) + "/" + std::to_string(gState.playerMax),
         hpColor(gState.playerHp, gState.playerMax));
-    put(tx, "ATK +" + std::to_string(gState.playerAtk)
-          + "   DEF +" + std::to_string(gState.playerDef), dim);
+    // Flat bonus plus the gear percentage. Dropping the percentage entirely was a
+    // step too far - taking a weapon then had no visible effect anywhere on this
+    // row. It is back, but short, because the concrete number now lives on every
+    // card face: the cards say what they will hit for, this says why.
+    auto gear = [](int pct) { return pct ? " +" + std::to_string(pct) + "%" : std::string(); };
+    put(tx, "ATK +" + std::to_string(gState.playerAtk) + gear(gState.playerAtkPct)
+          + "   DEF +" + std::to_string(gState.playerDef) + gear(gState.playerDefPct), dim);
     if (gState.playerArmor > 0)
         put(tx, "ARM " + std::to_string(gState.playerArmor), armor);
     if (!gState.playerTags.empty()) Console::drawAnsiPx(r, tx, y, gState.playerTags, dim, false);

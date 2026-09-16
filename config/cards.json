@@ -114,25 +114,25 @@
     },
     {
       "name": "Shield Bash",
-      "description": "Gain 4 armor, then deal 3 damage that bypasses the enemy's armor.",
+      "description": "Gain 3 armor, then deal 3 damage that bypasses the enemy's armor.",
       "type": "DEFEND",
       "effect": "CHIP",
       "cost": 1,
-      "value": 4
+      "value": 3
     },
     {
       "name": "Shield Wall",
-      "description": "Gain 11 armor.",
+      "description": "Gain 9 armor.",
       "type": "DEFEND",
       "cost": 2,
-      "value": 11
+      "value": 9
     },
     {
       "name": "Shield",
-      "description": "Gain 8 armor.",
+      "description": "Gain 6 armor.",
       "type": "DEFEND",
       "cost": 1,
-      "value": 8
+      "value": 6
     },
     {
       "name": "Combo Strike",
@@ -143,16 +143,8 @@
       "value": 7
     },
     {
-      "name": "Lesser Heal",
-      "description": "Heal 15 HP.",
-      "type": "SPECIAL",
-      "effect": "HEAL",
-      "cost": 1,
-      "value": 15
-    },
-    {
       "name": "Taunt",
-      "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast. Fails one time in ten.",
+      "description": "Provoke the enemy. For their next 2 turns they are far more likely to attack than to defend or cast. Fails one time in five.",
       "type": "SPECIAL",
       "effect": "TAUNT",
       "cost": 1,
@@ -169,7 +161,7 @@
     },
     {
       "name": "Fear",
-      "description": "Frighten the enemy. For their next 2 turns they are far more likely to brace behind their guard than to attack or cast. Useless against anything with no defensive move of its own, and like Taunt it fails one time in ten.",
+      "description": "Frighten the enemy. For their next 2 turns they are far more likely to brace than to attack or cast. Useless against anything with no defensive move of its own, and like Taunt it fails one time in five.",
       "type": "SPECIAL",
       "effect": "FEAR",
       "cost": 1,
@@ -229,10 +221,10 @@
     },
     {
       "name": "Guardian",
-      "description": "Gain 20 armor.",
+      "description": "Gain 17 armor.",
       "type": "DEFEND",
       "cost": 3,
-      "value": 20
+      "value": 17
     },
     {
       "name": "Onslaught",
@@ -302,11 +294,11 @@
     },
     {
       "name": "Heal",
-      "description": "Heal 26 HP.",
+      "description": "Restore yourself to 35% of maximum HP. If you are already above that, heal 14% instead.",
       "type": "SPECIAL",
       "effect": "HEAL",
       "cost": 2,
-      "value": 26
+      "value": 35
     },
     {
       "name": "Dodge Reversal",
@@ -394,21 +386,21 @@
     },
     {
       "name": "Great Heal",
-      "description": "Heal 40 HP.",
+      "description": "Restore yourself to 50% of maximum HP. If you are already above that, heal 20% instead.",
       "type": "SPECIAL",
       "effect": "HEAL",
       "superRare": true,
       "cost": 3,
-      "value": 40
+      "value": 50
     },
     {
       "name": "Reckoning",
-      "description": "Deal 40 damage that nothing reduces. Ignores armor, defense, resistance, and any stance or phase the enemy is hiding behind.",
+      "description": "Strike twice for 30 damage each, 60 total, and nothing reduces either hit. Ignores armor, defense, resistance, and any stance or phase the enemy is hiding behind.",
       "type": "ATTACK",
-      "effect": "TRUESTRIKE",
+      "effect": "TRUE_DOUBLE",
       "legendary": true,
       "cost": 4,
-      "value": 40
+      "value": 30
     },
     {
       "name": "Storm",

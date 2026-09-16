@@ -121,12 +121,14 @@ std::string Enemy::getWeaknessLabel() const {
 }
 
 DamageType Enemy::getResistance() const {
-    // Not every archetype has one
+    // Every archetype has one now. BEAST was falling through to NONE, which made
+    // it the only type with no downside to attack into.
     switch (type) {
         case EnemyType::MELEE:  return DamageType::WIND;
         case EnemyType::TANK:   return DamageType::PIERCE;
         case EnemyType::RANGED: return DamageType::FIRE;
         case EnemyType::CASTER: return DamageType::SMASH;
+        case EnemyType::BEAST:  return DamageType::POISON; // they deal it, so they shrug it off
         case EnemyType::UNDEAD: return DamageType::POISON;
         default:                return DamageType::NONE;
     }

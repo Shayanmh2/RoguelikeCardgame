@@ -29,7 +29,9 @@ enum class CardEffect {
     WARD,       // DEFEND: also blocks the next incoming ailment (Poison/Burn/Weak/Stun)
     TAUNT,      // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
     FEAR,       // SPECIAL: the mirror - enemy is much more likely to brace instead
-    TRUESTRIKE  // ATTACK: lands in full - no defense, resistance, parry or phase applies
+    TRUESTRIKE, // ATTACK: lands in full - no defense, resistance, parry or phase applies
+    TRUE_DOUBLE // ATTACK: Truestrike, twice. One card cannot carry two effects,
+                //         and Reckoning needs both, so it gets its own value.
 };
 
 class Card {
@@ -56,6 +58,22 @@ public:
     // expression (two here, two in Game.cpp) and they all had to be edited in step;
     // that is precisely how REND went missing from one of the two effect tables.
     double strengthMultiplier() const;
+
+    // How low upgrades may drive this card's cost. Almost everything reaches 1;
+    // a short list of genuinely strong cards stops at 2 so they cannot be fired
+    // three and four times in a turn once fully upgraded. Legendaries are exempt -
+    // they are rare enough already that reaching 1 is the reward.
+    int minCost() const;
+
+    // Heals top you up to a floor instead of adding a flat slice. A flat
+    // percentage was worth MOST when you were already healthy, which is
+    // backwards for an emergency button.
+    //
+    // `value` is the floor, as a percent of max HP. The card also always heals
+    // at least a smaller "top-up" (two fifths of the floor), and the result is
+    // whichever is larger - otherwise the card would pay 1% at 49% HP and 20%
+    // at 51%, which is a cliff in exactly the wrong direction.
+    static int healAmount(int value, int current, int maxHp);
 
     static CardEffect effectFromString(const std::string& s);
     static DamageType damageTypeFromString(const std::string& s);

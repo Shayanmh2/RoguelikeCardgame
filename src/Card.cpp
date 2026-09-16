@@ -9,6 +9,35 @@
 // Rare and Super Rare both sit at 2.0 on purpose. No rare-tier Strength card
 // exists today, so nothing is indistinguishable in practice, but a new one
 // would need its own step here.
+int Card::healAmount(int value, int current, int maxHp) {
+    if (maxHp <= 0) return 0;
+    const int floorHp = maxHp * value / 100;      // "heal up to here"
+    const int topUp   = maxHp * value * 2 / 500;  // two fifths of the floor
+    int healed = floorHp - current;
+    if (healed < topUp) healed = topUp;           // never worse than the top-up
+    if (healed > maxHp - current) healed = maxHp - current;
+    return healed < 0 ? 0 : healed;
+}
+
+int Card::minCost() const {
+    // Legendaries first: you only ever see one or two in a run, so letting them
+    // reach 1 is part of the payoff rather than a balance hole.
+    // Stun Strike is the exception to the exception. A hard stun takes a whole
+    // turn away from the enemy, which is worth more than any amount of damage,
+    // so it never gets cheap enough to chain.
+    if (getBaseName() == "Stun Strike") return 3;
+    // A 25% heal for one energy was the best rate in the game.
+    if (getBaseName() == "Heal") return 2;
+    if (legendary) return 1;
+    // Super Rare is the game's own marker for a standout card.
+    if (superRare) return 2;
+    // Plus two effects that are too good at 1 whatever their rarity: hitting
+    // twice, and defence that outlives the turn it was played on.
+    if (effect == CardEffect::DOUBLE_HIT || effect == CardEffect::TRUE_DOUBLE) return 2;
+    if (effect == CardEffect::FORTIFY    || effect == CardEffect::WARD)        return 2;
+    return 1;
+}
+
 double Card::strengthMultiplier() const {
     if (legendary) return 4.0;
     if (superRare) return 2.0;
@@ -35,6 +64,7 @@ CardEffect Card::effectFromString(const std::string& s) {
     if (s == "TAUNT")        return CardEffect::TAUNT;
     if (s == "FEAR")         return CardEffect::FEAR;
     if (s == "TRUESTRIKE")   return CardEffect::TRUESTRIKE;
+    if (s == "TRUE_DOUBLE")  return CardEffect::TRUE_DOUBLE;
     return CardEffect::NONE;
 }
 
@@ -150,8 +180,11 @@ int Card::getMaxUpgrades() const {
     if (effect == CardEffect::WEAK || effect == CardEffect::STUN
         || effect == CardEffect::TAUNT || effect == CardEffect::FEAR) return 0;
     if (effect == CardEffect::STRENGTH && type == CardType::SPECIAL) return 0;
-    // Common (starter) 1; Uncommon 2; Rare 3; Super Rare 4; Legendary 5
-    if (isStarter()) return 1;
+    // Starters are not upgradable: the forge is for cards you chose to build
+    // around, and grinding a Strike upward gave every deck the same floor.
+    // Everything you actually picked up still upgrades.
+    // Uncommon 2; Rare 3; Super Rare 4; Legendary 5.
+    if (isStarter()) return 0;
     if (legendary)   return 5;
     if (superRare)   return 4;
     if (rare)        return 3;
@@ -160,9 +193,11 @@ int Card::getMaxUpgrades() const {
 
 void Card::upgrade() {
     value += 3;
-    // Cost floors at 1, not 0 - a card should never become fully free from upgrades
-    // alone, so extra plays (from beating bosses) stay worth taking.
-    if (cost > 1) cost--;
+    // Cost still drops, but only to minCost(). A flat floor of 1 let every strong
+    // card bottom out there, and a fully upgraded deck then bought extra ACTIONS
+    // per turn on top of bigger numbers - five plays against the enemy's one.
+    // Commons still reach 1; rare and above stop at 2.
+    if (cost > minCost()) cost--;
     name += "+";
     upgradeCount++;
     // keep description text in sync with the new value
@@ -187,6 +222,10 @@ void Card::upgrade() {
         else if (effect == CardEffect::TRUESTRIKE)
             description = "Deal " + std::to_string(value) + " damage that nothing reduces. Ignores armor, "
                           "defense, resistance, and any stance or phase the enemy is hiding behind.";
+        else if (effect == CardEffect::TRUE_DOUBLE)
+            description = "Strike twice for " + std::to_string(value) + " damage each, "
+                          + std::to_string(value * 2) + " total, and nothing reduces either hit. "
+                          "Ignores armor, defense, resistance, and any stance or phase.";
         else if (effect == CardEffect::STRENGTH) {
             double buff = strengthMultiplier();
             std::ostringstream buffStr;
@@ -241,7 +280,9 @@ void Card::upgrade() {
                         + m + "x less damage.";
         }
         else if (effect == CardEffect::HEAL)
-            description = "Heal " + std::to_string(value) + " HP.";
+            description = "Restore yourself to " + std::to_string(value)
+                          + "% of maximum HP. If you are already above that, heal "
+                          + std::to_string(value * 2 / 5) + "% instead.";
         else if (effect == CardEffect::STRENGTH) {
             double buff = strengthMultiplier();
             std::ostringstream buffStr;

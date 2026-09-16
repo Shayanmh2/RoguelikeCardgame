@@ -52,19 +52,26 @@ int Run::getEncountersWon() const {
 
 int Run::getEnemyHealth() const {
     int tier = (currentEncounter - 1) / 5;
-    int tierMultiplier = 1 + (tier * 15);  // Each tier adds 15% more health
-    int baseHealth = 25 + (currentEncounter - 1) * 6;  // Lowered from 50 to 25, scaling reduced from 8 to 6
+    // Scaled for the post-overhaul player, who plays about three cards a turn
+    // with percentage gear. At 15% per tier and +6 per encounter, a run that
+    // put everything into attack could no longer keep up by encounter 20.
+    int tierMultiplier = 1 + (tier * 8);   // each tier adds 8% more health
+    int baseHealth = 25 + (currentEncounter - 1) * 5;
     return (baseHealth * (100 + tierMultiplier)) / 100;
 }
 
 int Run::getEnemyAttack() const {
     int tier = (currentEncounter - 1) / 5;
-    int tierBonus = tier * 2;  // Each tier adds +2 attack
-    return 8 + (currentEncounter - 1) * 1 + tierBonus;
+    // +0.6 per encounter and +1 per tier (was +1 and +2): the old curve had
+    // enemies killing the player in about five turns by encounter 20.
+    int tierBonus = tier;
+    return 7 + (currentEncounter - 1) * 6 / 10 + tierBonus;
 }
 
 int Run::getEnemyDefense() const {
-    return 2 + (currentEncounter - 1) / 5; // gentler ramp, starts at 2
+    // Every 7 encounters, not 5. Defense is subtracted per hit, so it bites hardest
+    // on the cheap cards a three-card turn relies on.
+    return 2 + (currentEncounter - 1) / 7;
 }
 
 bool Run::isBossEncounter() const {

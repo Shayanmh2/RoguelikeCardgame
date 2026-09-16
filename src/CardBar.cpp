@@ -162,10 +162,36 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
                                 c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 }, true);
             ty += Platform::cellH();
         }
-        Console::drawTextPx(r, q.x + pad, ty + 2, clip(c.effect), dim, false);
-        if (!c.note.empty())
-            Console::drawTextPx(r, q.x + pad, ty + 2 + Platform::cellH(), clip(c.note),
-                                c.disabled ? dim : SDL_Color{ 79, 214, 214, 255 }, false);
+        // Wrapped on word boundaries down the card's free space, rather than cut
+        // at its width.
+        int lineY = ty + 2;
+        const int textBottom = q.y + q.h - std::max(18, Platform::cellH() + 4) - 14;
+        auto drawWrapped = [&](const std::string& text, SDL_Color col) {
+            if (text.empty()) return;
+            std::string line;
+            size_t i3 = 0;
+            while (i3 <= text.size()) {
+                const size_t sp = text.find(' ', i3);
+                const std::string word = text.substr(i3, sp == std::string::npos ? std::string::npos : sp - i3);
+                const std::string cand = line.empty() ? word : line + " " + word;
+                if ((int)cand.size() > gridFit && !line.empty()) {
+                    if (lineY > textBottom) return;
+                    Console::drawTextPx(r, q.x + pad, lineY, line, col, false);
+                    lineY += Platform::cellH();
+                    line = word;
+                } else {
+                    line = cand;
+                }
+                if (sp == std::string::npos) break;
+                i3 = sp + 1;
+            }
+            if (!line.empty() && lineY <= textBottom) {
+                Console::drawTextPx(r, q.x + pad, lineY, clip(line), col, false);
+                lineY += Platform::cellH();
+            }
+        };
+        drawWrapped(c.effect, dim);
+        drawWrapped(c.note, c.disabled ? dim : SDL_Color{ 79, 214, 214, 255 });
 
         const int cellW = std::max(1, Platform::cellW());
         int bh = std::max(18, Platform::cellH() + 4);
