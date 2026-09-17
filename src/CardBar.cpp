@@ -35,6 +35,9 @@ struct Layout {
     int energyW = 0;   // reserved gutter on the left for the pips
     SDL_Rect band{ 0,0,0,0 };
     int cw = 0, ch = 0, gap = 0;
+    // Distance from one card's left edge to the next. Normally cw + gap; on a
+    // hand too wide for the band it drops below cw and the cards overlap.
+    int step = 0;
     int x0 = 0, y0 = 0;
     int plusR = 0;
 };
@@ -72,7 +75,17 @@ Layout compute(int nCards, int nActions) {
     const int fitByWidth = nCards ? (usable / std::max(1, nCards)) - 12 : L.cw;
     L.cw = std::max(58, std::min(L.cw, fitByWidth));
     L.gap = std::max(6, L.cw / 9);
+    L.step = L.cw + L.gap;
     int total = nCards * L.cw + std::max(0, nCards - 1) * L.gap;
+    // Endurance stacks, so a hand of ten or more is reachable, and below the
+    // 58px floor a card is no longer readable anyway. Past that point the hand
+    // overlaps like a held fan instead of running off the right edge: every
+    // card keeps a visible strip, and the one under the cursor is drawn last
+    // and raised, so it is fully readable.
+    if (nCards > 1 && total > usable) {
+        L.step = std::max(L.cw / 4, (usable - L.cw) / (nCards - 1));
+        total  = L.cw + (nCards - 1) * L.step;
+    }
     L.x0 = L.band.x + L.energyW + std::max(12, (usable - total) / 2);
     L.y0 = L.band.y + 8;
     L.plusR = std::max(9, L.cw / 10);
@@ -83,7 +96,7 @@ void buildRects() {
     gCardRects.clear(); gPlusRects.clear(); gActionRects.clear();
     const Layout& L = gLayout;
     for (size_t i = 0; i < gCards.size(); i++) {
-        int x = L.x0 + (int)i * (L.cw + L.gap);
+        int x = L.x0 + (int)i * L.step;
         gCardRects.push_back(SDL_Rect{ x, L.y0, L.cw, L.ch });
         gPlusRects.push_back(SDL_Rect{ x + L.cw - L.plusR*2 - 8,
                                        L.y0 + L.ch - L.plusR*2 - 8,
@@ -128,17 +141,24 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     const SDL_Color dim{ 150, 150, 168, 255 };
     const SDL_Color gold{ 232, 196, 84, 255 };
 
-    for (size_t i = 0; i < cards.size() && i < rects.size(); i++) {
+    // Two passes so the selected card is painted last. On a hand wide enough to
+    // overlap, the card under the cursor would otherwise be half-covered by its
+    // right-hand neighbour, and even in a spaced row this keeps a neighbour from
+    // clipping the selection glow.
+    const size_t nDraw = std::min(cards.size(), rects.size());
+    for (size_t pass = 0; pass < 2; pass++)
+    for (size_t i = 0; i < nDraw; i++) {
         const Card& c = cards[i];
         SDL_Rect q = rects[i];
         const bool sel = gPicking && ((int)i == gCurrent);
+        if (sel != (pass == 1)) continue;
         if (sel) q.y -= lift;
 
         if (sel) DrawUtil::glowRound(r, q, rad(), lime, std::max(6, q.w / 12), 90);
         fillR(r, q, cardBg, c.disabled ? 150 : 255);
         frameR(r, q, sel ? lime : cardLine);
         if (sel) { SDL_Rect in{ q.x+1, q.y+1, q.w-2, q.h-2 }; frameR(r, in, lime); }
-        if (c.rare) { SDL_Rect g{ q.x+3, q.y+3, q.w-6, q.h-6 }; frameR(r, g, gold); }
+        if (c.risk) { SDL_Rect g{ q.x+3, q.y+3, q.w-6, q.h-6 }; frameR(r, g, gold); }
         DrawUtil::fillRound(r, SDL_Rect{ q.x+3, q.y+3, q.w-6, std::max(4, rad()) },
                             rad()-1, c.tint, c.disabled ? 140 : 255);
 
@@ -367,7 +387,10 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
         Platform::mousePos(mx, my);
         if (mx != lastMx || my != lastMy) {
             lastMx = mx; lastMy = my;
-            for (int i = 0; i < n; i++) {
+            // Back to front. A fanned hand overlaps, and the card on top is the
+            // last one drawn, so the highest index under the cursor is the one
+            // the player can actually see and means to point at.
+            for (int i = n - 1; i >= 0; i--) {
                 const SDL_Rect& q = (i < (int)cards.size())
                                         ? gCardRects[i] : gActionRects[i - (int)cards.size()];
                 if (inside(q, mx, my) && usable(i)) { gCurrent = i; break; }
@@ -387,12 +410,12 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
             bool handled = false;
-            for (size_t i = 0; i < gPlusRects.size() && !handled; i++) {
+            for (int i = (int)gPlusRects.size() - 1; i >= 0 && !handled; i--) {
                 SDL_Rect p = gPlusRects[i];
-                if ((int)i == gCurrent) p.y -= 10;
-                if (inside(p, cx, cy)) { gCurrent = (int)i; result = -2 - (int)i; handled = true; }
+                if (i == gCurrent) p.y -= 10;
+                if (inside(p, cx, cy)) { gCurrent = i; result = -2 - i; handled = true; }
             }
-            for (int i = 0; i < n && !handled; i++) {
+            for (int i = n - 1; i >= 0 && !handled; i--) {   // topmost first, as above
                 const SDL_Rect& q = (i < (int)cards.size())
                                         ? gCardRects[i] : gActionRects[i - (int)cards.size()];
                 if (inside(q, cx, cy) && usable(i)) { gCurrent = i; result = i; handled = true; }
@@ -618,7 +641,7 @@ void showDetail(const Card& c, const std::string& description,
 
         DrawUtil::glowRound(r, panel, rad(), SDL_Color{ 0, 0, 0, 255 }, 10, 120);
         fillR(r, panel, tone(30));
-        frameR(r, panel, c.rare ? SDL_Color{ 232, 196, 84, 255 } : tone(80));
+        frameR(r, panel, c.risk ? SDL_Color{ 232, 196, 84, 255 } : tone(80));
         DrawUtil::fillRound(r, SDL_Rect{ panel.x + 3, panel.y + 3, panel.w - 6, std::max(4, rad()) },
                             rad() - 1, c.tint);
 

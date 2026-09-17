@@ -30,8 +30,29 @@ enum class CardEffect {
     TAUNT,      // SPECIAL: enemy is much more likely to attack for the next 2 of their turns
     FEAR,       // SPECIAL: the mirror - enemy is much more likely to brace instead
     TRUESTRIKE, // ATTACK: lands in full - no defense, resistance, parry or phase applies
-    TRUE_DOUBLE // ATTACK: Truestrike, twice. One card cannot carry two effects,
+    TRUE_DOUBLE,// ATTACK: Truestrike, twice. One card cannot carry two effects,
                 //         and Reckoning needs both, so it gets its own value.
+
+    // Cards that pay for their power. Each carries its own drawback, so the
+    // effect is the whole deal rather than a modifier on a plain card.
+    SCRAP,       // DEFEND: armor, and it nicks you for 1 on the way up
+    RECKLESS,    // ATTACK: big hit, your cards deal 2 less next turn
+    SELFWEAK,    // DEFEND: heavy armor, your own attacks soften this turn
+    OVEREXTEND,  // ATTACK: ignores defense, costs you a card next turn
+    BLOODPRICE,  // SPECIAL: energy now, paid for in HP
+    WILDCHARGE,  // ATTACK: big hit, your armor is gone
+    BERSERK,     // SPECIAL: you hit harder next turn and take more until then
+    TURTLE,      // DEFEND: armor that persists, and you are Weakened while it does
+    EMBERBLADE,  // ATTACK: burns them, and you catch fire too
+    ADRENALINE,  // SPECIAL: energy now, borrowed from next turn
+    SHATTERPOINT,// ATTACK: huge hit, one more card this turn
+    BLOODPACT,   // SPECIAL: doubles your damage, paid for in HP
+    UNSTABLEWARD,// DEFEND: armor and a long ward, a thin hand next turn
+    ALLIN,       // ATTACK: your whole guard, thrown
+    LASTSTAND,   // DEFEND: armor from your wounds, no healing after it
+    BORROWED,    // SPECIAL: two turns now, one lost later
+    PACTRUIN,    // ATTACK: every attack festers, and every card bleeds you
+    SACRIFICE,   // SPECIAL: heal to full, the card leaves the fight
 };
 
 class Card {
@@ -95,6 +116,9 @@ public:
     bool isRare() const;
     bool isSuperRare() const;
     bool isLegendary() const;
+    // True for the cards that come with a cost attached: the card face
+    // outlines those instead of outlining every rare and above.
+    bool hasDrawback() const;
     bool isStarter() const; // true for the fixed starting-deck cards
     int getMaxUpgrades() const;   // starter caps at 1, common at 3, rare at 4, super rare/legendary at 5
     std::string getBaseName() const; // name with trailing '+' upgrade markers stripped

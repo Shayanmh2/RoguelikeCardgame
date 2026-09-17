@@ -1,4 +1,5 @@
 #include "Card.h"
+#include <algorithm>
 #include <vector>
 #include <sstream>
 
@@ -65,6 +66,24 @@ CardEffect Card::effectFromString(const std::string& s) {
     if (s == "FEAR")         return CardEffect::FEAR;
     if (s == "TRUESTRIKE")   return CardEffect::TRUESTRIKE;
     if (s == "TRUE_DOUBLE")  return CardEffect::TRUE_DOUBLE;
+    if (s == "SCRAP")          return CardEffect::SCRAP;
+    if (s == "RECKLESS")       return CardEffect::RECKLESS;
+    if (s == "SELFWEAK")       return CardEffect::SELFWEAK;
+    if (s == "OVEREXTEND")     return CardEffect::OVEREXTEND;
+    if (s == "BLOODPRICE")     return CardEffect::BLOODPRICE;
+    if (s == "WILDCHARGE")     return CardEffect::WILDCHARGE;
+    if (s == "BERSERK")        return CardEffect::BERSERK;
+    if (s == "TURTLE")         return CardEffect::TURTLE;
+    if (s == "EMBERBLADE")     return CardEffect::EMBERBLADE;
+    if (s == "ADRENALINE")     return CardEffect::ADRENALINE;
+    if (s == "SHATTERPOINT")   return CardEffect::SHATTERPOINT;
+    if (s == "BLOODPACT")      return CardEffect::BLOODPACT;
+    if (s == "UNSTABLEWARD")   return CardEffect::UNSTABLEWARD;
+    if (s == "ALLIN")          return CardEffect::ALLIN;
+    if (s == "LASTSTAND")      return CardEffect::LASTSTAND;
+    if (s == "BORROWED")       return CardEffect::BORROWED;
+    if (s == "PACTRUIN")       return CardEffect::PACTRUIN;
+    if (s == "SACRIFICE")      return CardEffect::SACRIFICE;
     return CardEffect::NONE;
 }
 
@@ -131,10 +150,32 @@ bool Card::isLegendary() const {
     return legendary;
 }
 
+
+
+
+bool Card::hasDrawback() const {
+    switch (effect) {
+        case CardEffect::SCRAP:        case CardEffect::RECKLESS:
+        case CardEffect::SELFWEAK:     case CardEffect::OVEREXTEND:
+        case CardEffect::BLOODPRICE:   case CardEffect::WILDCHARGE:
+        case CardEffect::BERSERK:      case CardEffect::TURTLE:
+        case CardEffect::EMBERBLADE:   case CardEffect::ADRENALINE:
+        case CardEffect::SHATTERPOINT: case CardEffect::BLOODPACT:
+        case CardEffect::UNSTABLEWARD: case CardEffect::ALLIN:
+        case CardEffect::LASTSTAND:    case CardEffect::BORROWED:
+        case CardEffect::PACTRUIN:     case CardEffect::SACRIFICE:
+        case CardEffect::COUNTER:      // Dodge Reversal lets a quarter through
+            return true;
+        default:
+            return false;
+    }
+}
+
 static const std::vector<std::string>& starterCardNames() {
     // Name-keyed, so a rename here is not cosmetic: isStarter() drives the
     // upgrade cap and the white name tint.
-    static const std::vector<std::string> names = {"Quick Jab", "Slash", "Bash", "Lunge", "Defend", "Brace", "Parry"};
+    static const std::vector<std::string> names = {"Quick Jab", "Slash", "Bash", "Lunge",
+                                                   "Scrap Shield", "Brace", "Parry"};
     return names;
 }
 
@@ -192,7 +233,12 @@ int Card::getMaxUpgrades() const {
 }
 
 void Card::upgrade() {
-    value += 3;
+    // The step scales with rarity: at a flat +3 a maxed uncommon reached 1
+    // energy for 18 damage, which is a printed rare at a third of the cost.
+    // 2/3/4/5 puts the ceilings at 16/28/46/55, one tier under the next.
+    const int step = legendary ? 5 : superRare ? 4 : rare ? 3 : 2;
+    // Heals are a percentage of max HP, so the same step runs away with them.
+    value = (effect == CardEffect::HEAL) ? std::min(70, value + 2) : value + step;
     // Cost still drops, but only to minCost(). A flat floor of 1 let every strong
     // card bottom out there, and a fully upgraded deck then bought extra ACTIONS
     // per turn on top of bigger numbers - five plays against the enemy's one.
@@ -232,6 +278,78 @@ void Card::upgrade() {
             buffStr << buff;
             description = "Deal " + std::to_string(value) + " damage. Gain x" + buffStr.str() + " damage for 2 turns.";
         }
+        else if (effect == CardEffect::RECKLESS)
+            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
+        else if (effect == CardEffect::OVEREXTEND)
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
+                          "You draw one fewer card next turn.";
+        else if (effect == CardEffect::WILDCHARGE)
+            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
+        else if (effect == CardEffect::EMBERBLADE)
+            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
+        else if (effect == CardEffect::SHATTERPOINT)
+            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
+        else if (effect == CardEffect::ALLIN)
+            description = "Deal twice your current armor in damage, then lose all of it. "
+                          "You are Weakened for 2 turns.";
+        else if (effect == CardEffect::PACTRUIN)
+            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
+                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
+                          "you play costs you 6 HP.";
+        else if (effect == CardEffect::RECKLESS)
+            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
+        else if (effect == CardEffect::OVEREXTEND)
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
+                          "You draw one fewer card next turn.";
+        else if (effect == CardEffect::WILDCHARGE)
+            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
+        else if (effect == CardEffect::EMBERBLADE)
+            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
+        else if (effect == CardEffect::SHATTERPOINT)
+            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
+        else if (effect == CardEffect::ALLIN)
+            description = "Deal twice your current armor in damage, then lose all of it. "
+                          "You are Weakened for 2 turns.";
+        else if (effect == CardEffect::PACTRUIN)
+            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
+                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
+                          "you play costs you 6 HP.";
+        else if (effect == CardEffect::RECKLESS)
+            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
+        else if (effect == CardEffect::OVEREXTEND)
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
+                          "You draw one fewer card next turn.";
+        else if (effect == CardEffect::WILDCHARGE)
+            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
+        else if (effect == CardEffect::EMBERBLADE)
+            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
+        else if (effect == CardEffect::SHATTERPOINT)
+            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
+        else if (effect == CardEffect::ALLIN)
+            description = "Deal twice your current armor in damage, then lose all of it. "
+                          "You are Weakened for 2 turns.";
+        else if (effect == CardEffect::PACTRUIN)
+            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
+                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
+                          "you play costs you 6 HP.";
+        else if (effect == CardEffect::RECKLESS)
+            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
+        else if (effect == CardEffect::OVEREXTEND)
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
+                          "You draw one fewer card next turn.";
+        else if (effect == CardEffect::WILDCHARGE)
+            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
+        else if (effect == CardEffect::EMBERBLADE)
+            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
+        else if (effect == CardEffect::SHATTERPOINT)
+            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
+        else if (effect == CardEffect::ALLIN)
+            description = "Deal twice your current armor in damage, then lose all of it. "
+                          "You are Weakened for 2 turns.";
+        else if (effect == CardEffect::PACTRUIN)
+            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
+                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
+                          "you play costs you 6 HP.";
         else
             description = "Deal " + std::to_string(value) + " damage.";
         description += elementalNote(elemType);
@@ -245,6 +363,19 @@ void Card::upgrade() {
         else if (effect == CardEffect::WARD)
             description = "Gain " + std::to_string(value) + " armor and ward yourself for 2 turns. "
                           "Every ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked while it holds.";
+        else if (effect == CardEffect::SCRAP)
+            description = "Gain " + std::to_string(value) + " armor. You take 1 damage.";
+        else if (effect == CardEffect::SELFWEAK)
+            description = "Gain " + std::to_string(value) + " armor. Your attacks deal 10% less this turn.";
+        else if (effect == CardEffect::TURTLE)
+            description = "Gain " + std::to_string(value) + " armor that persists for 3 turns (until broken). "
+                          "You are Weakened for 3 turns.";
+        else if (effect == CardEffect::UNSTABLEWARD)
+            description = "Gain " + std::to_string(value) + " armor and ward yourself for 5 turns against every "
+                          "ailment. You draw two fewer cards next turn.";
+        else if (effect == CardEffect::LASTSTAND)
+            description = "Gain armor equal to the health you are missing, plus " + std::to_string(value)
+                        + ", and it persists. You cannot heal for the rest of the encounter.";
         else
             description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {

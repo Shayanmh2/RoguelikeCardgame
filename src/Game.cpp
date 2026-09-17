@@ -47,7 +47,10 @@ namespace Stripe {
 // Card name tint by rarity; legendary gets bold gold instead of a pastel.
 // One short line for a card face. The full sentence lives in the details
 // panel; this is what has to read at a glance while choosing.
-static std::string cardFaceLine(const Card& c, int shownValue) {
+// elemChance > 0 puts the live elemental chance on the face. The card's written
+// text quotes the base 10%, which stops being true the moment Attunement is taken,
+// and the face is the number the player actually reads mid-fight.
+static std::string cardFaceLine(const Card& c, int shownValue, int elemChance = 0) {
     std::string base;
     switch (c.getType()) {
         case CardType::ATTACK: base = std::to_string(shownValue) + " dmg";   break;
@@ -80,6 +83,12 @@ static std::string cardFaceLine(const Card& c, int shownValue) {
         default: break;
     }
     if (extra) base += "  " + std::string(extra);
+    if (!extra && elemChance > 0 && c.getType() == CardType::ATTACK) {
+        const char* st = c.getElemType() == DamageType::FIRE   ? "burn"
+                       : c.getElemType() == DamageType::POISON ? "psn"
+                       : c.getElemType() == DamageType::WIND   ? "rend" : nullptr;
+        if (st) base += "  " + std::to_string(elemChance) + "% " + st;
+    }
     return base;
 }
 
@@ -92,7 +101,7 @@ static CardBar::Card toWidget(const Card& c, int shownValue, bool disabled = fal
     w.elemTag   = c.getTypeTag();
     w.typeLabel = c.getTypeString();
     w.cost      = c.getCost();
-    w.rare      = c.isRare() || c.isSuperRare() || c.isLegendary();
+    w.risk      = c.hasDrawback();
     w.disabled  = disabled;
     w.nameColor = Console::xterm256Public(
                       c.isLegendary() ? 220
@@ -196,6 +205,24 @@ static const char* effectToStr(CardEffect e) {
         case CardEffect::FEAR:       return "FEAR";
         case CardEffect::TRUESTRIKE: return "TRUESTRIKE";
         case CardEffect::TRUE_DOUBLE: return "TRUE_DOUBLE";
+        case CardEffect::SCRAP:          return "SCRAP";
+        case CardEffect::RECKLESS:       return "RECKLESS";
+        case CardEffect::SELFWEAK:       return "SELFWEAK";
+        case CardEffect::OVEREXTEND:     return "OVEREXTEND";
+        case CardEffect::BLOODPRICE:     return "BLOODPRICE";
+        case CardEffect::WILDCHARGE:     return "WILDCHARGE";
+        case CardEffect::BERSERK:        return "BERSERK";
+        case CardEffect::TURTLE:         return "TURTLE";
+        case CardEffect::EMBERBLADE:     return "EMBERBLADE";
+        case CardEffect::ADRENALINE:     return "ADRENALINE";
+        case CardEffect::SHATTERPOINT:   return "SHATTERPOINT";
+        case CardEffect::BLOODPACT:      return "BLOODPACT";
+        case CardEffect::UNSTABLEWARD:   return "UNSTABLEWARD";
+        case CardEffect::ALLIN:          return "ALLIN";
+        case CardEffect::LASTSTAND:      return "LASTSTAND";
+        case CardEffect::BORROWED:       return "BORROWED";
+        case CardEffect::PACTRUIN:       return "PACTRUIN";
+        case CardEffect::SACRIFICE:      return "SACRIFICE";
         default:                     return "NONE";
     }
 }
@@ -275,8 +302,11 @@ void Game::init() {
     playerDeck.addCard(Card("Slash", "Deal 4 damage.", CardType::ATTACK, 1, 4));
     playerDeck.addCard(Card("Bash", "Deal 6 damage. Counts as a Smash attack, so it hits harder against enemies weak to Smash and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::SMASH));
     playerDeck.addCard(Card("Lunge", "Deal 6 damage. Counts as a Pierce attack, so it hits harder against enemies weak to Pierce and lands softer against those that resist it.", CardType::ATTACK, 2, 6, CardEffect::NONE, false, DamageType::PIERCE));
-    // 5 armor: two of these at one energy each covered most of an early turn.
-    playerDeck.addCard(Card("Defend", "Gain 5 armor.", CardType::DEFEND, 1, 5));
+    // Scrap Shield in place of Defend: free, but it nicks you, so the opening
+    // deck has a block that competes with an attack for the turn rather than
+    // for the energy.
+    playerDeck.addCard(Card("Scrap Shield", "Gain 5 armor. You take 1 damage.",
+                            CardType::DEFEND, 0, 5, CardEffect::SCRAP));
     playerDeck.addCard(Card("Brace", "Gain 5 armor.", CardType::DEFEND, 1, 5));
     playerDeck.addCard(Card("Parry",
         "Block the enemy's next attack and riposte for 1.5x their attack "
@@ -677,7 +707,7 @@ int Game::previewDamage(const Card& c) const {
                           (c.getPhysType() == resistance || c.getPhysType2() == resistance
                            || c.getElemType() == resistance);
 
-    int dmg = atkWithGear(c.getValue());
+    int dmg = liveValue(c);
     dmg = (int)(dmg * playerStatus.getWeakMultiplier() * playerStatus.getStrengthMultiplier());
     if (hitsWeakness)   dmg = (int)(dmg * 1.5);
     if (hitsResistance) dmg = (int)(dmg * 0.5);
@@ -702,7 +732,18 @@ static int applyPct(int base, int pct) {
 }
 
 int Game::atkWithGear(int rawValue) const {
-    return applyPct(rawValue + upgrades.getDamageBonus(), equipDamagePercent);
+    int v = applyPct(rawValue + upgrades.getDamageBonus(), equipDamagePercent);
+    // What the drawback cards charge: a flat cut from Reckless Swing, a
+    // percentage from Heavy Guard. Both run through here so the hand, the
+    // preview and the swing itself all quote the same number.
+    if (cardSoftenPct > 0) v = v * (100 - cardSoftenPct) / 100;
+    v -= cardDamagePenalty;
+    return std::max(1, v);
+}
+
+int Game::attunementChance() const {
+    // 10% base, and each Attunement boon adds 8 points to it.
+    return std::min(100, 10 + attunementBoons * 8);
 }
 
 int Game::defWithGear(int rawValue) const {
@@ -714,6 +755,20 @@ int Game::gearedValue(const Card& c, int rawValue) const {
     if (c.getType() == CardType::ATTACK) return atkWithGear(rawValue);
     if (c.getType() == CardType::DEFEND) return defWithGear(rawValue);
     return rawValue;
+}
+
+// What a card will land for right now, before Weak and Strength. Most cards are
+// their printed value through gear; two read the board instead, and their faces
+// used to show the printed number, so All In advertised 14 damage while the swing
+// was worth hundreds.
+int Game::liveValue(const Card& c) const {
+    switch (c.getEffect()) {
+        // The armour is thrown as it stands. It already carries the armour
+        // percentage, so the weapon percentage deliberately stays out of it.
+        case CardEffect::ALLIN:     return playerArmor * 2;
+        case CardEffect::LASTSTAND: return std::max(0, maxPlayerHealth - playerHealth) + c.getValue();
+        default:                    return gearedValue(c, c.getValue());
+    }
 }
 
 int Game::calculateDamage(int attackValue, int defenseValue) const {
@@ -732,7 +787,13 @@ bool Game::spendEnergy(int cost) {
 }
 
 void Game::resetEnergy() {
-    playerEnergy = maxEnergy;
+    // Adrenaline spends next turn's energy now, and this is where the bill lands.
+    playerEnergy = std::max(0, maxEnergy - energyDebt);
+    if (energyDebt > 0) {
+        std::cout << "  " << Color::DIM << "Last turn's rush leaves you " << energyDebt
+                  << " energy short." << Color::RESET << "\n";
+        energyDebt = 0;
+    }
 }
 
 // Taunt and Fear both miss one time in ten. Shared, so the two cannot drift
@@ -801,7 +862,13 @@ void Game::applyCardEffect(const Card& card) {
             std::cout << "  " << Color::CYAN << "You raise your guard. If they attack, you'll parry"
                       << (val > 0 ? (" (+" + std::to_string(val) + " riposte)") : std::string()) << " and stun them." << Color::RESET << "\n";
             break;
+        case CardEffect::SACRIFICE:
         case CardEffect::HEAL: {
+            if (noHealThisEncounter) {
+                std::cout << "  " << Color::MAGENTA << "Your wounds refuse to close. Nothing heals this fight."
+                          << Color::RESET << "\n";
+                break;
+            }
             EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::HEAL);
             int before = playerHealth;
             {
@@ -822,6 +889,65 @@ void Game::applyCardEffect(const Card& card) {
             double buff = card.strengthMultiplier();
             playerStatus.apply(StatusType::STRENGTH, 2, 1.5, buff);
             std::cout << "  " << Color::STRENGTH_CLR << "Strength surges! x" << buff << " damage for 2 turns!" << Color::RESET << "\n";
+            break;
+        }
+        case CardEffect::BLOODPRICE:
+            playerEnergy += val;
+            playerHealth = std::max(0, playerHealth - 6);
+            Audio::playSFX("special");
+            std::cout << "  " << Color::ENERGY_CLR << "+" << val << " energy" << Color::RESET
+                      << Color::DAMAGE << ", bought with 6 HP." << Color::RESET
+                      << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
+            break;
+        case CardEffect::ADRENALINE:
+            playerEnergy += val;
+            energyDebt += 2;
+            Audio::playSFX("special");
+            std::cout << "  " << Color::ENERGY_CLR << "+" << val << " energy now" << Color::RESET
+                      << Color::WEAK_CLR << ", and 2 less next turn." << Color::RESET << "\n";
+            break;
+        case CardEffect::BERSERK:
+            EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
+            playerStatus.apply(StatusType::STRENGTH, 2, 1.5, 1.5);
+            vulnerableTurns = 1;
+            vulnerableMult  = 1.5;
+            std::cout << "  " << Color::STRENGTH_CLR << "You throw your guard away and wind up: x1.5 damage"
+                      << Color::RESET << Color::DAMAGE << ", and x1.5 taken until your next turn."
+                      << Color::RESET << "\n";
+            break;
+        case CardEffect::BLOODPACT: {
+            EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
+            // The ceiling, not the pool. Taking it out of current HP meant a heal
+            // bought the power back; taking it out of the maximum means the fight
+            // is run on a smaller pool whatever you do. endEncounterEffects()
+            // returns it when the fight ends.
+            const int paid = std::max(1, maxPlayerHealth * 15 / 100);
+            maxHpDebt += paid;
+            maxPlayerHealth = std::max(1, maxPlayerHealth - paid);
+            playerHealth = std::min(playerHealth, maxPlayerHealth);
+            playerStatus.apply(StatusType::STRENGTH, 3, 1.5, 2.0);
+            std::cout << "  " << Color::STRENGTH_CLR << "x2 damage for 3 turns" << Color::RESET
+                      << Color::DAMAGE << ", paid with " << paid << " max HP for this fight."
+                      << Color::RESET << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
+            break;
+        }
+        case CardEffect::BORROWED: {
+            extraTurnsPending++;
+            // Max HP falls for the rest of the fight, and the HP above the new
+            // ceiling goes with it. endEncounterEffects() hands it back.
+            const int loss = maxPlayerHealth * 40 / 100;
+            maxHpDebt += loss;
+            maxPlayerHealth = std::max(1, maxPlayerHealth - loss);
+            playerHealth = std::min(playerHealth, maxPlayerHealth);
+            // The stun is booked, not applied. Applied here it ate the rest of the
+            // turn the card was played on, so the borrowed turn arrived before the
+            // player had finished paying for it; endPlayerTurn() lands it on the
+            // turn after the extra one, which is the turn the enemy gets for free.
+            borrowedStunsPending++;
+            Audio::playSFX("legendary");
+            std::cout << "  " << Color::BOLD << Color::CYAN << "Time folds. You move again immediately."
+                      << Color::RESET << Color::DAMAGE << " It will cost you a turn, and "
+                      << loss << " max HP for this fight." << Color::RESET << "\n";
             break;
         }
         // Taunt and Fear are one card pointed in opposite directions, and both
@@ -988,11 +1114,17 @@ void Game::playCardFromHand(int index) {
             std::cout << Color::MAGENTA << "The tentacles hold fast - only one card while BOUND." << Color::RESET << "\n";
             return;
         }
+        if (cardLimitThisTurn > 0 && cardsPlayedThisTurn >= cardLimitThisTurn) {
+            std::cout << Color::MAGENTA << "The shockwave has to settle. No more cards this turn."
+                      << Color::RESET << "\n";
+            return;
+        }
         if (!spendEnergy(card.getCost())) return;
 
         Card playedCard = playerDeck.playCard(index - 1);
 
         cardsPlayedThisTurn++;
+        payPactOfRuin();
         lastActionWasCardPlay = true;
         lastPlayedCardType = playedCard.getType();
         lastPlayedPhysType = playedCard.getPhysType();
@@ -1006,6 +1138,13 @@ void Game::playCardFromHand(int index) {
                                      && playedCard.getEffect() != CardEffect::PARRY)
             Audio::playSFX("legendary");
 
+        // Sacrifice leaves the deck for the rest of the fight rather than
+        // shuffling back in. endEncounterEffects() returns it.
+        if (playedCard.getEffect() == CardEffect::SACRIFICE) {
+            exhausted.push_back(playedCard);
+            playerDeck.removeCardByName(playedCard.getName());
+        }
+
         if (playedCard.getType() == CardType::ATTACK) {
             // One tear per attack card, not per hit: a double-hit card is still
             // one swing as far as the wound is concerned.
@@ -1014,7 +1153,8 @@ void Game::playCardFromHand(int index) {
             // every reduction the enemy can put in the way.
             const CardEffect eff = playedCard.getEffect();
             bool trueStrike     = (eff == CardEffect::TRUESTRIKE || eff == CardEffect::TRUE_DOUBLE);
-            bool pierce         = trueStrike || (eff == CardEffect::PIERCE);
+            bool pierce         = trueStrike || (eff == CardEffect::PIERCE)
+                                               || (eff == CardEffect::OVEREXTEND);
             bool doubleHit      = (eff == CardEffect::DOUBLE_HIT || eff == CardEffect::TRUE_DOUBLE);
             int  hits           = doubleHit ? 2 : 1;
             double weakMult     = playerStatus.getWeakMultiplier();
@@ -1038,7 +1178,12 @@ void Game::playCardFromHand(int index) {
             double parryFactor = revenantParried ? 0.5 : 1.0;
 
             for (int hitNum = 1; hitNum <= hits && (lichAddAlive || enemy.isAlive()); hitNum++) {
-                int bonusDamage  = atkWithGear(playedCard.getValue());
+                // All In throws your guard rather than the card's own number, and
+                // it deliberately skips the weapon percentage: the armour it spends
+                // already carries the armour percentage.
+                int bonusDamage  = (eff == CardEffect::ALLIN)
+                                 ? playerArmor * 2
+                                 : atkWithGear(playedCard.getValue());
                 bonusDamage = (int)(bonusDamage * weakMult * strengthMult);
                 if (hitsWeakness) bonusDamage = (int)(bonusDamage * 1.5);
                 if (hitsResistance) bonusDamage = (int)(bonusDamage * 0.5);
@@ -1095,6 +1240,15 @@ void Game::playCardFromHand(int index) {
                         std::cout << " " << Color::ARMOR_CLR << "[" << armorBlocked << " blocked by armor]" << Color::RESET;
                     std::cout << "\n";
 
+                    // Under the pact every attack festers, element or not.
+                    if (pactOfRuinActive && enemy.isAlive()) {
+                        if (applyEnemyStatus(StatusType::BURN, 3))
+                            std::cout << "  " << Color::BURN_CLR << "The pact sets the wound alight. Burn 3."
+                                      << Color::RESET << "\n";
+                        if (applyEnemyStatus(StatusType::REND, 2))
+                            std::cout << "  " << Color::REND_CLR << "And it will not close. Rend 2."
+                                      << Color::RESET << "\n";
+                    }
                     // 10% chance per hit to also inflict the matching ailment.
                     // Wind joins poison and fire here now that it has a status of
                     // its own, so all three elements behave the same way on hit.
@@ -1103,7 +1257,10 @@ void Game::playCardFromHand(int index) {
                                             || elem == DamageType::WIND)) {
                         std::random_device rd;
                         std::mt19937 gen(rd());
-                        if (std::uniform_int_distribution<>(1, 100)(gen) <= 10) {
+                        // One chance for every elemental attack, raised only by
+                        // Attunement. Nothing skips this roll: a card that applied its
+                        // element for free made the boon worthless.
+                        if (std::uniform_int_distribution<>(1, 100)(gen) <= attunementChance()) {
                             // The value applied is 3, but the tick is not: poison pays
                             // half of it over six turns, burn half again over two. These
                             // numbers mirror StatusEffects::apply() and must move with it.
@@ -1137,12 +1294,74 @@ void Game::playCardFromHand(int index) {
                                   false, enemy.getWeakMultiplier());
             }
 
+            // What the attack drawback cards charge, once the swing has landed.
+            switch (eff) {
+                case CardEffect::RECKLESS:
+                    // Two overswings in a turn cost four, not two. Refreshing
+                    // instead of adding made the second one free.
+                    pendingDamagePenalty += 2;
+                    std::cout << "  " << Color::WEAK_CLR << "You overswing. Your cards deal "
+                              << pendingDamagePenalty << " less next turn." << Color::RESET << "\n";
+                    break;
+                case CardEffect::OVEREXTEND:
+                    nextHandPenalty = std::max(nextHandPenalty, 1);
+                    std::cout << "  " << Color::WEAK_CLR << "You are out of position. One fewer card next turn."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::WILDCHARGE:
+                    if (playerArmor > 0) {
+                        playerArmor = 0;
+                        armorBroken = true;
+                        std::cout << "  " << Color::WEAK_CLR << "You charge in open. Your armor is gone."
+                                  << Color::RESET << "\n";
+                    }
+                    break;
+                case CardEffect::EMBERBLADE:
+                    if (enemy.isAlive() && applyEnemyStatus(StatusType::BURN, 4)) {
+                        EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(),
+                                                         EnemyArt::CastGlow::BURN, true);
+                        std::cout << "  " << Color::BURN_CLR << "The blade sets them alight! Burn 4."
+                                  << Color::RESET << "\n";
+                    }
+                    playerStatus.apply(StatusType::BURN, 2);
+                    std::cout << "  " << Color::BURN_CLR << "The flames lick back at you. Burn 2."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::SHATTERPOINT:
+                    cardLimitThisTurn = cardsPlayedThisTurn + 1;
+                    std::cout << "  " << Color::WEAK_CLR << "The blow costs you your footing. One more card this turn."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::ALLIN:
+                    playerArmor = 0;
+                    armorBroken = true;
+                    playerStatus.apply(StatusType::WEAK, 3, 1.5);
+                    std::cout << "  " << Color::WEAK_CLR << "Everything you had, spent. You are Weakened and unguarded."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::PACTRUIN:
+                    pactOfRuinActive = true;
+                    noHealThisEncounter = true;
+                    std::cout << "  " << Color::BOLD << Color::MAGENTA
+                              << "The pact takes hold. Your attacks fester, your wounds will not close, "
+                              << "and every card costs blood." << Color::RESET << "\n";
+                    break;
+                default: break;
+            }
+
             if (playedCard.getEffect() == CardEffect::STRENGTH) {
                 // Bloodlust's path. Same ladder as the SPECIAL buff cards.
                 EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(), EnemyArt::SelfGlow::STRENGTH);
                 double strengthBuff = playedCard.strengthMultiplier();
                 playerStatus.apply(StatusType::STRENGTH, 2, 1.5, strengthBuff);
                 std::cout << "  " << Color::STRENGTH_CLR << "Strength surges! x" << strengthBuff << " damage for 2 turns!" << Color::RESET << "\n";
+                // Bloodlust burns out: the crash is booked now and lands when the
+                // fury runs out, so the card is a trade rather than a free buff.
+                if (playedCard.isLegendary()) {
+                    bloodlustCrashPending = 2;
+                    std::cout << "  " << Color::DIM << "It will cost you when the fury fades."
+                              << Color::RESET << "\n";
+                }
             }
         } else if (playedCard.getType() == CardType::DEFEND) {
             int bonusArmor = defWithGear(playedCard.getValue());
@@ -1187,6 +1406,51 @@ void Game::playCardFromHand(int index) {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 }
             }
+            switch (playedCard.getEffect()) {
+                case CardEffect::SCRAP:
+                    playerHealth = std::max(0, playerHealth - 1);
+                    std::cout << "  " << Color::DAMAGE << "The scrap edge nicks you for 1."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::SELFWEAK:
+                    // Same reasoning, with a floor under it: half your damage is
+                    // as far as bracing can take you.
+                    cardSoftenPct = std::min(50, cardSoftenPct + 10);
+                    std::cout << "  " << Color::WEAK_CLR << "Braced heavy. Your attacks deal "
+                              << cardSoftenPct << "% less this turn." << Color::RESET << "\n";
+                    break;
+                case CardEffect::TURTLE:
+                    playerArmorPersistTurns = 3;
+                    playerStatus.apply(StatusType::WEAK, 3, 1.5);
+                    std::cout << "  " << Color::CYAN << "Dug in. The armor holds for 3 turns"
+                              << Color::RESET << Color::WEAK_CLR << ", and you are Weakened while it does."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::UNSTABLEWARD:
+                    statusWardTurns = 5;
+                    nextHandPenalty = std::max(nextHandPenalty, 2);
+                    std::cout << "  " << Color::CYAN << "Warded for 5 turns"
+                              << Color::RESET << Color::WEAK_CLR << ", but the working costs you two cards next turn."
+                              << Color::RESET << "\n";
+                    break;
+                case CardEffect::LASTSTAND: {
+                    // The armour is the wounds, whole. The old cap of 80 made it a
+                    // flat card in the late game, where 80 armour is one hit. The
+                    // card's own value rides on top, so the forge still does
+                    // something and the card is not dead at full health.
+                    const int fromWounds = std::max(0, maxPlayerHealth - playerHealth)
+                                         + playedCard.getValue();
+                    playerArmor += fromWounds;
+                    playerArmorPersistTurns = 3;
+                    noHealThisEncounter = true;
+                    std::cout << "  " << Color::ARMOR_CLR << "Your wounds harden: +" << fromWounds
+                              << " armor for 3 turns." << Color::RESET << Color::WEAK_CLR
+                              << " You cannot heal for the rest of this fight." << Color::RESET << "\n";
+                    break;
+                }
+                default: break;
+            }
+
             if (playedCard.getEffect() == CardEffect::WARD) {
                 statusWardTurns = 2;
                 std::cout << "  " << Color::CYAN << "Warded! The next ailment the enemy inflicts on you will be blocked." << Color::RESET << "\n";
@@ -1275,6 +1539,13 @@ int Game::enemyProjectile() const {
     }
 }
 
+// The eye has one way of reaching you. Without this it fired its beam only on
+// its own move and threw a little bolt across the sky on every shared ranged
+// attack it rolled.
+bool Game::enemyFiresBeam() const {
+    return enemy.getName().find("Omneye") != std::string::npos;
+}
+
 bool Game::enemyRaisesFlames() const {
     return enemy.getName().find("Archon") != std::string::npos;
 }
@@ -1294,6 +1565,8 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
     // Weak scales it down, Strength scales it up - the mirror of what the
     // player's own two buffs do to their attacks.
     atk = (int)(atk * weakMult * enemy.getStrengthMultiplier());
+    // Berserk Stance: you gave up your guard for the swing, and this is the bill.
+    if (vulnerableTurns > 0) atk = (int)(atk * vulnerableMult);
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
     if (fromCompanion)
         EnemyArt::printCompanionAttack(enemy.getType(), enemy.getBossType());
@@ -1513,6 +1786,15 @@ void Game::enemyTurn() {
             }
             return;
         }
+        if (enemyFiresBeam() && ranged && !closeIn) {
+            // Drawn first and joined to the pupil, then the blow lands with
+            // nothing else crossing the gap.
+            EnemyArt::printEnemyBeam(enemy.getType(), enemy.getBossType(), ProjectileTable::FX_BEAM,
+                                     enemyMuzzleX(), enemyMuzzleY());
+            enemyStrikePlayer(atk, pierceHalfArmor, weakMult, ranged, /*useFrames*/false,
+                              EnemyArt::Proj::NONE, closeIn);
+            return;
+        }
         enemyStrikePlayer(atk, pierceHalfArmor, weakMult, ranged, useFrames, projectile, closeIn);
     };
     auto doAttack = [&](int atk, bool pierceHalfArmor) {
@@ -1558,6 +1840,12 @@ void Game::enemyTurn() {
     // proj picks the art that crosses the field. -1 keeps the generic status orb,
     // which is right for an ailment with no object of its own.
     auto cast = [&](EnemyArt::CastGlow g, int proj = -1) {
+        if (enemyFiresBeam()) {
+            EnemyArt::printEnemyBeam(enemy.getType(), enemy.getBossType(), ProjectileTable::FX_BEAM,
+                                     enemyMuzzleX(), enemyMuzzleY(),
+                                     /*weakGlow*/g == EnemyArt::CastGlow::WEAK);
+            return;
+        }
         if (enemyRaisesFlames()) {
             EnemyArt::printGroundFlames(enemy.getType(), enemy.getBossType(),
                                         ProjectileTable::FX_PILLAR);
@@ -2138,6 +2426,30 @@ void Game::enemyTurn() {
     }
 }
 
+void Game::payPactOfRuin() {
+    if (!pactOfRuinActive) return;
+    playerHealth = std::max(0, playerHealth - 6);
+    std::cout << "  " << Color::DAMAGE << "The pact takes its 6 HP." << Color::RESET
+              << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
+    if (playerHealth <= 0) trySecondWind();
+}
+
+// Everything a drawback card took for the length of one fight comes back here.
+void Game::endEncounterEffects() {
+    for (const Card& c : exhausted) playerDeck.addCard(c);
+    exhausted.clear();
+    if (maxHpDebt > 0) {
+        maxPlayerHealth += maxHpDebt;
+        maxHpDebt = 0;
+    }
+    pactOfRuinActive = false;
+    noHealThisEncounter = false;
+    cardDamagePenalty = pendingDamagePenalty = cardSoftenPct = 0;
+    vulnerableTurns = 0; vulnerableMult = 1.0;
+    energyDebt = 0; cardLimitThisTurn = 0;
+    extraTurnsPending = 0; borrowedStunsPending = 0; bloodlustCrashPending = 0;
+}
+
 void Game::resetArmor() {
     // Fortified armor lasts until its timer runs out or it's broken; the rest wipes each turn.
     // Enemy armor is handled separately (see enemyTurn()) - it needs to survive one turn
@@ -2147,10 +2459,35 @@ void Game::resetArmor() {
     } else {
         playerArmor = 0;
     }
+    // The warning belongs to the turn the card spent it on. Armour running out
+    // at the end of a turn is ordinary and says nothing.
+    armorBroken = false;
 }
 
 void Game::endPlayerTurn() {
     playerTurnActive = false;
+    cardSoftenPct = 0;        // Heavy Guard only softens the turn it was played
+
+    // Borrowed Time: another turn before the enemy gets one, and only then the
+    // stun, so the free turn the enemy gets comes after the borrowed one.
+    if (extraTurnsPending > 0) {
+        extraTurnsPending--;
+        if (borrowedStunsPending > 0) {
+            borrowedStunsPending--;
+            playerStatus.apply(StatusType::STUN, 1);
+        }
+        cardsPlayedThisTurn = 0;
+        cardLimitThisTurn = 0;
+        resetEnergy();
+        playerDeck.resetDeck();
+        const int again = std::max(1, BASE_HAND_SIZE + handSizeBonus + upgrades.getDrawBonus());
+        for (int i = 0; i < again; ++i) { try { playerDeck.drawCard(); } catch (...) { break; } }
+        playerTurnActive = true;
+        UIHelper::typeWrite(std::string(Color::BOLD) + Color::CYAN
+            + "Time folds back on itself. You move again." + Color::RESET + "\n");
+        UIHelper::pause(250);
+        return;
+    }
 
     // Per-turn enemy debuffs/stances on the player expire as the turn they hit ends.
     playerAttackOnly = false;
@@ -2214,9 +2551,23 @@ void Game::endPlayerTurn() {
             UIHelper::pause(250);
         }
         if (statusWardTurns > 0) statusWardTurns--;
+        if (vulnerableTurns > 0 && --vulnerableTurns == 0) vulnerableMult = 1.0;
+        // Reckless Swing's cut lands on the turn AFTER the swing, so it rolls
+        // over here rather than at the moment it was played.
+        cardDamagePenalty = pendingDamagePenalty;
+        pendingDamagePenalty = 0;
+        cardLimitThisTurn = 0;
         // WEAK/STRENGTH tick at end of player turn (after all attacks are resolved)
+        const bool hadStrength = playerStatus.hasStrength();
         playerStatus.processWeak();
         playerStatus.processStrength();
+        // Bloodlust: the crash arrives the moment the fury it granted runs out.
+        if (bloodlustCrashPending > 0 && hadStrength && !playerStatus.hasStrength()) {
+            bloodlustCrashPending = 0;
+            playerStatus.apply(StatusType::WEAK, 3, 2.0);
+            std::cout << "  " << Color::WEAK_CLR
+                      << "The bloodlust drains out of you. Weakened." << Color::RESET << "\n";
+        }
 
         // Discard remaining hand cards and draw a fresh hand for next turn
         // (Tempt/Ice Blast shrink the next hand via nextHandPenalty).
@@ -2359,6 +2710,7 @@ void Game::syncHud() {
 
         h.playerHp = playerHealth; h.playerMax = maxPlayerHealth;
         h.playerArmor = playerArmor;
+        h.armorBroken = armorBroken;
         int totalDmg = upgrades.getDamageBonus();
         int totalArm = upgrades.getArmorBonus();
         // Shown as a permanent readout beside the bar, the way the enemy's
@@ -2374,6 +2726,21 @@ void Game::syncHud() {
             ptags += std::string(Color::CYAN) + "[Fortified "
                    + std::to_string(playerArmorPersistTurns) + "] " + Color::RESET;
         // Otherwise the ward is invisible until something is blocked by it.
+        if (vulnerableTurns > 0)
+            ptags += std::string(" ") + Color::DAMAGE + "[Exposed x1.5]" + Color::RESET;
+        if (cardDamagePenalty > 0)
+            ptags += std::string(" ") + Color::WEAK_CLR + "[-"
+                   + std::to_string(cardDamagePenalty) + " dmg]" + Color::RESET;
+        if (cardSoftenPct > 0)
+            ptags += std::string(" ") + Color::WEAK_CLR + "[-"
+                   + std::to_string(cardSoftenPct) + "% dmg]" + Color::RESET;
+        if (energyDebt > 0)
+            ptags += std::string(" ") + Color::WEAK_CLR + "[-"
+                   + std::to_string(energyDebt) + " energy next]" + Color::RESET;
+        if (pactOfRuinActive)
+            ptags += std::string(" ") + Color::MAGENTA + "[PACT]" + Color::RESET;
+        else if (noHealThisEncounter)
+            ptags += std::string(" ") + Color::MAGENTA + "[No healing]" + Color::RESET;
         if (statusWardTurns > 0)
             ptags += std::string(" ") + Color::CYAN + "[Guard:"
                    + std::to_string(statusWardTurns) + "t]" + Color::RESET;
@@ -2498,7 +2865,7 @@ void Game::handleInput() {
             // through Weak/Strength. Gear became a multiplier and this was still
             // adding a flat bonus that had been zeroed, so every card in hand was
             // showing its raw printed number.
-            int dispVal = gearedValue(c, c.getValue());
+            int dispVal = liveValue(c);
             if (c.getType() == CardType::ATTACK)
                 dispVal = (int)(std::max(0, dispVal) * weakMult * strengthMult);
 
@@ -2528,11 +2895,11 @@ void Game::handleInput() {
 
             CardBar::Card w;
             w.name     = c.getName();
-            w.effect   = cardFaceLine(c, dispVal);
+            w.effect   = cardFaceLine(c, dispVal, attunementChance());
             w.typeLabel = c.getTypeString();
             w.elemTag   = c.getTypeTag();   // [Smash] / [Pierce][Wind] / ...
             w.cost     = c.getCost();
-            w.rare     = c.isRare() || c.isSuperRare() || c.isLegendary();
+            w.risk     = c.hasDrawback();
             // The exact tints Colors.h prints with: 220 neon gold, 218 pale
             // pink, 153 sky blue, 120 pale green, white for starters. Picking
             // my own approximations lost the palette the game already had.
@@ -2702,6 +3069,7 @@ Enemy Game::generateBossEnemy() {
 // Shared by bossAction() and the Shadow Knight's mirrored attacks (can't be a lambda - those resolve outside bossAction()).
 void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn) {
     double weakMult = enemy.getWeakMultiplier() * enemy.getStrengthMultiplier();
+    if (vulnerableTurns > 0) damage = (int)(damage * vulnerableMult);
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
     // Bosses take their range from their archetype - the Undead Dragon is RANGED
     // and should breathe from where it stands rather than walking over first.
@@ -3661,6 +4029,7 @@ void Game::startEncounter() {
     fleshmassBindPending = false;
     playerBoundTurn = false;
     cardsPlayedThisTurn = 0;
+    endEncounterEffects();      // no drawback carries into the next fight
     armPerTurnEnemyMechanics(); // arm the Assassin ambush if this fight is the Assassin
 
     inEncounter = true;
@@ -3866,7 +4235,9 @@ void Game::restSite() {
     std::vector<CardBar::Action> siteActs{
         CardBar::Action{ "Rest", "heal to full  (" + std::to_string(playerHealth)
                          + "/" + std::to_string(maxPlayerHealth) + " HP)", false },
-        CardBar::Action{ "Forge",     "upgrade a card  (+3 value, -1 cost)", false },
+        // The step is no longer flat: it scales with the card's rarity, so the
+        // label quotes the range rather than a number that is wrong for most cards.
+        CardBar::Action{ "Forge",     "upgrade a card  (+2 to +5 value by rarity, -1 cost)", false },
         CardBar::Action{ "View Deck", "browse and discard", false },
         CardBar::Action{ "Skip",      "press on without resting", false },
     };
@@ -3935,6 +4306,11 @@ void Game::viewDeckManage() {
             const Card& c = *groupCard[first + i];
             CardBar::Card w = toWidget(c, gearedValue(c, c.getValue()));
             if (groupCount[first + i] > 1) w.name += " x" + std::to_string(groupCount[first + i]);
+            // This screen is a library, not the forge. The note says which it is
+            // on every card, since the two screens are otherwise identical and
+            // the forge is where upgrades happen.
+            const int ups = c.getUpgradeCount();
+            w.note = ups > 0 ? ("in deck  +" + std::to_string(ups)) : std::string("in deck");
             widgets.push_back(w);
         }
 
@@ -4063,7 +4439,7 @@ void Game::handleEncounterWin() {
         offerCardReward();
     }
 
-    if (currentRun.getCurrentEncounter() % 3 == 0)
+    if (currentRun.getCurrentEncounter() % gearInterval == 0)
         offerEquipmentDrop();
 
     // Every 12th encounter, for as long as the run lasts.
@@ -4300,7 +4676,8 @@ void Game::offerBoon() {
     UIHelper::clearScreen();
     // Shown as cards rather than plain buttons so they read as something you are
     // picking up, and so they can carry the white boon stripe.
-    auto boonCard = [](const char* name, const char* face, const char* note) {
+    auto boonCard = [](const std::string& name, const std::string& face,
+                       const std::string& note) {
         CardBar::Card b;
         b.name = name; b.effect = face; b.note = note;
         b.elemTag = "[BOON]";
@@ -4312,17 +4689,33 @@ void Game::offerBoon() {
         boonCard("Fortune",   "+2% all rolls", "rarity, drops, every chance roll"),
         boonCard("Endurance", "+1 card/turn",  "every turn, for the rest of the run"),
         boonCard("Foresight", "+1 reward",     "one more card to choose from on every reward"),
+        boonCard("Attunement","+8% elements",  "your elemental attacks land their status more often"),
     };
+    // Scavenger is only offered while there is room to shorten the gap. Taking
+    // it twice would otherwise be a wasted pick on a screen of five.
+    const bool canScavenge = gearInterval > 2;
+    if (canScavenge)
+        widgets.push_back(boonCard("Scavenger", "gear sooner",
+                                   "equipment every " + std::to_string(gearInterval - 1)
+                                   + " encounters instead of " + std::to_string(gearInterval)));
     std::vector<CardBar::Action> acts{ CardBar::Action{ "Take none", "walk on empty-handed", false } };
     // The face only has room for a few words; this is what "+" shows.
-    const char* details[] = {
+    std::vector<std::string> details = {
         "Every chance roll for the rest of this run is 2 percentage points kinder, "
         "including card rarity and reward drops. Stacks each time you take it.",
         "Draw one extra card at the start of every turn for the rest of this run.",
         "Every card reward screen offers one extra card to choose from for the rest of "
         "this run.",
+        "Your elemental attacks apply their status far more readily: Fire leaves Burn, "
+        "Poison leaves Poison, Wind leaves Rend. The chance rises by 8 points each time "
+        "you take this, from the base 10.",
     };
-    const char* names[] = { "Fortune", "Endurance", "Foresight" };
+    if (canScavenge)
+        details.push_back("Equipment drops arrive every " + std::to_string(gearInterval - 1)
+                          + " encounters instead of every " + std::to_string(gearInterval)
+                          + " for the rest of the run.");
+    std::vector<std::string> names = { "Fortune", "Endurance", "Foresight", "Attunement" };
+    if (canScavenge) names.push_back("Scavenger");
     int choice = -1;
     while (true) {
         choice = CardBar::pick("A moment of respite. Take one, and keep it.", widgets, acts, 3);
@@ -4340,11 +4733,21 @@ void Game::offerBoon() {
             notice("You walk on, taking nothing.");
             return;
         }
-        if (!confirm(std::string("Take ") + names[choice] + "? It lasts the whole run.")) continue;
+        if (!confirm("Take " + names[choice] + "? It lasts the whole run.")) continue;
         break;
     }
 
-    if (choice == 1) {
+    if (choice == 3) {
+        attunementBoons++;
+        Audio::playSFX("upgrade");
+        notice("Attunement. Your elemental attacks now land their status "
+               + std::to_string(attunementChance()) + "% of the time.");
+    } else if (choice == 4) {
+        gearInterval = std::max(2, gearInterval - 1);
+        Audio::playSFX("upgrade");
+        notice("Scavenger. Equipment turns up every " + std::to_string(gearInterval)
+               + " encounters from here on.");
+    } else if (choice == 1) {
         handSizeBonus++;
         Audio::playSFX("upgrade");
         notice("Endurance. You will draw " + std::to_string(BASE_HAND_SIZE + handSizeBonus)
@@ -4588,6 +4991,8 @@ void Game::saveGame(int slot) {
     out << "LUCK " << runLuck << "\n";
     out << "HANDBONUS " << handSizeBonus << "\n";
     out << "REWARDBONUS " << rewardChoiceBonus << "\n";
+    out << "ATTUNE " << attunementBoons << "\n";
+    out << "GEARINT " << gearInterval << "\n";
     out << "WEAPONTIER " << weaponTier << "\n";
     out << "ARMORTIER " << armorTier << "\n";
     for (int i = 0; i < 5; i++)
@@ -4627,6 +5032,7 @@ bool Game::loadGame(int slot) {
     // Boons. Default 0, so a save written before they existed loads as a run that
     // simply never took one rather than failing to parse.
     int savedLuck = 0, savedHandBonus = 0, savedRewardBonus = 0;
+    int savedAttune = 0, savedGearInt = 3;
     std::vector<bool> unlockedFlags(5, false), activeFlags(5, false);
     std::vector<Card> loadedCards;
 
@@ -4665,6 +5071,8 @@ bool Game::loadGame(int slot) {
         else if (tag == "LUCK")        iss >> savedLuck;
         else if (tag == "HANDBONUS")   iss >> savedHandBonus;
         else if (tag == "REWARDBONUS") iss >> savedRewardBonus;
+        else if (tag == "ATTUNE")      iss >> savedAttune;
+        else if (tag == "GEARINT")     iss >> savedGearInt;
         else if (tag == "WEAPONTIER") iss >> savedWeaponTier;
         else if (tag == "ARMORTIER") iss >> savedArmorTier;
         else if (tag == "UPGRADE") {
@@ -4692,6 +5100,8 @@ bool Game::loadGame(int slot) {
     runLuck           = savedLuck;
     handSizeBonus     = savedHandBonus;
     rewardChoiceBonus = savedRewardBonus;
+    attunementBoons   = savedAttune;
+    gearInterval      = std::max(2, savedGearInt);
     // Recomputed rather than restored, so a save written before gear became a
     // percentage loads as the right percentage instead of a stale flat number.
     (void)savedEquipDmg; (void)savedEquipArm;

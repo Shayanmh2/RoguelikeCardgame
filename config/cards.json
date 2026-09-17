@@ -166,6 +166,38 @@
       "effect": "FEAR",
       "cost": 1,
       "value": 1
+    },
+    {
+      "name": "Reckless Swing",
+      "description": "Deal 11 damage. Your cards deal 2 less next turn.",
+      "type": "ATTACK",
+      "effect": "RECKLESS",
+      "cost": 1,
+      "value": 11
+    },
+    {
+      "name": "Heavy Guard",
+      "description": "Gain 12 armor. Your attacks deal 10% less this turn.",
+      "type": "DEFEND",
+      "effect": "SELFWEAK",
+      "cost": 1,
+      "value": 12
+    },
+    {
+      "name": "Overextend",
+      "description": "Deal 8 damage, ignoring enemy defense. You draw one fewer card next turn.",
+      "type": "ATTACK",
+      "effect": "OVEREXTEND",
+      "cost": 1,
+      "value": 8
+    },
+    {
+      "name": "Blood Price",
+      "description": "Gain 2 energy now. You lose 6 HP.",
+      "type": "SPECIAL",
+      "effect": "BLOODPRICE",
+      "cost": 0,
+      "value": 2
     }
   ],
   "rareCards": [
@@ -302,11 +334,11 @@
     },
     {
       "name": "Dodge Reversal",
-      "description": "Sidestep whatever the enemy does to you next and turn it back on them. An attack returns for double damage plus 6. An ailment (Poison, Burn, Weak or Stun) is applied to them instead, doubled. Fizzles only if they do neither.",
+      "description": "Counter: reverses the enemy's next attack or ailment back at them, doubled, +6, though a quarter of the blow still reaches you. Fizzles if they do neither.",
       "type": "SPECIAL",
       "effect": "COUNTER",
       "legendary": true,
-      "cost": 1,
+      "cost": 4,
       "value": 6
     },
     {
@@ -339,7 +371,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage, then gain x4 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier.",
+      "description": "Deal 13 damage, then gain x4 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier. When the fury fades you are Weakened for a turn.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -420,6 +452,151 @@
       "superRare": true,
       "cost": 3,
       "value": 13
+    },
+    {
+      "name": "Reckless Charge",
+      "description": "Deal 12 damage. You lose all your armor.",
+      "type": "ATTACK",
+      "effect": "WILDCHARGE",
+      "cost": 1,
+      "value": 12
+    },
+    {
+      "name": "Berserk Stance",
+      "description": "Your attacks deal x1.5 damage next turn, and you take x1.5 damage until then.",
+      "type": "SPECIAL",
+      "effect": "BERSERK",
+      "cost": 1,
+      "value": 1
+    },
+    {
+      "name": "Turtle Up",
+      "description": "Gain 14 armor that persists for 3 turns (until broken). You are Weakened for 3 turns.",
+      "type": "DEFEND",
+      "effect": "TURTLE",
+      "cost": 2,
+      "value": 14
+    },
+    {
+      "name": "Burning Blade",
+      "description": "Deal 14 damage and apply 4 Burn. You gain 2 Burn.",
+      "type": "ATTACK",
+      "effect": "EMBERBLADE",
+      "cost": 2,
+      "value": 14,
+      "elemType": "FIRE"
+    },
+    {
+      "name": "Adrenaline",
+      "description": "Gain 3 energy now. You start next turn with 2 less.",
+      "type": "SPECIAL",
+      "effect": "ADRENALINE",
+      "cost": 0,
+      "value": 3
+    },
+    {
+      "name": "Shatterpoint",
+      "description": "Deal 20 damage. You may play only one more card this turn.",
+      "type": "ATTACK",
+      "effect": "SHATTERPOINT",
+      "cost": 2,
+      "value": 20
+    },
+    {
+      "name": "Blood Pact",
+      "description": "Gain x2 damage for 3 turns. Your maximum HP drops 15% for the rest of the encounter.",
+      "type": "SPECIAL",
+      "effect": "BLOODPACT",
+      "cost": 1,
+      "value": 1,
+      "superRare": true
+    },
+    {
+      "name": "Unstable Ward",
+      "description": "Gain 15 armor and ward yourself for 5 turns against every ailment. You draw two fewer cards next turn.",
+      "type": "DEFEND",
+      "effect": "UNSTABLEWARD",
+      "cost": 1,
+      "value": 15,
+      "superRare": true
+    },
+    {
+      "name": "Blight Maul",
+      "description": "Deal 26 damage. 10% chance on hit to also apply Poison 3: 2 damage a turn for 6 turns.",
+      "type": "ATTACK",
+      "effect": "NONE",
+      "cost": 3,
+      "value": 26,
+      "physType": "SMASH",
+      "elemType": "POISON",
+      "superRare": true
+    },
+    {
+      "name": "Emberlance",
+      "description": "Deal 26 damage. 10% chance on hit to also apply Burn 3: 4 damage a turn for 2 turns.",
+      "type": "ATTACK",
+      "effect": "NONE",
+      "cost": 3,
+      "value": 26,
+      "physType": "PIERCE",
+      "elemType": "FIRE",
+      "superRare": true
+    },
+    {
+      "name": "Downburst",
+      "description": "Deal 26 damage. 10% chance on hit to also apply Rend 3: 3 damage the next 3 times it attacks.",
+      "type": "ATTACK",
+      "effect": "NONE",
+      "cost": 3,
+      "value": 26,
+      "physType": "SMASH",
+      "elemType": "WIND",
+      "superRare": true
+    },
+    {
+      "name": "All In",
+      "description": "Deal twice your current armor in damage, then lose all of it. You are Weakened for 2 turns.",
+      "type": "ATTACK",
+      "effect": "ALLIN",
+      "cost": 3,
+      "value": 3,
+      "legendary": true
+    },
+    {
+      "name": "Last Stand",
+      "description": "Gain armor equal to the health you are missing, plus 5, and it persists. You cannot heal for the rest of the encounter.",
+      "type": "DEFEND",
+      "effect": "LASTSTAND",
+      "cost": 2,
+      "value": 5,
+      "legendary": true
+    },
+    {
+      "name": "Borrowed Time",
+      "description": "Take another turn straight after this one. Then you are stunned for a turn, and your max HP drops to 60% for the rest of the encounter.",
+      "type": "SPECIAL",
+      "effect": "BORROWED",
+      "cost": 2,
+      "value": 1,
+      "legendary": true
+    },
+    {
+      "name": "Pact of Ruin",
+      "description": "Deal 24 damage. For the rest of the encounter every attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card you play costs you 6 HP.",
+      "type": "ATTACK",
+      "effect": "PACTRUIN",
+      "cost": 3,
+      "value": 24,
+      "legendary": true
+    },
+    {
+      "name": "Sacrifice",
+      "description": "Restore yourself to full health. This card leaves your deck for the rest of the fight.",
+      "type": "SPECIAL",
+      "effect": "SACRIFICE",
+      "cost": 0,
+      "value": 100,
+      "legendary": true
     }
   ]
 }

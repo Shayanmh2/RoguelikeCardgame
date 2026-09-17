@@ -23,7 +23,10 @@ struct Card {
     int         cost = 0;
     SDL_Color   tint{ 240, 101, 92, 255 };   // type stripe along the top edge
     SDL_Color   nameColor{ 228, 228, 238, 255 };  // rarity tint, as the text UI had
-    bool        rare = false;                // gold border
+    // Gold border. It used to mark every rare and above, which is most of a
+    // late deck; it marks the cards that come with a cost instead, where a
+    // warning is worth something.
+    bool        risk = false;
     bool        disabled = false;            // unaffordable or blocked this turn
 };
 

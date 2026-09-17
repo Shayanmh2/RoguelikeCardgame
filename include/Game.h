@@ -46,6 +46,31 @@ private:
     int  counterBonusValue; // Dodge Reversal's current value - added as flat bonus riposte damage
     bool counterWasLegendary = false; // armed by a legendary, so the payoff gets the legendary cue
     int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
+    // --- the price of the cards that pay for their power -----------------
+    // Self-inflicted costs deliberately bypass applyPlayerStatus(), so Status
+    // Guard cannot ward away your own drawback and Dodge Reversal cannot bounce
+    // it onto the enemy.
+    int  cardDamagePenalty = 0;      // Reckless Swing: flat damage off every card
+    int  pendingDamagePenalty = 0;   // ...which lands on the following turn
+    int  cardSoftenPct = 0;          // Heavy Guard: % off your damage this turn
+    int  vulnerableTurns = 0;        // Berserk Stance: you take more, briefly
+    double vulnerableMult = 1.0;
+    int  energyDebt = 0;             // Adrenaline: borrowed from next turn
+    int  bloodlustCrashPending = 0;  // Bloodlust: the Weaken owed when its fury ends
+    int  cardLimitThisTurn = 0;      // Shatterpoint: cards allowed this turn, 0 = no cap
+    bool noHealThisEncounter = false;// Last Stand, Pact of Ruin
+    bool pactOfRuinActive = false;   // every attack festers, every card bleeds
+    // Counters, not flags. Two Borrowed Times in one turn charged you twice for
+    // one extra turn; now the second card buys a second turn and a second stun.
+    int  extraTurnsPending = 0;      // Borrowed Time
+    int  borrowedStunsPending = 0;   // one charged at the end of each borrowed turn
+    bool armorBroken = false;           // a card spent your guard this turn
+    int  maxHpDebt = 0;      // ...and what it costs until the fight ends
+    std::vector<Card> exhausted;     // Sacrifice: handed back when the fight ends
+    // Boons
+    int  attunementBoons = 0;        // +8% elemental on-hit chance each
+    int  gearInterval = 3;           // Scavenger: encounters between gear drops
+
     int  statusWardTurns = 0;      // Status Guard: blocks every ailment the enemy inflicts while it lasts
     bool enemyStatusWardActive = false; // Shadow Knight mirroring Status Guard: blocks the next ailment the player inflicts on it
     int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
@@ -96,6 +121,9 @@ private:
     // 0 for anything that would not land: non-attacks, a phased enemy, or
     // while the Lich's skeleton is soaking hits.
     int previewDamage(const Card& c) const;
+    // What a card is worth on this board, not on its face: All In and Last Stand
+    // read your armour and your wounds rather than their own printed value.
+    int liveValue(const Card& c) const;
     bool spendEnergy(int cost);
     void resetEnergy();
     void playCardFromHand(int index);
@@ -117,6 +145,9 @@ private:
     int  enemyMuzzleY() const;
     // The Archon's attack frames ARE its pillars of flame, so every move it
     // makes raises them across the arena rather than only its Hellfire.
+    // The Omneye reaches you with a beam joined to its pupil, on every attack it
+    // makes, not only on the one move of its own that used to draw it.
+    bool enemyFiresBeam() const;
     bool enemyRaisesFlames() const;
     bool enemyIsFlyer() const;       // Wyvern, Falcon: dives in, pulls away, throws nothing
     bool archetypeIsRanged() const;  // RANGED and CASTER fight at a distance by nature
@@ -161,6 +192,9 @@ private:
     bool forgeMenu(const std::string& baseTitle); // true only if a card was upgraded
     void offerEquipmentDrop();
     void offerBoon();       // every 12th encounter
+    int  attunementChance() const;   // elemental on-hit chance, 10% plus boons
+    void payPactOfRuin();            // the HP every card costs under the pact
+    void endEncounterEffects();      // hand back exhausted cards, clear per-fight costs
     int  luckBonus() const; // percentage points added to the run's rolls
     void applyUpgrades();
     void selectUpgrades();

@@ -157,6 +157,8 @@ void draw() {
           + "   DEF +" + std::to_string(gState.playerDef) + gear(gState.playerDefPct), dim);
     if (gState.playerArmor > 0)
         put(tx, "ARM " + std::to_string(gState.playerArmor), armor);
+    else if (gState.armorBroken)
+        put(tx, "ARM 0", SDL_Color{ 226, 96, 88, 255 });
     if (!gState.playerTags.empty()) Console::drawAnsiPx(r, tx, y, gState.playerTags, dim, false);
 
     // --- row 3: the enemy -------------------------------------------------
