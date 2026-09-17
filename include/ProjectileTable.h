@@ -29,30 +29,31 @@ static const Entry kByName[] = {
     { "Mystic",       11,  6, 45 },   // orb   rgb( 90,215,235)
     { "Spider",       12,  8, 45 },   // web   rgb(222,222,216)
     { "Serpent",      13,  7, 54 },   // orb   rgb(150,226,110)
-    { "Banshee",      14,  8, 42 },   // wisp  rgb(200,238,246)
-    { "Specter",      15,  6, 26 },   // wisp  rgb(190,232,246)
-    { "Wraith",       16,  8, 46 },   // wisp  rgb(190,220,236)
-    { "Lich",         17,  8, 40 },   // orb   rgb( 90,215,235)
-    { "Vampire",      18, 14, 33 },   // wisp  rgb(206, 46, 52)
-    { "Vile Witch",   19, 20, 27 },   // orb   rgb(150,225,110)
-    { "Dragon",       20,  8, 42 },   // breath rgb(226,236,246)
+    { "Basilisk",     14,  9, 66 },   // mist  rgb(150, 95,195)
+    { "Banshee",      15,  8, 42 },   // wisp  rgb(200,238,246)
+    { "Specter",      16,  6, 26 },   // wisp  rgb(190,232,246)
+    { "Wraith",       17,  8, 46 },   // wisp  rgb(190,220,236)
+    { "Lich",         18,  8, 40 },   // orb   rgb( 90,215,235)
+    { "Vampire",      19, 14, 33 },   // wisp  rgb(206, 46, 52)
+    { "Vile Witch",   20, 20, 27 },   // orb   rgb(150,225,110)
+    { "Dragon",       21,  8, 42 },   // breath rgb(226,236,246)
 };
-static const int kByNameCount = 21;
+static const int kByNameCount = 22;
 
 // Fallbacks for an enemy with no entry above, then the knight's spell orbs.
-static const int GEN_MELEE = 21;   // blade from melee_goblin
-static const int GEN_RANGED = 22;   // arrow from ranged_archer
-static const int GEN_CASTER = 23;   // orb   from caster_wizard
-static const int GEN_BEAST = 24;   // fang  from beast
-static const int GEN_UNDEAD = 25;   // wisp  from undead_skeleton
-static const int PC_POISON = 26;   // orb   from player
-static const int PC_BURN = 27;   // orb   from player
-static const int PC_STUN = 28;   // orb   from player
-static const int PC_WEAK = 29;   // orb   from player
-static const int PC_REND = 30;   // orb   from player
-static const int FX_PILLAR = 31;   // splice:4:9:13 from caster_archon
-static const int FX_WIND = 32;   // wind  from player
-static const int FX_BEAM = 33;   // splice:4:0:10:10:15 from ranged_omneye
+static const int GEN_MELEE = 22;   // blade from melee_goblin
+static const int GEN_RANGED = 23;   // arrow from ranged_archer
+static const int GEN_CASTER = 24;   // orb   from caster_wizard
+static const int GEN_BEAST = 25;   // fang  from beast
+static const int GEN_UNDEAD = 26;   // wisp  from undead_skeleton
+static const int PC_POISON = 27;   // orb   from player
+static const int PC_BURN = 28;   // orb   from player
+static const int PC_STUN = 29;   // orb   from player
+static const int PC_WEAK = 30;   // orb   from player
+static const int PC_REND = 31;   // orb   from player
+static const int FX_PILLAR = 32;   // splice:4:9:13 from caster_archon
+static const int FX_WIND = 33;   // wind  from player
+static const int FX_BEAM = 34;   // splice:4:0:10:10:15 from ranged_omneye
 
 
 // NONE lives in EnemyArt::Proj, not here: one definition, and the art layer

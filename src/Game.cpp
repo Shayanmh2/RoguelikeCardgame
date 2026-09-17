@@ -1651,7 +1651,8 @@ void Game::enemyTurn() {
                 if (enemyIsFlyer()) {
                     if (r < 60) { themedGeneric("It folds its wings and dives at you!"); dive(atk); }
                     else if (r < 85) {
-                        cast(EnemyArt::CastGlow::WEAK, EnemyArt::Proj::NONE);
+                        // The gust itself crosses the field: wings, not a bolt.
+                        cast(EnemyArt::CastGlow::WEAK, ProjectileTable::FX_WIND);
                         applyPlayerStatus(StatusType::WEAK, 2);
                         Audio::playSFXPitched("special", 0.85f);
                         std::cout << Color::WEAK_CLR << "Its wings beat the air into your face. You are Weakened." << Color::RESET << "\n";
@@ -1937,8 +1938,9 @@ void Game::enemyTurn() {
     if (nameHas("Basilisk")) {
         if (taunted) { doAttack(atk, false); return; }
         if (curseTurnsLeft != 0) { archetypeTurn(roll); return; }
-        // Breathed at you, like any other curse.
-        cast(EnemyArt::CastGlow::STUN);
+        // Its own purple breath, out of the mouth: the generic status orb sailed
+        // across the sky with nothing to do with the creature below it.
+        cast(EnemyArt::CastGlow::STUN, enemyProjectile());
         curseTurnsLeft = 7;
         Audio::playSFXPitched("special", 0.85f);
         std::cout << Color::BOLD << Color::MAGENTA << "Basilisk fixes you with a petrifying CURSE!" << Color::RESET << "\n"

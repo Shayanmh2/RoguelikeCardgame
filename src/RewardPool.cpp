@@ -105,6 +105,9 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     return choices;
 }
 
+// Chance of a Legendary from the last two bosses, before Luck.
+static const int LATE_BOSS_LEGENDARY_PCT = 4;
+
 std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const std::vector<std::string>& ownedNames, int bossIndex, int luck) {
     std::vector<Card> choices;
     std::random_device rd;
@@ -115,9 +118,9 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
     // Early bosses: 70% Rare / 30% Super Rare, no Legendary.
     //
     // Bosses 3 and 4 (Hydra, Undead Dragon) sit late enough that a plain Rare is
-    // not worth a boss kill any more, so they drop Super Rare only, with a 2%
-    // Legendary. That is far narrower than the old flat 5% on every boss, which
-    // is what made Legendaries stop feeling special.
+    // not worth a boss kill any more, so they drop Super Rare only, with a 4%
+    // Legendary. Narrower than the old flat 5% on every boss, but wide enough
+    // that the back half of a run can actually show you one.
     const bool lateBoss = (bossIndex == 3 || bossIndex == 4);
     std::vector<Card> rarePool, superRarePool, legendaryPool;
     for (const auto& c : rareCards) {
@@ -132,7 +135,8 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
     for (int i = 0; i < count; ++i) {
         int roll = rollDis(gen);
         std::vector<Card>* pool;
-        if (lateBoss) pool = (roll <= 2 + luck && !legendaryPool.empty()) ? &legendaryPool : &superRarePool;
+        if (lateBoss) pool = (roll <= LATE_BOSS_LEGENDARY_PCT + luck && !legendaryPool.empty())
+                                 ? &legendaryPool : &superRarePool;
         else          pool = (roll <= 30) ? &superRarePool : &rarePool;
 
         if (pool->empty()) {
