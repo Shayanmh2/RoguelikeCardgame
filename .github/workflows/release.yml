@@ -52,6 +52,7 @@ jobs:
             libgl1-mesa-dev libegl1-mesa-dev libasound2-dev libpulse-dev
 
       - name: Configure
+        if: matrix.name != 'macos'
         # CMAKE_POLICY_VERSION_MINIMUM must be an ENVIRONMENT variable, not a
         # -D cache flag: passed as -D the value gets truncated to "3" and CMake
         # rejects it. Several of SDL's vendored dependencies still declare a
@@ -59,12 +60,40 @@ jobs:
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release
-             ${{ matrix.name == 'macos' && '-DCMAKE_OSX_DEPLOYMENT_TARGET=11.0' || '' }}
 
       - name: Build
+        if: matrix.name != 'macos'
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
         run: cmake --build build --config Release --parallel
+
+      # macOS: one build per architecture, joined with lipo into a universal
+      # binary. GitHub's macOS runners are Apple Silicon, so a plain build is
+      # arm64 only, and an Intel Mac rejects that with "not supported on this
+      # Mac" before Gatekeeper is even asked, which no right-click can get past.
+      # Two single-architecture builds rather than one with both in
+      # CMAKE_OSX_ARCHITECTURES, because not every codec SDL_mixer vendors
+      # builds for two architectures in one pass.
+      - name: Build (macOS universal)
+        if: matrix.name == 'macos'
+        shell: bash
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          set -eu
+          for arch in arm64 x86_64; do
+            cmake -B "build-$arch" -S . -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 -DCMAKE_OSX_ARCHITECTURES="$arch"
+            cmake --build "build-$arch" --config Release --parallel
+          done
+          mkdir -p build
+          lipo -create -output build/cardgame_sdl2 \
+            build-arm64/cardgame_sdl2 build-x86_64/cardgame_sdl2
+          # Stop here rather than ship a one-architecture app again.
+          lipo build/cardgame_sdl2 -verify_arch arm64 x86_64
+          lipo -info build/cardgame_sdl2
+          # The post-build step put the data beside each binary; either copy will do.
+          cp -R build-arm64/assets build-arm64/config build-arm64/sounds build/
 
       # CMakeLists already copies assets/, config/ and sounds/ next to the
       # binary as a post-build step, so packaging just collects that folder.
@@ -72,9 +101,15 @@ jobs:
         shell: bash
         run: |
           set -eu
-          staging="RoguelikeCardgame-${{ matrix.name }}"
+          staging="Moonstruck-${{ matrix.name }}"
           mkdir -p "$staging"
-          cp "${{ matrix.exe }}" "$staging/"
+          # Shipped under the game's name. Nothing looks the binary up by name:
+          # the data is found relative to wherever it sits.
+          if [ "${{ matrix.name }}" = "windows" ]; then
+            cp "${{ matrix.exe }}" "$staging/Moonstruck.exe"
+          else
+            cp "${{ matrix.exe }}" "$staging/Moonstruck"
+          fi
           cp -r "${{ matrix.assets_dir }}/assets" "$staging/assets"
           cp -r "${{ matrix.assets_dir }}/config" "$staging/config"
           cp -r "${{ matrix.assets_dir }}/sounds" "$staging/sounds"
@@ -83,14 +118,27 @@ jobs:
           if [ "${{ matrix.name }}" = "windows" ]; then
             7z a -tzip "$staging.zip" "$staging"
           elif [ "${{ matrix.name }}" = "macos" ]; then
-            # Wrap it in a real .app. Assets sit beside the binary in
-            # Contents/MacOS because the game resolves them from the executable's
-            # own directory - putting them in Resources/ would need a code change.
-            app="$staging/Roguelike Cardgame.app"
-            mkdir -p "$app/Contents/MacOS"
-            mv "$staging/cardgame_sdl2" "$app/Contents/MacOS/"
-            mv "$staging/assets" "$staging/config" "$staging/sounds" "$app/Contents/MacOS/"
-            chmod +x "$app/Contents/MacOS/cardgame_sdl2"
+            # A real bundle: the executable alone in Contents/MacOS, the data in
+            # Contents/Resources, where Audio::dataDir() looks for it. Data in
+            # Contents/MacOS is what kept codesign from sealing the bundle, and an
+            # arm64 app whose signature does not verify is killed at launch.
+            app="$staging/Moonstruck.app"
+            mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+            mv "$staging/Moonstruck" "$app/Contents/MacOS/Moonstruck"
+            mv "$staging/assets" "$staging/config" "$staging/sounds" "$app/Contents/Resources/"
+            chmod +x "$app/Contents/MacOS/Moonstruck"
+
+            # The Dock and Finder icon, from the game's own 256px icon. Sizes
+            # above 256 are left out rather than upscaled into a blur.
+            icon_key=""
+            iconset="$RUNNER_TEMP/Moonstruck.iconset"
+            mkdir -p "$iconset"
+            src="$app/Contents/Resources/assets/icon.png"
+            if sips -z 16 16   "$src" --out "$iconset/icon_16x16.png"      >/dev/null             && sips -z 32 32   "$src" --out "$iconset/icon_16x16@2x.png"   >/dev/null             && sips -z 32 32   "$src" --out "$iconset/icon_32x32.png"      >/dev/null             && sips -z 64 64   "$src" --out "$iconset/icon_32x32@2x.png"   >/dev/null             && sips -z 128 128 "$src" --out "$iconset/icon_128x128.png"    >/dev/null             && sips -z 256 256 "$src" --out "$iconset/icon_128x128@2x.png" >/dev/null             && sips -z 256 256 "$src" --out "$iconset/icon_256x256.png"    >/dev/null             && iconutil -c icns "$iconset" -o "$app/Contents/Resources/Moonstruck.icns"; then
+              icon_key='  <key>CFBundleIconFile</key><string>Moonstruck</string>'
+            else
+              echo "icon conversion failed; the app will use the generic icon"
+            fi
 
             # Written with grouped echoes rather than a heredoc: a heredoc
             # terminator has to sit at column 0, which would close the YAML
@@ -100,52 +148,59 @@ jobs:
               echo '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
               echo '<plist version="1.0">'
               echo '<dict>'
-              echo '  <key>CFBundleName</key><string>Roguelike Cardgame</string>'
-              echo '  <key>CFBundleDisplayName</key><string>Roguelike Cardgame</string>'
-              echo '  <key>CFBundleExecutable</key><string>cardgame_sdl2</string>'
-              echo '  <key>CFBundleIdentifier</key><string>io.github.shayanmh2.roguelikecardgame</string>'
+              echo '  <key>CFBundleName</key><string>Moonstruck</string>'
+              echo '  <key>CFBundleDisplayName</key><string>Moonstruck</string>'
+              echo '  <key>CFBundleExecutable</key><string>Moonstruck</string>'
+              echo '  <key>CFBundleIdentifier</key><string>io.github.shayanmh2.moonstruck</string>'
               echo '  <key>CFBundlePackageType</key><string>APPL</string>'
               echo '  <key>CFBundleShortVersionString</key><string>0.9.3</string>'
               echo '  <key>CFBundleVersion</key><string>0.9.3</string>'
               echo '  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>'
               echo '  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>'
               echo '  <key>LSApplicationCategoryType</key><string>public.app-category.role-playing-games</string>'
-              # Must match CMAKE_OSX_DEPLOYMENT_TARGET above. Claiming 10.13
-              # while the binary was built for something newer is read as a
-              # damaged bundle rather than an unsupported one.
+              # Must match CMAKE_OSX_DEPLOYMENT_TARGET in the build step.
               echo '  <key>LSMinimumSystemVersion</key><string>11.0</string>'
               echo '  <key>NSHighResolutionCapable</key><true/>'
+              [ -n "$icon_key" ] && echo "$icon_key"
               echo '</dict>'
               echo '</plist>'
             } > "$app/Contents/Info.plist"
+            plutil -lint "$app/Contents/Info.plist"
 
-            # Ad-hoc signature. This does not satisfy notarisation, but an
-            # arm64 binary with no signature at all is killed outright by the
-            # kernel, and re-signing after we rearranged the bundle keeps it
-            # from being reported as damaged.
-            #
-            # NOT --deep: Apple deprecated it and it signs nested code in an
-            # order modern Gatekeeper rejects. The documented order is
-            # inside-out - every nested binary first, then the bundle itself.
-            find "$app/Contents/MacOS" -type f -perm +111 -print0 \
-              | xargs -0 -I{} codesign --force --timestamp=none --sign - "{}" || true
-            codesign --force --timestamp=none --sign - "$app" \
-              || echo "codesign failed (non-fatal)"
-            codesign --verify --strict --verbose=2 "$app" || true
+            # codesign refuses a bundle carrying resource forks or Finder info
+            # ("detritus not allowed"), so clear extended attributes first.
+            xattr -cr "$app"
+            # Ad-hoc signature over the whole bundle. Not notarised (that needs
+            # a paid Apple Developer account), but it has to VERIFY: no "|| true"
+            # any more, a bad signature now fails the release instead of
+            # shipping an app the kernel will kill.
+            codesign --force --sign - --timestamp=none "$app"
+            codesign --verify --deep --strict --verbose=2 "$app"
 
-            cp res/MACOS-README.txt "$staging/" 2>/dev/null || true
-            # tar, not zip: it preserves the executable bit and the bundle layout.
-            tar czf "$staging.tar.gz" "$staging"
+            cp res/MACOS-README.txt "$staging/"
+            # ditto is Apple's own archiver: it keeps the executable bit and the
+            # signature intact, and Finder unpacks the zip without extra tools.
+            ditto -c -k --keepParent "$staging" "$staging.zip"
           else
-            chmod +x "$staging/cardgame_sdl2"
+            chmod +x "$staging/Moonstruck"
             tar czf "$staging.tar.gz" "$staging"
           fi
+
+      # The one-line installer: curl never sets the quarantine flag, so an app
+      # installed this way opens without Gatekeeper's prompt. Uploaded once,
+      # from the macOS job, so the three jobs do not race to upload it.
+      - name: Upload the macOS installer
+        if: matrix.name == 'macos'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: res/install-macos.sh
+          fail_on_unmatched_files: true
 
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            RoguelikeCardgame-${{ matrix.name }}.zip
-            RoguelikeCardgame-${{ matrix.name }}.tar.gz
+            Moonstruck-${{ matrix.name }}.zip
+            Moonstruck-${{ matrix.name }}.tar.gz
           generate_release_notes: true
           fail_on_unmatched_files: false
