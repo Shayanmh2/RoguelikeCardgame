@@ -30,4 +30,7 @@ public:
     // where writing into the signed bundle would modify it after signing (and
     // an app in /Applications usually cannot write there at all).
     static std::string saveDir();
+    // One line into launch.log beside the saves. A launch that dies before it
+    // can draw anything still leaves a trail on the player's own machine.
+    static void logLaunch(const std::string& line);
 };

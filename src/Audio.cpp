@@ -3,6 +3,7 @@
 #include <SDL_mixer.h>
 #include <unordered_map>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <cstdint>
 #include <cstdlib>   // getenv, for the macOS save folder
@@ -61,14 +62,41 @@ static bool inAppBundle(const std::string& exe) {
 std::string Audio::dataDir() {
     static const std::string dir = [] {
         const std::string exe = exeDir();
+        std::error_code ec;
         if (inAppBundle(exe)) {
+            // Either layout: Contents/Resources is where the bundle puts data
+            // now, Contents/MacOS is where older bundles kept it. Accepting
+            // both means a binary and a bundle built at different times still
+            // find the game's files instead of starting with nothing.
             const std::string res = exe.substr(0, exe.size() - 6) + "Resources/";   // "MacOS/"
-            std::error_code ec;
             if (std::filesystem::exists(res + "assets", ec)) return res;
+            if (std::filesystem::exists(exe + "assets", ec)) return exe;
+            return res;   // report the intended one when neither exists
         }
         return exe;
     }();
     return dir;
+}
+
+// Appended to launch.log in the save folder, with the stream flushed each
+// time: if the next step is what crashes, the line before it still survives.
+void Audio::logLaunch(const std::string& line) {
+    static bool first = true;
+    std::error_code ec;
+    std::filesystem::create_directories(saveDir(), ec);
+    std::ofstream out(saveDir() + "launch.log", first ? std::ios::trunc : std::ios::app);
+    if (!out.is_open()) return;
+    if (first) {
+        out << "Moonstruck launch log\n";
+        out << "  exe:   " << exeDir() << "\n";
+        out << "  data:  " << dataDir() << "\n";
+        out << "  saves: " << saveDir() << "\n";
+        for (const char* rel : { "assets", "assets/DejaVuSansMono.ttf", "config/cards.json", "sounds" })
+            out << "  " << (std::filesystem::exists(dataDir() + rel, ec) ? "found   " : "MISSING ")
+                << rel << "\n";
+        first = false;
+    }
+    out << line << std::endl;
 }
 
 std::string Audio::saveDir() {

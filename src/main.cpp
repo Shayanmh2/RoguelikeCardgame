@@ -15,7 +15,12 @@
 // blocks inside frame(), which a browser main loop will not tolerate, so it
 // needs emscripten_set_main_loop before it will run at all.
 int main(int, char**) {
-    if (!Platform::init("Roguelike Cardgame")) return 1;
+    Audio::logLaunch("start: entering Platform::init");
+    if (!Platform::init("Moonstruck")) {
+        Audio::logLaunch("start: Platform::init failed, quitting");
+        return 1;
+    }
+    Audio::logLaunch("start: window and renderer are up");
 
     // Decode the sprite sheets before the title screen rather than during the
     // first encounter, where it showed as a multi second stall.

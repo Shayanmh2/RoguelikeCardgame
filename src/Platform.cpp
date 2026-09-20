@@ -232,14 +232,31 @@ bool init(const char* title) {
     // points and desyncs mouse events from renderer output size.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
-        std::cerr << "SDL_Init: " << SDL_GetError() << "\n";
+    // Says what went wrong, where the player can see it. Launched from a Dock
+    // icon there is no terminal, so a line on stderr is a silent death.
+    auto fail = [](const char* step, const char* err) {
+        const std::string msg = std::string("Moonstruck could not start.\n\n") + step + " failed:\n"
+                              + (err && *err ? err : "no reason given")
+                              + "\n\nThere is a launch log at:\n" + Audio::saveDir() + "launch.log";
+        std::cerr << msg << std::endl;
+        Audio::logLaunch(std::string("FAILED at ") + step + ": " + (err ? err : ""));
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Moonstruck", msg.c_str(), nullptr);
         return false;
+    };
+
+    // Video only. Audio is asked for separately below, because a Mac with a
+    // busy or missing sound device failed this call and took the whole launch
+    // with it.
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) return fail("SDL_Init (video)", SDL_GetError());
+    Audio::logLaunch("sdl: video up");
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+        Audio::logLaunch(std::string("sdl: no audio device, playing on in silence: ") + SDL_GetError());
+        SDL_ClearError();
+    } else {
+        Audio::logLaunch("sdl: audio up");
     }
-    if (TTF_Init() != 0) {
-        std::cerr << "TTF_Init: " << TTF_GetError() << "\n";
-        return false;
-    }
+    if (TTF_Init() != 0) return fail("TTF_Init (text)", TTF_GetError());
+    Audio::logLaunch("sdl: text engine up");
 
     // Starts maximized, as the terminal build did (it called ShowWindow with
     // SW_MAXIMIZE). Rows are the scarce resource for this layout - the battle
@@ -248,7 +265,8 @@ bool init(const char* title) {
     gWindow = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                DEFAULT_W, DEFAULT_H,
                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
-    if (!gWindow) { std::cerr << "CreateWindow: " << SDL_GetError() << "\n"; return false; }
+    if (!gWindow) return fail("SDL_CreateWindow", SDL_GetError());
+    Audio::logLaunch("sdl: window created");
 
     // The window's own icon: the title bar, the running taskbar button, and on
     // Linux the whole story, since there is no compiled-in resource there.
@@ -268,7 +286,8 @@ bool init(const char* title) {
 
     gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!gRenderer) gRenderer = SDL_CreateRenderer(gWindow, -1, SDL_RENDERER_SOFTWARE);
-    if (!gRenderer) { std::cerr << "CreateRenderer: " << SDL_GetError() << "\n"; return false; }
+    if (!gRenderer) return fail("SDL_CreateRenderer", SDL_GetError());
+    Audio::logLaunch("sdl: renderer created");
     // No SDL_RenderSetLogicalSize: see Platform.h. Drawing 1:1 against the real
     // output size is what keeps the text crisp.
     SDL_SetRenderDrawBlendMode(gRenderer, SDL_BLENDMODE_BLEND);
@@ -326,11 +345,13 @@ bool init(const char* title) {
         if (dpiScale > 4.0f) dpiScale = 4.0f; // guard against bogus DPI reports
     }
     const int FONT_PX = (int)(19.0f * dpiScale + 0.5f);
+    Audio::logLaunch("fonts: looking for a face");
 
     for (const std::string& p : tried) {
         TTF_Font* probe = TTF_OpenFont(p.c_str(), FONT_PX);
         if (probe) { TTF_CloseFont(probe); gFontPath = p; break; }
     }
+    Audio::logLaunch(gFontPath.empty() ? "fonts: none opened" : "fonts: using " + gFontPath);
     if (gFontPath.empty()) {
         // Say so. This used to close the window with nothing on screen and
         // nothing in any log the player would ever see.
@@ -363,6 +384,7 @@ bool init(const char* title) {
         SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
         Console::setViewport(24, 22, outW - 48, outH - 40);
     }
+    Audio::logLaunch("console: ready, the window is up");
     Console::init(gFont, gFontBold, gCellW, gCellH);
     Console::installStdoutRedirect();
 

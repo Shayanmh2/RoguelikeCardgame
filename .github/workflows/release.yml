@@ -185,16 +185,6 @@ jobs:
             tar czf "$staging.tar.gz" "$staging"
           fi
 
-      # The one-line installer: curl never sets the quarantine flag, so an app
-      # installed this way opens without Gatekeeper's prompt. Uploaded once,
-      # from the macOS job, so the three jobs do not race to upload it.
-      - name: Upload the macOS installer
-        if: matrix.name == 'macos'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: res/install-macos.sh
-          fail_on_unmatched_files: true
-
       - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
