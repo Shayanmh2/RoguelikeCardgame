@@ -177,7 +177,6 @@ jobs:
             codesign --force --sign - --timestamp=none "$app"
             codesign --verify --deep --strict --verbose=2 "$app"
 
-            cp res/MACOS-README.txt "$staging/"
             # ditto is Apple's own archiver: it keeps the executable bit and the
             # signature intact, and Finder unpacks the zip without extra tools.
             ditto -c -k --keepParent "$staging" "$staging.zip"

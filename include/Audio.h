@@ -21,4 +21,13 @@ public:
     static void playSFXPitched(const std::string& name, float ratio);
 
     static std::string exeDir();
+    // Where the game's own files (assets, config, sounds) are read from. The
+    // exe's folder everywhere except inside a macOS .app, where they live in
+    // Contents/Resources: Contents/MacOS is for code only, and data there
+    // stops codesign sealing the bundle.
+    static std::string dataDir();
+    // Where saves are written. The exe's folder, except inside a macOS .app,
+    // where writing into the signed bundle would modify it after signing (and
+    // an app in /Applications usually cannot write there at all).
+    static std::string saveDir();
 };

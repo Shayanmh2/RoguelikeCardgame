@@ -9,6 +9,7 @@
 #include <deque>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace Platform {
 namespace {
@@ -186,8 +187,8 @@ bool openFontsAt(int px) {
         // still fits the window width. The grid font tracks window HEIGHT, so
         // without the cap a tall narrow window picks a title too wide for it,
         // and the callers drop to the widget face - a jarring cliff rather
-        // than a title one step smaller. 18 characters is "ROGUELIKE
-        // CARDGAME"; the advance of this face is about 0.6 of its point size.
+        // than a title one step smaller. 18 characters is the longest headline
+        // this face draws; the advance of this face is about 0.6 of its point size.
         const int byHeight = (int)(px * 5.6f + 0.5f);
         const int byWidth  = (screenW() - 44) * 10 / (18 * 6);
         const int dispPx = std::max(px, std::min(byHeight, byWidth));
@@ -254,7 +255,7 @@ bool init(const char* title) {
     // A missing file is not worth failing startup over.
     {
         int iw = 0, ih = 0, comp = 0;
-        const std::string iconPath = Audio::exeDir() + "assets/icon.png";
+        const std::string iconPath = Audio::dataDir() + "assets/icon.png";
         unsigned char* px = stbi_load(iconPath.c_str(), &iw, &ih, &comp, 4);
         if (px) {
             SDL_Surface* icon = SDL_CreateRGBSurfaceWithFormatFrom(
@@ -279,14 +280,27 @@ bool init(const char* title) {
     // HP and armor bars need - worth ~6 extra rows, which this layout spends
     // on a larger battle scene. The system paths below are only a fallback for
     // a build whose assets folder went missing.
-    const std::string base = Audio::exeDir();
-    const char* regularCandidates[] = {
-        nullptr, "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-        "/Library/Fonts/Menlo.ttc", "C:/Windows/Fonts/consola.ttf",
-    };
-    std::string bundled = base + "assets/DejaVuSansMono.ttf";
-    regularCandidates[0] = bundled.c_str();
+    const std::string base = Audio::dataDir();
+    // The bundled face, looked for everywhere it could be. Audio::dataDir()
+    // already knows about the macOS bundle, but a .app that was rearranged or
+    // half-unpacked can still put it beside the executable instead, and the
+    // game must not die because one of two folders was empty.
+    std::vector<std::string> tried;
+    for (const std::string& dir : { base, Audio::exeDir(), Audio::exeDir() + "../Resources/" })
+        tried.push_back(dir + "assets/DejaVuSansMono.ttf");
+    // Then the system faces, per platform. The old macOS entry pointed at
+    // /Library/Fonts/Menlo.ttc, which Catalina stopped shipping: on any Mac
+    // since, a missing bundled font meant no font at all, and the window
+    // closed the moment it opened.
+    for (const char* p : {
+            "/System/Library/Fonts/Menlo.ttc",
+            "/System/Library/Fonts/SFNSMono.ttf",
+            "/System/Library/Fonts/Monaco.ttf",
+            "/System/Library/Fonts/Supplemental/Courier New.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+            "C:/Windows/Fonts/consola.ttf" })
+        tried.push_back(p);
 
     // Now that the process is DPI-aware, the window is handed real physical
     // pixels instead of a stretched virtual surface - so a fixed point size
@@ -313,15 +327,30 @@ bool init(const char* title) {
     }
     const int FONT_PX = (int)(19.0f * dpiScale + 0.5f);
 
-    for (const char* p : regularCandidates) {
-        if (!p) continue;
-        TTF_Font* probe = TTF_OpenFont(p, FONT_PX);
+    for (const std::string& p : tried) {
+        TTF_Font* probe = TTF_OpenFont(p.c_str(), FONT_PX);
         if (probe) { TTF_CloseFont(probe); gFontPath = p; break; }
     }
-    if (gFontPath.empty()) { std::cerr << "Could not open a monospace font" << std::endl; return false; }
-    gFontBoldPath = base + "assets/DejaVuSansMono-Bold.ttf";
-    { TTF_Font* pb = TTF_OpenFont(gFontBoldPath.c_str(), FONT_PX);
-      if (pb) TTF_CloseFont(pb); else gFontBoldPath = gFontPath; }
+    if (gFontPath.empty()) {
+        // Say so. This used to close the window with nothing on screen and
+        // nothing in any log the player would ever see.
+        std::string msg = "Moonstruck could not open a monospace font.\n\nIt looked in:\n";
+        for (const std::string& p : tried) msg += "  " + p + "\n";
+        msg += "\nThe game ships its own font in assets/. If you moved the app's files "
+               "around, put assets/ back beside the program (inside Contents/Resources on macOS).";
+        std::cerr << msg << std::endl;
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Moonstruck", msg.c_str(), nullptr);
+        return false;
+    }
+    // The bold face the same way: next to whichever regular face was found,
+    // then the regular one itself rather than nothing.
+    gFontBoldPath.clear();
+    for (const std::string& dir : { base, Audio::exeDir(), Audio::exeDir() + "../Resources/" }) {
+        const std::string p = dir + "assets/DejaVuSansMono-Bold.ttf";
+        TTF_Font* pb = TTF_OpenFont(p.c_str(), FONT_PX);
+        if (pb) { TTF_CloseFont(pb); gFontBoldPath = p; break; }
+    }
+    if (gFontBoldPath.empty()) gFontBoldPath = gFontPath;
 
     gFontPxIdeal = FONT_PX;
     if (!openFontsAt(FONT_PX)) { std::cerr << "Could not open a monospace font" << std::endl; return false; }

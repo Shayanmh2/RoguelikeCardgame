@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <iostream>
 #include <cstdint>
+#include <cstdlib>   // getenv, for the macOS save folder
 #include <cstdio>
 #include <cstdio>
 
@@ -43,6 +44,47 @@ std::string Audio::exeDir() {
 #endif
     size_t pos = path.find_last_of("\\/");
     return (pos != std::string::npos) ? path.substr(0, pos + 1) : "";
+}
+
+// True when this binary is the one inside Foo.app/Contents/MacOS/.
+static bool inAppBundle(const std::string& exe) {
+#if defined(__APPLE__)
+    const std::string tail = "/Contents/MacOS/";
+    return exe.size() > tail.size()
+        && exe.compare(exe.size() - tail.size(), tail.size(), tail) == 0;
+#else
+    (void)exe;
+    return false;
+#endif
+}
+
+std::string Audio::dataDir() {
+    static const std::string dir = [] {
+        const std::string exe = exeDir();
+        if (inAppBundle(exe)) {
+            const std::string res = exe.substr(0, exe.size() - 6) + "Resources/";   // "MacOS/"
+            std::error_code ec;
+            if (std::filesystem::exists(res + "assets", ec)) return res;
+        }
+        return exe;
+    }();
+    return dir;
+}
+
+std::string Audio::saveDir() {
+    static const std::string dir = [] {
+        const std::string exe = exeDir();
+        if (inAppBundle(exe)) {
+            if (const char* home = std::getenv("HOME")) {
+                const std::string d = std::string(home) + "/Library/Application Support/Moonstruck/";
+                std::error_code ec;
+                std::filesystem::create_directories(d, ec);
+                if (!ec) return d;
+            }
+        }
+        return exe;
+    }();
+    return dir;
 }
 
 void Audio::init() {
@@ -112,7 +154,7 @@ static void startTrack(const std::string& path);
 
 void Audio::playBGM(int segment) {
     if (!audioReady) return;
-    std::string soundsDir = exeDir() + "sounds/";
+    std::string soundsDir = dataDir() + "sounds/";
 
     std::string path;
     if (segment > 0) path = resolveTrack(soundsDir + "bgm" + std::to_string(segment + 1));
@@ -123,7 +165,7 @@ void Audio::playBGM(int segment) {
 // A named track, for the fights that are not on the zone schedule.
 void Audio::playBGM(const std::string& baseName) {
     if (!audioReady) return;
-    startTrack(resolveTrack(exeDir() + "sounds/" + baseName));
+    startTrack(resolveTrack(dataDir() + "sounds/" + baseName));
 }
 
 static void startTrack(const std::string& path) {
@@ -153,7 +195,7 @@ void Audio::stopBGM() {
 static Mix_Chunk* loadSFX(const std::string& name) {
     auto it = sfxCache.find(name);
     if (it != sfxCache.end()) return it->second;
-    std::string dir = Audio::exeDir() + "sounds/";
+    std::string dir = Audio::dataDir() + "sounds/";
     std::string path;
     if (std::filesystem::exists(dir + name + ".mp3")) path = dir + name + ".mp3";
     else if (std::filesystem::exists(dir + name + ".wav")) path = dir + name + ".wav";
