@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <string>
+#include <map>
 #include <vector>
 #include <cmath>
 
@@ -220,6 +221,12 @@ struct ArtSet {
 };
 
 enum : int { F_IDLE_A = 0, F_IDLE_B = 1, F_ATK1 = 2, F_ATK2 = 3, F_ATK3 = 4, F_HIT = 5, F_DEATH = 6 };
+// Past the seven every sheet ships, and only one sheet has them: the true
+// form's end, which is the only animated death in the game. Guard and cast
+// poses were tried here and dropped - they were the player's frames
+// recoloured, and the player faces the other way, so the knights braced and
+// cast backwards.
+enum : int { F_CRACK1 = 7, F_CRACK2 = 8, F_CRACK3 = 9, F_BURST = 10 };
 
 // Assets resolve relative to the executable, not the working directory, so the
 // game runs the same whether it's launched from a shell or a file manager.
@@ -1029,6 +1036,37 @@ void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst) {
     blit(lib().items, index, dst, Tint{});
 }
 
+// Loaded the first time something asks for it, and kept. These are not in
+// the Library because they are wanted before a fight loads any of that, and
+// a missing one has to be a normal answer rather than a failure.
+const Sheet& wordmarkSheet(const std::string& name) {
+    static std::map<std::string, Sheet> cache;
+    auto it = cache.find(name);
+    if (it != cache.end()) return it->second;
+    Sheet s;
+    int w = 0, h = 0, comp = 0;
+    const std::string path = basePath() + "assets/sprites/" + name + ".png";
+    unsigned char* probe = stbi_load(path.c_str(), &w, &h, &comp, 4);
+    if (probe) {
+        stbi_image_free(probe);
+        s = loadSheet(path, w);   // frameW = the whole image: one frame, not a strip
+    }
+    return cache.emplace(name, s).first->second;
+}
+
+bool wordmarkSize(const std::string& name, int& w, int& h) {
+    const Sheet& s = wordmarkSheet(name);
+    if (!s.ok()) return false;
+    w = s.frameW; h = s.frameH;
+    return true;
+}
+
+void drawWordmark(const std::string& name, const SDL_Rect& dst) {
+    const Sheet& s = wordmarkSheet(name);
+    if (!s.ok()) return;
+    blit(s, 0, dst, Tint{});
+}
+
 static void popIn(const SDL_Rect& box, int amount, PopKind kind) {
     if (box.w <= 0) return;
 
@@ -1587,6 +1625,27 @@ void printBattleDeath(EnemyType type, BossType boss) {
     gType = type; gBoss = boss;
     showScene();
     const ArtSet& s = artSet(type, boss);
+
+    // The true form is the one thing in the game that gets a death rather
+    // than a frame. It never goes down: it turns away with its sword lowered,
+    // the pose every enemy dies in, and then stays on its feet shaking harder
+    // as the cracks open through it until it is not there any more.
+    if (s.sheet.count > F_BURST) {
+        gEnemyTint = Tint{};
+        gEnemyFrame = F_DEATH;  Platform::shake(360, 1.2f); hold(420);
+        gEnemyFrame = F_CRACK1; Platform::shake(340, 1.8f); hold(300);
+        gEnemyFrame = F_CRACK2; Platform::shake(320, 2.6f); hold(280);
+        gEnemyFrame = F_CRACK3; Platform::shake(300, 3.4f); hold(260);
+        // The light gets out before the shell does.
+        Tint flare; flare.addR += 46; flare.addG += 42; flare.addB += 34;
+        gEnemyTint = flare;     hold(150);
+        gEnemyTint = Tint{};
+        gEnemyFrame = F_BURST;  Platform::shake(420, 4.5f); hold(440);
+        gEnemyTint = DEATH_DARK;
+        hold(200);
+        return;
+    }
+
     if (s.animated) gEnemyFrame = F_DEATH;
     gEnemyTint = DEATH_DARK;
     hold(300);

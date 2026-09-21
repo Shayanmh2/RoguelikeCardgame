@@ -147,6 +147,13 @@ namespace EnemyArt {
     // Item icons from items.png: swords 0-6 by gear tier, shields 7-13.
     void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst);
 
+// Drawn text: the title wordmark and the headline banners, art rather than a
+// face. `name` is the file stem under assets/sprites. Size returns false when
+// that art is missing, which is the caller's cue to set the words in text
+// rather than show nothing.
+bool wordmarkSize(const std::string& name, int& w, int& h);
+void drawWordmark(const std::string& name, const SDL_Rect& dst);
+
     // Floating combat numbers and impact sparks. Fire-and-forget: each effect
     // owns its lifetime, so nothing has to tick or clear them.
     enum class PopKind { DAMAGE, HEAL, BLOCKED, WEAK_HIT };

@@ -422,6 +422,52 @@ void setDisplayFont(TTF_Font* f, int cellW, int cellH) {
 }
 int dispCellW() { return gCellWDisp ? gCellWDisp : gCellW; }
 
+TTF_Font* gFontTitle = nullptr;
+int gCellWTitle = 0, gCellHTitle = 0;
+std::unordered_map<GlyphKey, SDL_Texture*, GlyphHash> gGlyphsTitle;
+
+void setTitleFont(TTF_Font* f, int cellW, int cellH) {
+    for (auto& kv : gGlyphsTitle) if (kv.second) SDL_DestroyTexture(kv.second);
+    gGlyphsTitle.clear();
+    gFontTitle = f; gCellWTitle = cellW; gCellHTitle = cellH;
+}
+int titleCellW() { return gCellWTitle ? gCellWTitle : dispCellW(); }
+
+// Its own cache, keyed the same way as the others. The wordmark is eleven
+// glyphs drawn every frame, so they are worth keeping.
+SDL_Texture* glyphTextureTitle(SDL_Renderer* r, const Cell& cell) {
+    if (!gFontTitle) return nullptr;
+    Uint32 rgba = ((Uint32)cell.fg.r << 24) | ((Uint32)cell.fg.g << 16) | ((Uint32)cell.fg.b << 8) | 255u;
+    GlyphKey key{ cell.ch, rgba, cell.bold };
+    auto it = gGlyphsTitle.find(key);
+    if (it != gGlyphsTitle.end()) return it->second;
+    SDL_Surface* surf = TTF_RenderUTF8_Blended(gFontTitle, toUtf8(cell.ch).c_str(), cell.fg);
+    SDL_Texture* tex = surf ? SDL_CreateTextureFromSurface(r, surf) : nullptr;
+    if (surf) SDL_FreeSurface(surf);
+    gGlyphsTitle[key] = tex;
+    return tex;
+}
+
+void drawTextTitlePx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color,
+                     int tracking) {
+    if (!gFontTitle) { drawTextDispPx(r, x, y, text, color); return; }
+    int cx = x;
+    for (size_t i = 0; i < text.size(); i++) {
+        unsigned char ch = (unsigned char)text[i];
+        if (ch >= 32) {
+            Cell cell; cell.ch = (char32_t)ch; cell.fg = color; cell.bold = true;
+            SDL_Texture* tex = glyphTextureTitle(r, cell);
+            if (tex) {
+                int tw = 0, th = 0;
+                SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
+                SDL_Rect dst{ cx, y, tw, th };
+                SDL_RenderCopy(r, tex, nullptr, &dst);
+            }
+        }
+        cx += gCellWTitle + tracking;
+    }
+}
+
 void drawTextDispPx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color) {
     if (!gFontDisp) { drawTextPx(r, x, y, text, color, true); return; }
     int cx = x;

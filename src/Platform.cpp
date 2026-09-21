@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <deque>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -45,6 +46,7 @@ int gLastFitH = -1;         // output height the current fit was computed for
 TTF_Font* gFontBig = nullptr;
 TTF_Font* gFontBigBold = nullptr;
 TTF_Font* gFontDisp = nullptr;
+TTF_Font* gFontTitle = nullptr;
 
 Uint32 gShakeStart = 0, gShakeMs = 0;
 float  gShakeMag = 0.0f;
@@ -206,6 +208,36 @@ bool openFontsAt(int px) {
             TTF_SizeUTF8(gFontDisp, "M", &dw, &dh);
             Console::setDisplayFont(gFontDisp, dw > 0 ? dw : dispPx/2, TTF_FontLineSkip(gFontDisp));
             if (oldDisp) TTF_CloseFont(oldDisp);
+        }
+        // The wordmark's face. Sized for ELEVEN characters rather than the
+        // headline's eighteen, which is why it can be so much larger, and
+        // opened from assets/title.ttf when one is there: dropping a display
+        // font in is then the whole job, no code and no rebuild.
+        {
+            // 6.5, not 9: at nine times the grid font the wordmark filled the
+            // upper third of the window and read as a splash screen rather
+            // than a title. Still well clear of the 5.6 the headline face uses.
+            const int byHeight = (int)(px * 6.5f + 0.5f);
+            // 7, not 6: the wordmark is drawn with tracking between the
+            // letters, and a cap that ignored it let a narrow window pick a
+            // size that then overflowed and dropped to the widget face.
+            const int byWidth  = (screenW() - 80) * 10 / (11 * 7);
+            const int titlePx  = std::max(px, std::min(byHeight, byWidth));
+            std::string face = Audio::dataDir() + "assets/title.ttf";
+            std::error_code ec;
+            if (!std::filesystem::exists(face, ec)) face = gFontBoldPath;
+            TTF_Font* tf = TTF_OpenFont(face.c_str(), titlePx);
+            if (!tf && face != gFontBoldPath) tf = TTF_OpenFont(gFontBoldPath.c_str(), titlePx);
+            if (tf) {
+                TTF_SetFontHinting(tf, TTF_HINTING_LIGHT);
+                TTF_Font* oldTitle = gFontTitle;
+                gFontTitle = tf;
+                int tw = 0, th = 0;
+                TTF_SizeUTF8(gFontTitle, "M", &tw, &th);
+                Console::setTitleFont(gFontTitle, tw > 0 ? tw : titlePx / 2,
+                                      TTF_FontLineSkip(gFontTitle));
+                if (oldTitle) TTF_CloseFont(oldTitle);
+            }
         }
         if (oldBigBold && oldBigBold != oldBig) TTF_CloseFont(oldBigBold);
         if (oldBig) TTF_CloseFont(oldBig);

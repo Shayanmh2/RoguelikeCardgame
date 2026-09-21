@@ -5,10 +5,12 @@
 // platform-bound pieces are reimplemented: sleeping, reading a key, clearing
 // the screen, and the cursor row queries.
 #include "UIHelper.h"
+#include "Version.h"
 #include "Colors.h"
 #include "Console.h"
 #include "Platform.h"
 #include "EnemyArt.h"
+#include "Audio.h"
 #include <iostream>
 #include <cmath>
 #include <cctype>
@@ -118,9 +120,33 @@ void layoutTitleMenu() {
 // Defined below drawTitleBanner, which calls it from both its paths.
 void drawTitleMenuRows();
 
+// Which headlines have art. Matched on the words themselves, so a headline
+// gains a banner by being drawn and listed here, and loses nothing by not.
+const char* bannerFor(const std::string& text) {
+    if (text == "Victory!")        return "banner_victory";
+    if (text == "VICTORY ETERNAL") return "banner_victory_eternal";
+    if (text == "THE HUNT ENDS")   return "banner_hunt_ends";
+    return nullptr;
+}
+
+// Shared by the headline and the title: whole-number scaling inside a box,
+// because half a pixel of a two pixel stem is what makes pixel art look like
+// a photograph of pixel art.
+bool drawBannerArt(const char* name, int topY, int widthPct, int heightDiv) {
+    int bw = 0, bh = 0;
+    if (!name || !EnemyArt::wordmarkSize(name, bw, bh) || bw <= 0 || bh <= 0) return false;
+    const int roomW = Platform::screenW() * widthPct / 100;
+    const int roomH = Platform::screenH() / heightDiv;
+    const int scale = std::max(1, std::min(roomW / bw, roomH / bh));
+    const SDL_Rect dst{ (Platform::screenW() - bw * scale) / 2, topY, bw * scale, bh * scale };
+    EnemyArt::drawWordmark(name, dst);
+    return true;
+}
+
 void drawHeadline() {
     if (gHeadline.empty()) return;
     SDL_Renderer* r = Platform::renderer();
+    if (drawBannerArt(bannerFor(gHeadline), Platform::screenH() / 5, 58, 6)) return;
     const int w = (int)gHeadline.size() * Console::dispCellW();
     const int y = Platform::screenH() / 4;
     if (w > Platform::screenW() - 40) {
@@ -137,11 +163,37 @@ void drawHeadline() {
     Console::drawTextDispPx(r, x, y, gHeadline, gHeadlineCol);
 }
 
+// The version, low in the left corner, dim enough to be there only when
+// looked for. It is the one thing on screen that says which build this is.
+void drawVersionCorner() {
+    SDL_Renderer* r = Platform::renderer();
+    const int cw = std::max(1, Platform::cellW());
+    const int ch = std::max(1, Platform::cellH());
+    Console::drawTextPx(r, cw * 2, Platform::screenH() - ch * 2,
+                        MOONSTRUCK_VERSION, SDL_Color{ 120, 118, 132, 255 }, false);
+}
+
 void drawTitleBanner() {
     if (!gBannerOn) return;
     SDL_Renderer* r = Platform::renderer();
-    const std::string title = "MOONSTRUCK";
-    const int w = (int)title.size() * Console::dispCellW();
+
+    // The wordmark is art. Scaled by whole numbers only, because half a pixel
+    // of a two pixel stem is what makes pixel art look like a photograph of
+    // pixel art.
+    // Just under half the width: a title screen wants air around the name
+    // more than it wants the name to be enormous.
+    if (drawBannerArt("wordmark", Platform::screenH() / 6, 46, 5)) {
+        layoutTitleMenu();
+        drawTitleMenuRows();
+        drawVersionCorner();
+        return;
+    }
+    // One word, with the second half capitalised: a full space pushed the two
+    // halves apart into two names, and a hyphen joined them into one
+    // hyphenated word. The capital does the same job with nothing between.
+    const std::string title = "MoonStruck";
+    const int tracking = std::max(2, Console::titleCellW() / 12);
+    const int w = (int)title.size() * (Console::titleCellW() + tracking) - tracking;
     const int y = Platform::screenH() / 5;
     if (w > Platform::screenW() - 40) {
         const int bw = (int)title.size() * Console::bigCellW();
@@ -150,17 +202,20 @@ void drawTitleBanner() {
         Console::drawTextBigPx(r, bx, y, title, SDL_Color{ 240, 200, 60, 255 }, true);
         layoutTitleMenu();
         drawTitleMenuRows();
+        drawVersionCorner();
         return;
     }
     const int x = (Platform::screenW() - w) / 2;
-    // Gold on a true black shadow. The shadow is offset a pixel further than
-    // the headline's because a warm colour on a warm-lit backdrop needs more
-    // separation than a cool one did.
-    Console::drawTextDispPx(r, x + 4, y + 4, title, SDL_Color{ 0, 0, 0, 255 });
-    Console::drawTextDispPx(r, x, y, title, SDL_Color{ 240, 200, 60, 255 });
-
+    // Gold on a true black shadow, offset further than the headline's: a warm
+    // colour on a warm-lit backdrop needs more separation than a cool one.
+    // Drawn twice more, a pixel up and a pixel down in a deeper gold, so the
+    // letters have a lit edge and a shaded one at this size.
+    Console::drawTextTitlePx(r, x + 5, y + 6, title, SDL_Color{ 0, 0, 0, 255 }, tracking);
+    Console::drawTextTitlePx(r, x, y + 2, title, SDL_Color{ 138, 96, 24, 255 }, tracking);
+    Console::drawTextTitlePx(r, x, y, title, SDL_Color{ 240, 200, 60, 255 }, tracking);
     layoutTitleMenu();
     drawTitleMenuRows();
+    drawVersionCorner();
 }
 
 void drawTitleMenuRows() {

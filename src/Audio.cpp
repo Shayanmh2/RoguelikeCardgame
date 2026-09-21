@@ -99,6 +99,13 @@ void Audio::logLaunch(const std::string& line) {
     out << line << std::endl;
 }
 
+// Everything the game writes for itself. Named here so the move below and
+// the folder itself agree on what belongs in it.
+static const char* const SAVE_FILES[] = {
+    "save1.dat", "save2.dat", "save3.dat", "save.dat",   // save.dat: the pre-slots file
+    "progress.dat", "winrun.dat", "settings.cfg", "launch.log",
+};
+
 std::string Audio::saveDir() {
     static const std::string dir = [] {
         const std::string exe = exeDir();
@@ -110,7 +117,27 @@ std::string Audio::saveDir() {
                 if (!ec) return d;
             }
         }
-        return exe;
+        // Its own folder, rather than loose beside the exe and the asset
+        // directories. If it cannot be made (a read-only install, say), fall
+        // back to the old location rather than failing to save at all.
+        const std::string d = exe + "saves/";
+        std::error_code ec;
+        std::filesystem::create_directories(d, ec);
+        if (ec) return exe;
+
+        // An install that saved beside the exe keeps its slots: each file is
+        // moved in once, and only if the new folder does not already have it.
+        for (const char* name : SAVE_FILES) {
+            const std::string from = exe + name, to = d + name;
+            std::error_code e1, e2;
+            if (!std::filesystem::exists(from, e1) || std::filesystem::exists(to, e2)) continue;
+            std::filesystem::rename(from, to, e1);
+            if (e1) {   // across a device boundary rename fails; copy and drop
+                std::filesystem::copy_file(from, to, e2);
+                if (!e2) std::filesystem::remove(from, e2);
+            }
+        }
+        return d;
     }();
     return dir;
 }

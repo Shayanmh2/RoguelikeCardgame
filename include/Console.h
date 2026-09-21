@@ -70,8 +70,16 @@ int  bigCellH();
 
 // Title-sized face, larger again.
 void setDisplayFont(TTF_Font* f, int cellW, int cellH);
+// The wordmark's own face: bigger than the headline face, and optionally a
+// different typeface entirely (assets/title.ttf).
+void setTitleFont(TTF_Font* f, int cellW, int cellH);
 void drawTextDispPx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color);
+// `tracking` adds pixels between letters: a wordmark wants air that running
+// text does not.
+void drawTextTitlePx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color,
+                     int tracking = 0);
 int  dispCellW();
+int  titleCellW();
 
 // The palette the ANSI codes resolve to - Campbell for 0-15, xterm cube above.
 // Widgets use it so a card name is the same colour the terminal build printed.
