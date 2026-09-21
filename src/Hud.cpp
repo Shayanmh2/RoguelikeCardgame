@@ -152,9 +152,16 @@ void draw() {
     // step too far - taking a weapon then had no visible effect anywhere on this
     // row. It is back, but short, because the concrete number now lives on every
     // card face: the cards say what they will hit for, this says why.
-    auto gear = [](int pct) { return pct ? " +" + std::to_string(pct) + "%" : std::string(); };
-    put(tx, "ATK +" + std::to_string(gState.playerAtk) + gear(gState.playerAtkPct)
-          + "   DEF +" + std::to_string(gState.playerDef) + gear(gState.playerDefPct), dim);
+    // A flat bonus of zero is printed as nothing at all. Most runs never raise it,
+    // so "ATK +0 +15%" was a permanent zero sitting where a number should be.
+    auto stat = [](const char* label, int flat, int pct) {
+        std::string s = label;
+        if (flat) s += " +" + std::to_string(flat);
+        if (pct)  s += " +" + std::to_string(pct) + "%";
+        return s;
+    };
+    put(tx, stat("ATK", gState.playerAtk, gState.playerAtkPct) + "   "
+          + stat("DEF", gState.playerDef, gState.playerDefPct), dim);
     if (gState.playerArmor > 0)
         put(tx, "ARM " + std::to_string(gState.playerArmor), armor);
     else if (gState.armorBroken)

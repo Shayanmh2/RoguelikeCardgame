@@ -22,6 +22,7 @@ int gCellW = 9, gCellH = 20;
 
 std::deque<KeyEvent> gKeys;
 bool gHasClick = false;
+bool gMouseDown = false;
 int  gWheel = 0;              // accumulated wheel notches, consumed by takeWheel
 int  gClickX = 0, gClickY = 0;
 int  gMouseX = 0, gMouseY = 0;
@@ -105,9 +106,13 @@ void pumpEvents() {
                     // Already logical coordinates: SDL's renderer event watch
                     // rewrites mouse events once a logical size is set.
                     gHasClick = true;
+                    gMouseDown = true;
                     gClickX = ev.button.x;
                     gClickY = ev.button.y;
                 }
+                break;
+            case SDL_MOUSEBUTTONUP:
+                if (ev.button.button == SDL_BUTTON_LEFT) gMouseDown = false;
                 break;
             case SDL_MOUSEMOTION:
                 gMouseX = ev.motion.x;
@@ -449,12 +454,16 @@ void frame() {
 // keeps every authored duration in proportion. typeWrite() runs off its own
 // clock and is left alone - typing speed should not move when this is retuned.
 //
-// Raise to slow combat down.
-static const float PACE_SCALE = 1.5f;
+// Raise to slow combat down. 150 is the authored rhythm and the default the
+// Settings screen calls "Normal"; the screen moves this, nothing else does.
+static int gPacePercent = 150;
+
+void setPacePercent(int pct) { gPacePercent = pct < 10 ? 10 : (pct > 300 ? 300 : pct); }
+int  pacePercent() { return gPacePercent; }
 
 void delay(int ms) {
     if (ms <= 0) { frame(); return; }
-    ms = (int)(ms * PACE_SCALE + 0.5f);
+    ms = (int)(ms * (gPacePercent / 100.0f) + 0.5f);
     Uint32 end = SDL_GetTicks() + (Uint32)ms;
     do { frame(); } while ((Sint32)(end - SDL_GetTicks()) > 0);
 }
@@ -477,7 +486,7 @@ KeyEvent waitKey() {
     }
 }
 
-void flushKeys() { gKeys.clear(); gHasClick = false; }
+void flushKeys() { gKeys.clear(); gHasClick = false; gMouseDown = false; }
 
 bool takeClick(int& x, int& y) {
     if (!gHasClick) return false;
@@ -493,6 +502,7 @@ int takeWheel() {
 }
 
 void mousePos(int& x, int& y) { x = gMouseX; y = gMouseY; }
+bool mouseDown() { return gMouseDown; }
 
 void setGroundColor(SDL_Color c) { gGround = c; }
 void setSceneRenderer(const std::function<void()>& fn) { gSceneRenderer = fn; }

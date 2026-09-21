@@ -221,14 +221,26 @@ int Card::getMaxUpgrades() const {
     if (effect == CardEffect::WEAK || effect == CardEffect::STUN
         || effect == CardEffect::TAUNT || effect == CardEffect::FEAR) return 0;
     if (effect == CardEffect::STRENGTH && type == CardType::SPECIAL) return 0;
+    // The same rule, for the cards whose value is not a number of damage. On two
+    // of them the value IS energy, so a forged Adrenaline handed out four times
+    // what it was priced for; on the rest the value is never read at all, and
+    // forging only bought the card down toward its cost floor. Both are ways of
+    // getting stronger without the number on the card changing, which is exactly
+    // what the ladder of ceilings is there to prevent.
+    if (effect == CardEffect::BLOODPRICE || effect == CardEffect::ADRENALINE   // value is energy
+        || effect == CardEffect::BLOODPACT || effect == CardEffect::BERSERK    // fixed multiplier
+        || effect == CardEffect::BORROWED  || effect == CardEffect::ALLIN      // value unused
+        || effect == CardEffect::SACRIFICE)                                    // already a full heal
+        return 0;
     // Starters are not upgradable: the forge is for cards you chose to build
     // around, and grinding a Strike upward gave every deck the same floor.
     // Everything you actually picked up still upgrades.
-    // Uncommon 2; Rare 3; Super Rare 4; Legendary 5.
+    // Uncommon 2, Rare 2, Super Rare 3, Legendary 3. Down from 2/3/4/5: with
+    // weapon passives and relics stacking on top, a legendary forged five times
+    // was the whole run's damage in one card.
     if (isStarter()) return 0;
-    if (legendary)   return 5;
-    if (superRare)   return 4;
-    if (rare)        return 3;
+    if (legendary)   return 3;
+    if (superRare)   return 3;
     return 2;
 }
 
@@ -243,7 +255,11 @@ void Card::upgrade() {
     // card bottom out there, and a fully upgraded deck then bought extra ACTIONS
     // per turn on top of bigger numbers - five plays against the enemy's one.
     // Commons still reach 1; rare and above stop at 2.
-    if (cost > minCost()) cost--;
+    //
+    // And only on the first upgrade. Every forge used to take another energy
+    // off, so a maxed card was both bigger and cheaper; now the forge trims a
+    // card's cost once and every later level is value alone.
+    if (upgradeCount == 0 && cost > minCost()) cost--;
     name += "+";
     upgradeCount++;
     // keep description text in sync with the new value

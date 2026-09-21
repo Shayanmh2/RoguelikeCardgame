@@ -60,6 +60,25 @@ void UIHelper::printCenteredWrapped(const std::string& text, int measure, bool t
     }
 }
 
+void UIHelper::printWrapped(const std::string& text, int indent, int hang, int measure) {
+    const int room = std::max(24, std::min(measure, Console::cols() - indent - 2));
+    std::vector<std::string> out;
+    std::string cur;
+    size_t i = 0;
+    while (i <= text.size()) {
+        size_t sp = text.find(' ', i);
+        std::string word = text.substr(i, sp == std::string::npos ? std::string::npos : sp - i);
+        if (cur.empty()) cur = word;
+        else if (visibleLen(cur) + 1 + visibleLen(word) <= room) cur += " " + word;
+        else { out.push_back(cur); cur = word; }
+        if (sp == std::string::npos) break;
+        i = sp + 1;
+    }
+    if (!cur.empty()) out.push_back(cur);
+    for (size_t n = 0; n < out.size(); ++n)
+        std::cout << std::string((size_t)(n == 0 ? indent : indent + hang), 0x20) << out[n] << "\n";
+}
+
 // Blank rows so a block of `lines` sits in the middle of the screen instead of
 // hugging the top.
 void UIHelper::padToCenter(int lines) {
@@ -121,7 +140,7 @@ void drawHeadline() {
 void drawTitleBanner() {
     if (!gBannerOn) return;
     SDL_Renderer* r = Platform::renderer();
-    const std::string title = "ROGUELIKE CARDGAME";
+    const std::string title = "MOONSTRUCK";
     const int w = (int)title.size() * Console::dispCellW();
     const int y = Platform::screenH() / 5;
     if (w > Platform::screenW() - 40) {
@@ -247,6 +266,12 @@ void UIHelper::pause(int ms) {
     platSleep(ms);
 }
 
+// 100 is the rate every typeWrite() call was authored at. 0 means the text
+// arrives whole, which is what an impatient second read of the story wants.
+static int gTextSpeed = 100;
+void UIHelper::setTextSpeed(int pct) { gTextSpeed = pct < 0 ? 0 : (pct > 400 ? 400 : pct); }
+int  UIHelper::textSpeed() { return gTextSpeed; }
+
 void UIHelper::clearScreen() {
     Console::clear();
 }
@@ -299,6 +324,9 @@ void UIHelper::waitForKey(const std::string& prompt) {
 // centred title looked detached hugging the left edge.
 
 void UIHelper::typeWrite(const std::string& text, int msPerChar) {
+    // Applied here rather than at the call sites, so every piece of typed
+    // text in the game answers the setting without knowing about it.
+    msPerChar = gTextSpeed <= 0 ? 0 : msPerChar * 100 / gTextSpeed;
     // Timing runs off a wall-clock deadline rather than sleeping per character.
     //
     // platSleep() draws at least one vsynced frame, so the old per-character

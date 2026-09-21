@@ -38,6 +38,11 @@ void frame();
 // Blocks for ms while continuing to draw frames.
 void delay(int ms);
 
+// How long every authored pause actually holds, as a percentage: 100 plays
+// the durations as written, higher is slower. Combat pacing in Settings.
+void setPacePercent(int pct);
+int  pacePercent();
+
 // Keys are queued by frame() so a blocking read never misses one.
 enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR };
 struct KeyEvent { Key key = Key::NONE; char ch = 0; };
@@ -50,6 +55,9 @@ void     flushKeys();
 // list is clickable as well as keyboard-driven.
 bool takeClick(int& x, int& y);
 void mousePos(int& x, int& y);
+// Whether the left button is down right now. takeClick() reports a press
+// once and forgets it, which is what a button wants and a drag cannot use.
+bool mouseDown();
 
 // Wheel notches since the last call, positive for scrolling up. Consumed on
 // read, the same way takeClick works.

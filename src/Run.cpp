@@ -50,28 +50,38 @@ int Run::getEncountersWon() const {
     return encountersWon;
 }
 
+void Run::setDifficulty(int tier) { difficulty = tier < 0 ? 0 : tier; }
+int Run::getDifficulty() const { return difficulty; }
+
+// What the scaling is told the encounter number is. Hard is the fifty fights
+// that used to be 51-100, Extreme the fifty that used to be 101-150, so each
+// tier simply adds a cycle's worth of encounters to every stat formula.
+int Run::scaledEncounter() const { return currentEncounter + difficulty * CYCLE_LENGTH; }
+
 int Run::getEnemyHealth() const {
-    int tier = (currentEncounter - 1) / 5;
+    const int enc = scaledEncounter();
+    int tier = (enc - 1) / 5;
     // Scaled for the post-overhaul player, who plays about three cards a turn
     // with percentage gear. At 15% per tier and +6 per encounter, a run that
     // put everything into attack could no longer keep up by encounter 20.
     int tierMultiplier = 1 + (tier * 8);   // each tier adds 8% more health
-    int baseHealth = 25 + (currentEncounter - 1) * 5;
+    int baseHealth = 25 + (enc - 1) * 5;
     return (baseHealth * (100 + tierMultiplier)) / 100;
 }
 
 int Run::getEnemyAttack() const {
-    int tier = (currentEncounter - 1) / 5;
+    const int enc = scaledEncounter();
+    int tier = (enc - 1) / 5;
     // +0.6 per encounter and +1 per tier (was +1 and +2): the old curve had
     // enemies killing the player in about five turns by encounter 20.
     int tierBonus = tier;
-    return 7 + (currentEncounter - 1) * 6 / 10 + tierBonus;
+    return 7 + (enc - 1) * 6 / 10 + tierBonus;
 }
 
 int Run::getEnemyDefense() const {
     // Every 7 encounters, not 5. Defense is subtracted per hit, so it bites hardest
     // on the cheap cards a three-card turn relies on.
-    return 2 + (currentEncounter - 1) / 7;
+    return 2 + (scaledEncounter() - 1) / 7;
 }
 
 bool Run::isBossEncounter() const {
@@ -84,7 +94,10 @@ int Run::getBossIndex() const {
 }
 
 int Run::getCycle() const {
-    return (currentEncounter - 1) / CYCLE_LENGTH; // 0 = main game, 1+ = endless
+    // The tier the run is being played at. Naming ("Greater", "Eternal"), the
+    // enemy shade and the story gate all key off this, and every run now stops
+    // at fifty, so it is the difficulty rather than a lap counter.
+    return difficulty;
 }
 
 int Run::getBossNumber() const {

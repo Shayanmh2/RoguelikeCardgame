@@ -14,6 +14,10 @@ public:
     // By file stem, for tracks outside the zone rotation (the ??? encounter).
     static void playBGM(const std::string& baseName);
     static void stopBGM();
+    // Volumes as percentages of full, 0 being silence. Kept apart because
+    // music under a long run and a combat cue want different levels.
+    static void setMusicVolume(int pct);
+    static void setSfxVolume(int pct);
     static void playSFX(const std::string& name);
     // The same cue at a different pitch, so the enemy side of the field can
     // answer the player with a recognisably darker version of their own sound.

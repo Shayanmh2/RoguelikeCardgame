@@ -12,7 +12,7 @@ RewardPool::RewardPool() {
 
 void RewardPool::initializeCardPool() {
     // Resolve relative to the exe's folder, not cwd (which varies by launch method)
-    std::string configPath = Audio::exeDir() + "config/cards.json";
+    std::string configPath = Audio::dataDir() + "config/cards.json";
 
     if (!std::filesystem::exists(configPath)) {
         std::cout << Color::YELLOW << "Warning: " << configPath << " not found - no card rewards will be available. "

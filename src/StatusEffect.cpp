@@ -69,6 +69,22 @@ void StatusEffects::apply(StatusType type, int amount, double weakMultiplier, do
     }
 }
 
+void StatusEffects::extend(StatusType type, int extra) {
+    switch (type) {
+        case StatusType::POISON:
+            if (poisonTurns > 0) poisonTurns = std::min(POISON_MAX_DURATION + extra, poisonTurns + extra);
+            break;
+        case StatusType::BURN:
+            if (burnTurns > 0) burnDmg += extra;
+            break;
+        case StatusType::REND:
+            if (rendCharges > 0) rendCharges = std::min(REND_MAX_CHARGES + extra, rendCharges + extra);
+            break;
+        default:
+            break;
+    }
+}
+
 bool StatusEffects::hasAny() const {
     return poisonTurns > 0 || burnTurns > 0 || rendCharges > 0
         || stun > 0 || weakTurns > 0 || strengthTurns > 0;

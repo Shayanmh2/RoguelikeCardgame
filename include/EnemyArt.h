@@ -9,6 +9,10 @@
 // through SDL, at a proper on-screen scale, with the sword-trail and cast
 // overlays composited on top. The interface is unchanged so Game.cpp compiles
 // against it untouched.
+// For drawItemIcon. Forward declared so this header stays free of SDL.h.
+struct SDL_Renderer;
+struct SDL_Rect;
+
 namespace EnemyArt {
     struct RGB { unsigned char r, g, b; };
 
@@ -23,6 +27,8 @@ namespace EnemyArt {
     const Art& getWalkFrame(EnemyType type, BossType boss = BossType::NONE);
 
     void print(const Art& art, int indent = 6);
+    // The knight alone, in the gear he is wearing: View Player's portrait.
+    void printPlayerPortrait();
 
     // --- battle scene: knight on the left, enemy on the right ---
 
@@ -135,6 +141,11 @@ namespace EnemyArt {
 
     // Title screen backdrop. Draws under the text.
     void setTitleMode(bool on);
+    // The seal offered after a boss, drawn over the screen: -1 hides it,
+    // 0 is whole, 1-3 crack it, 4 is broken.
+    void setSealFrame(int frame);
+    // Item icons from items.png: swords 0-6 by gear tier, shields 7-13.
+    void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst);
 
     // Floating combat numbers and impact sparks. Fire-and-forget: each effect
     // owns its lifetime, so nothing has to tick or clear them.
@@ -149,7 +160,8 @@ namespace EnemyArt {
     void setBattleBackdrop(int encounterNumber);
 
     // The ??? encounter: the forest under a blood moon.
-    void setSecretBackdrop();
+    // The Moonstruck's crimson sky for the area it appears in (0-4).
+    void setSecretBackdrop(int zone = 2);
 
     // Tutorial fight only.
     void setTutorialBackdrop();

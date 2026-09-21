@@ -15,6 +15,11 @@ public:
 
     // Wraps to a readable measure, then centres each line on the window.
     static void printCenteredWrapped(const std::string& text, int measure = 72, bool typed = false);
+
+    // Left-aligned wrapping for text that belongs in the log box rather than
+    // on a screen of its own. Wraps to the window, counts colour codes as
+    // zero width, and indents every line after the first by `hang`.
+    static void printWrapped(const std::string& text, int indent = 2, int hang = 2, int measure = 96);
     // Blank rows so a block of that many lines sits vertically centred.
     static void padToCenter(int lines);
 
@@ -39,6 +44,11 @@ public:
     // Animated output - handles ANSI codes and UTF-8 characters correctly.
     // msPerChar=0 prints instantly (useful for toggling from call sites).
     static void typeWrite(const std::string& text, int msPerChar = 10);
+
+    // Typing speed as a percentage of the authored rate: 100 is as written,
+    // higher types faster, 0 prints whole lines at once. Set from Settings.
+    static void setTextSpeed(int pct);
+    static int  textSpeed();
 
     // Sleep for ms milliseconds (cross-platform wrapper).
     static void pause(int ms);

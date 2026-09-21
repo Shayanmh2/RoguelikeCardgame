@@ -180,6 +180,20 @@ static std::string resolveTrack(const std::string& base) {
 // Shared by both playBGM overloads: everything after "which file".
 static void startTrack(const std::string& path);
 
+// Stored as well as applied: a track opened later starts at the set level,
+// and Mix_Volume(-1) only reaches the channels that exist right now.
+static int gMusicVol = 100, gSfxVol = 100;
+
+void Audio::setMusicVolume(int pct) {
+    gMusicVol = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+    Mix_VolumeMusic(MIX_MAX_VOLUME * gMusicVol / 100);
+}
+
+void Audio::setSfxVolume(int pct) {
+    gSfxVol = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
+    Mix_Volume(-1, MIX_MAX_VOLUME * gSfxVol / 100);
+}
+
 void Audio::playBGM(int segment) {
     if (!audioReady) return;
     std::string soundsDir = dataDir() + "sounds/";
@@ -203,6 +217,7 @@ static void startTrack(const std::string& path) {
     if (currentMusic) { Mix_FreeMusic(currentMusic); currentMusic = nullptr; }
     currentMusic = Mix_LoadMUS(path.c_str());
     if (currentMusic) {
+        Mix_VolumeMusic(MIX_MAX_VOLUME * gMusicVol / 100);
         Mix_PlayMusic(currentMusic, -1); // loop forever, same as the terminal game's BGM
         currentBgmPath = path;
     } else {

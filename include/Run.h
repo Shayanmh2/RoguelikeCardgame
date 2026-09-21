@@ -6,6 +6,7 @@
 class Run {
 private:
     int currentEncounter;
+    int difficulty = 0;
     int encountersWon;
     bool runActive;
     
@@ -28,11 +29,19 @@ public:
     
     bool isBossEncounter() const;   // bosses at 10/20/30/40, then the Dragon at 49 and Shadow Knight at 50
     int  getBossIndex() const;      // 0..5 within the cycle: colossus, witch, thunder beast, hydra, dragon, shadow knight
-    int  getCycle() const;          // 0 = main game, 1+ = endless repeats of the cycle
+    int  getCycle() const;          // the difficulty tier, for naming and story gating
+    // Difficulty. Every run is encounters 1-50; the tier shifts the scaling as
+    // if fifty (Hard) or a hundred (Extreme) fights had already come before,
+    // which is exactly what the old second and third passes were.
+    void setDifficulty(int tier);
+    int  getDifficulty() const;
     int  getBossNumber() const;     // 1-based count of bosses up to and including this one, across cycles
     int  getRegularIndex() const;   // 0..43: which of the 44 unique regular enemies this is (non-boss only)
 
     void displayRunStats() const;
+
+private:
+    int scaledEncounter() const;   // the encounter number the scaling sees
 };
 
 #endif

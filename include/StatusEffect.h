@@ -35,6 +35,10 @@ public:
     // only matter for WEAK/STRENGTH respectively - reapplying while already active
     // keeps whichever is stronger rather than stacking.
     void apply(StatusType type, int amount, double weakMultiplier = 1.5, double strengthMultiplier = 1.2);
+    // Deepens what is already applied, past the usual caps: Poison lasts
+    // `extra` more turns, Burn ticks `extra` harder, Rend gains `extra`
+    // charges. The relics that strengthen your ailments use this.
+    void extend(StatusType type, int extra);
     bool hasAny() const;
     bool hasPoison() const;
     bool hasBurn() const;

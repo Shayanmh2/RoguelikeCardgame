@@ -44,6 +44,9 @@ struct Layout {
 
 Layout gLayout;
 std::vector<SDL_Rect> gCardRects;
+std::function<void(SDL_Renderer*, int, const SDL_Rect&)> gIconRenderer;
+bool gGridVeil = true;         // setNextGridStyle(): one pick only
+int  gCardlessTopPct = -1;
 std::vector<SDL_Rect> gPlusRects;
 std::vector<SDL_Rect> gActionRects;
 
@@ -171,12 +174,22 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         };
         const SDL_Color nameCol = c.disabled ? dim : c.nameColor;
         std::string nm = c.name;
+        int ty = q.y + pad + 8 + Console::bigCellH();
         if ((int)nm.size() * Console::bigCellW() <= nameRoom) {
             Console::drawTextBigPx(r, q.x + pad, q.y + pad + 6, nm, nameCol, true);
+        } else if ((int)nm.size() <= gridFit) {
+            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm, nameCol, true);
         } else {
-            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, clip(nm), nameCol, true);
+            // Too long even for the small face: wrap at a space rather than
+            // cutting it off. "Cracked Seal Fragment" read as "Cracked Seal Fr",
+            // and a thrice-forged card lost its pluses the same way.
+            size_t cut = nm.rfind(' ', (size_t)gridFit);
+            if (cut == std::string::npos || cut == 0) cut = (size_t)gridFit;
+            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm.substr(0, cut), nameCol, true);
+            std::string rest = nm.substr(nm[cut] == ' ' ? cut + 1 : cut);
+            Console::drawTextPx(r, q.x + pad, q.y + pad + 8 + Platform::cellH(), clip(rest), nameCol, true);
+            ty = q.y + pad + 8 + Platform::cellH() * 2;
         }
-        int ty = q.y + pad + 8 + Console::bigCellH();
         if (!c.elemTag.empty()) {
             Console::drawTextPx(r, q.x + pad, ty, clip(c.elemTag),
                                 c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 }, true);
@@ -211,12 +224,24 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
             }
         };
         drawWrapped(c.effect, dim);
-        drawWrapped(c.note, c.disabled ? dim : SDL_Color{ 79, 214, 214, 255 });
+        drawWrapped(c.note, c.disabled ? dim : c.noteColor);
+
+        // The item's own picture, centred in what the text left free, at a
+        // whole multiple of the 24px art so it never blurs.
+        if (c.icon >= 0 && gIconRenderer) {
+            const int room = std::min(q.w - pad * 2, textBottom - lineY);
+            if (room >= 24) {
+                const int sz = std::min(room, 24 * 6) / 24 * 24;
+                SDL_Rect d{ q.x + (q.w - sz) / 2, lineY + (textBottom - lineY - sz) / 2 + 4, sz, sz };
+                gIconRenderer(r, c.icon, d);
+            }
+        }
 
         const int cellW = std::max(1, Platform::cellW());
         int bh = std::max(18, Platform::cellH() + 4);
         int room = q.w - (plus.size() > i ? plus[i].w : 0) - 26;
         const bool longForm = room >= 6*cellW + 12;
+        if (!c.item) {
         const std::string num = std::to_string(c.cost);
         int bw = (longForm ? (5 + (int)num.size()) : (int)num.size()) * cellW + 12;
         SDL_Rect badge{ q.x + 7, q.y + q.h - bh - 8, std::min(room, bw), bh };
@@ -233,6 +258,7 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         if (longForm) { Console::drawTextPx(r, tx, badge.y + 2, "cost:", dim, false); tx += 5*cellW; }
         Console::drawTextPx(r, tx, badge.y + 2, num,
                             tooDear ? SDL_Color{ 238, 116, 106, 255 } : energy, true);
+        }   // !c.item
 
         if (i < plus.size()) {
             SDL_Rect pr = plus[i];
@@ -242,6 +268,68 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
                                 pr.y + pr.h/2 - Platform::cellH()/2,
                                 "+", sel ? lime : dim, true);
         }
+    }
+}
+
+// How wide a slider's bar is, in character cells. Wide enough to read a
+// level off at a glance, short enough to leave the reading beside it.
+static const int SLIDER_CELLS = 20;
+
+// Where a slider's bar sits inside its row. The label column is as wide as
+// the longest label in the set, the same rule the description column uses.
+SDL_Rect sliderTrack(const SDL_Rect& row) {
+    const int cw = std::max(1, Platform::cellW());
+    const int ch = std::max(1, Platform::cellH());
+    int nameCells = 0;
+    for (const Action& a : gActions) nameCells = std::max(nameCells, (int)a.label.size());
+    const int pad = std::max(14, cw * 2);
+    const int h = std::max(6, ch / 3);
+    return SDL_Rect{ row.x + pad + (nameCells + 3) * cw,
+                     row.y + (row.h - ch) / 2 + (ch - h) / 2,
+                     SLIDER_CELLS * cw, h };
+}
+
+// Set from a pointer position: the level lands where the mouse is, snapped
+// to the row's own step so a drag still stops on round numbers.
+void sliderSetFromX(Action& a, const SDL_Rect& track, int mx) {
+    if (!a.value || track.w <= 0) return;
+    const int span = std::max(1, a.hi - a.lo);
+    float k = (float)(mx - track.x) / (float)track.w;
+    k = k < 0.0f ? 0.0f : (k > 1.0f ? 1.0f : k);
+    if (a.invert) k = 1.0f - k;
+    const int st = std::max(1, a.step);
+    int v = a.lo + (int)(k * span + 0.5f);
+    v = ((v - a.lo + st / 2) / st) * st + a.lo;
+    *a.value = v < a.lo ? a.lo : (v > a.hi ? a.hi : v);
+}
+
+// The bar itself: a track, the filled part, and a marker at the level. Drawn
+// rather than spelled out in hashes, which is how the HP bars read too.
+void drawSlider(SDL_Renderer* r, const Action& a, const SDL_Rect& row, int ty, bool sel,
+                const SDL_Color& accent, const SDL_Color& dim) {
+    const int cw = std::max(1, Platform::cellW());
+    // The same rect the mouse hits, so the handle is always under the pointer
+    // that put it there.
+    const SDL_Rect track = sliderTrack(row);
+    const int span = std::max(1, a.hi - a.lo);
+    const int v = a.value ? std::max(a.lo, std::min(a.hi, *a.value)) : a.lo;
+    const int on = (a.invert ? (a.hi - v) : (v - a.lo)) * track.w / span;
+
+    fillR(r, track, tone(sel ? 26 : 22), 255);
+    frameR(r, track, sel ? accent : tone(84));
+    if (on > 2) {
+        SDL_Rect fill{ track.x + 1, track.y + 1, std::max(1, on - 2), track.h - 2 };
+        fillR(r, fill, sel ? accent : dim, sel ? 255 : 190);
+    }
+    // The handle, so an empty bar still shows where the level sits, and so
+    // there is something that looks like it can be taken hold of.
+    SDL_Rect grip{ track.x + std::max(0, std::min(track.w - 4, on - 2)), track.y - 4,
+                   4, track.h + 8 };
+    fillR(r, grip, sel ? accent : dim, 255);
+    frameR(r, grip, tone(20));
+    if (a.readout) {
+        const int rx = track.x + track.w + cw * 2;
+        Console::drawTextPx(r, rx, ty, a.readout(v), sel ? accent : dim, sel);
     }
 }
 
@@ -266,13 +354,14 @@ void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexO
         const int cellW = std::max(1, Platform::cellW());
         const int ty = q.y + (q.h - Platform::cellH()) / 2;
         const SDL_Color nameCol = a.disabled ? dim : (sel ? lime : ink);
-        if (anyDesc) {
-            // Name bold on the left, description dim in its own column.
+        if (anyDesc || a.value) {
+            // Name bold on the left, description (or the bar) in its column.
             const int pad = std::max(14, cellW * 2);
             Console::drawTextPx(r, q.x + pad, ty, a.label, nameCol, true);
-            if (!a.desc.empty())
-                Console::drawTextPx(r, q.x + pad + (nameCells + 3) * cellW, ty,
-                                    a.desc, dim, false);
+            const int colX = q.x + pad + (nameCells + 3) * cellW;
+            if (a.value)            drawSlider(r, a, q, ty, sel, lime, dim);
+            else if (!a.desc.empty())
+                Console::drawTextPx(r, colX, ty, a.desc, dim, false);
         } else {
             // No descriptions anywhere in this set (a plain Yes/No): centre it.
             const int lw = (int)a.label.size() * cellW;
@@ -472,7 +561,7 @@ void layoutGrid(int columns) {
 
     const int gap = 16;
     int gridH = cardless ? 0 : rows * cardH + (rows - 1) * 14;
-    int y0 = cardless ? (H / 2 - ch * 2)
+    int y0 = cardless ? (gCardlessTopPct >= 0 ? H * gCardlessTopPct / 100 : H / 2 - ch * 2)
                       : topY + std::max(0, (availH - gridH) / 2);
 
     for (int i = 0; i < nCards; i++) {
@@ -492,6 +581,11 @@ void layoutGrid(int columns) {
         nameCells = std::max(nameCells, (int)a.label.size());
         descCells = std::max(descCells, (int)a.desc.size());
     }
+    // A slider row carries a bar and its reading where a description would
+    // go, so it needs that column even when nothing in the set has a desc.
+    bool anySlider = false;
+    for (const Action& a : gActions) if (a.value) anySlider = true;
+    if (anySlider) descCells = std::max(descCells, SLIDER_CELLS + 12);
     int aw = descCells > 0 ? nameCells + 3 + descCells : nameCells;
     // Longer and taller than the label strictly needs. A "Yes"/"No" pair
     // sized to its text is a tiny box in the middle of an empty screen;
@@ -510,9 +604,11 @@ void drawGrid() {
     const int cw = std::max(1, Platform::cellW());
     const int ch = std::max(1, Platform::cellH());
 
-    SDL_SetRenderDrawColor(r, 0, 0, 0, 150);
-    SDL_Rect full{ 0, 0, Platform::screenW(), Platform::screenH() };
-    SDL_RenderFillRect(r, &full);
+    if (gGridVeil) {
+        SDL_SetRenderDrawColor(r, 0, 0, 0, 150);
+        SDL_Rect full{ 0, 0, Platform::screenW(), Platform::screenH() };
+        SDL_RenderFillRect(r, &full);
+    }
 
     if (!gTitle.empty()) {
         int tw = (int)gTitle.size() * Console::bigCellW();
@@ -525,8 +621,20 @@ void drawGrid() {
 }
 } // namespace
 
+void setIconRenderer(std::function<void(SDL_Renderer*, int, const SDL_Rect&)> fn) {
+    gIconRenderer = std::move(fn);
+}
+
+void setNextGridStyle(bool veil, int cardlessTopPct) {
+    gGridVeil = veil;
+    gCardlessTopPct = cardlessTopPct;
+}
+
 int pick(const std::string& title, const std::vector<Card>& cards,
          const std::vector<Action>& actions, int columns) {
+    // setNextGridStyle() covers this pick and no other: whichever way this one
+    // returns, the next screen gets the default veil and layout back.
+    struct StyleReset { ~StyleReset() { gGridVeil = true; gCardlessTopPct = -1; } } styleReset;
     const int n = (int)cards.size() + (int)actions.size();
     if (n == 0) return -1;
 
@@ -557,19 +665,58 @@ int pick(const std::string& title, const std::vector<Card>& cards,
         return i < (int)gGridRects.size() ? gGridRects[i]
                                           : gGridActions[i - (int)gGridRects.size()];
     };
+    // Which slider the mouse has hold of, as an index into gActions. Held
+    // across frames, because a drag is allowed to wander off the bar and
+    // keep working, which is what every other slider in the world does.
+    int dragging = -1;
+    auto actionAt = [&](int i) -> Action* {
+        if (i < (int)gGridRects.size()) return nullptr;
+        size_t ai = (size_t)i - gGridRects.size();
+        return ai < gActions.size() ? &gActions[ai] : nullptr;
+    };
 
     while (true) {
         layoutGrid(columns);
+        // A drag in progress owns the pointer until it is let go.
+        if (dragging >= 0) {
+            if (!Platform::mouseDown()) {
+                dragging = -1;
+            } else {
+                int dx, dy;
+                Platform::mousePos(dx, dy);
+                Action& a = gActions[dragging];
+                const int rowIdx = (int)gGridRects.size() + dragging;
+                sliderSetFromX(a, sliderTrack(rectFor(rowIdx)), dx);
+                if (a.onChange) a.onChange();
+            }
+        }
         int mx, my;
         Platform::mousePos(mx, my);
-        if (mx != lastMx || my != lastMy) {
+        // Not while a slider is being dragged: the pointer is allowed to
+        // wander off the row, and the highlight should stay on what is
+        // actually being moved.
+        if ((mx != lastMx || my != lastMy) && dragging < 0) {
             lastMx = mx; lastMy = my;
             for (int i = 0; i < n; i++)
                 if (inside(rectFor(i), mx, my) && usable(i)) { gCurrent = i; break; }
         }
 
         Platform::KeyEvent k = Platform::pollKey();
-        if (k.key == Platform::Key::LEFT || k.key == Platform::Key::UP) step(-1);
+        // On a slider row, left and right belong to the value. Up and down
+        // still move between rows, so nothing else on the screen changes.
+        Action* slider = nullptr;
+        if (gCurrent >= (int)gGridRects.size()) {
+            size_t ai = (size_t)gCurrent - gGridRects.size();
+            if (ai < gActions.size() && gActions[ai].value) slider = &gActions[ai];
+        }
+        if (slider && (k.key == Platform::Key::LEFT || k.key == Platform::Key::RIGHT)) {
+            const int d = (k.key == Platform::Key::RIGHT ? 1 : -1) * slider->step
+                        * (slider->invert ? -1 : 1);
+            const int v = *slider->value + d;
+            *slider->value = v < slider->lo ? slider->lo : (v > slider->hi ? slider->hi : v);
+            if (slider->onChange) slider->onChange();
+        }
+        else if (k.key == Platform::Key::LEFT || k.key == Platform::Key::UP) step(-1);
         else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::DOWN) step(1);
         else if (k.key == Platform::Key::ENTER) { result = gCurrent; break; }
         else if (k.key == Platform::Key::ESCAPE) { result = -1; break; }
@@ -580,12 +727,36 @@ int pick(const std::string& title, const std::vector<Card>& cards,
 
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
-            bool done = false;
+            // `done` means the click was used up; `chose` means it was used
+            // up by something that ends the menu. A slider is the first thing
+            // here that consumes a click without answering.
+            bool done = false, chose = false;
+            // A slider row is set, never chosen: clicking it takes hold of
+            // the bar instead of answering the menu with that row.
+            for (int i = 0; i < n && !done; i++) {
+                Action* a = actionAt(i);
+                if (!a || !a->value || !inside(rectFor(i), cx, cy)) continue;
+                gCurrent = i;
+                const SDL_Rect track = sliderTrack(rectFor(i));
+                // Anywhere on the row starts a drag, and a press on the bar
+                // jumps the level there first: a bar you have to hit exactly
+                // is a bar nobody uses.
+                if (cy >= track.y - 8 && cy < track.y + track.h + 8) {
+                    sliderSetFromX(*a, track, cx);
+                    if (a->onChange) a->onChange();
+                }
+                dragging = i - (int)gGridRects.size();
+                done = true;
+            }
             for (size_t i = 0; i < gGridPlus.size() && !done; i++)
-                if (inside(gGridPlus[i], cx, cy)) { gCurrent = (int)i; result = -2 - (int)i; done = true; }
+                if (inside(gGridPlus[i], cx, cy)) {
+                    gCurrent = (int)i; result = -2 - (int)i; done = chose = true;
+                }
             for (int i = 0; i < n && !done; i++)
-                if (inside(rectFor(i), cx, cy) && usable(i)) { gCurrent = i; result = i; done = true; }
-            if (done) break;
+                if (inside(rectFor(i), cx, cy) && usable(i)) {
+                    gCurrent = i; result = i; done = chose = true;
+                }
+            if (chose) break;
         }
         Platform::frame();
     }
@@ -649,19 +820,24 @@ void showDetail(const Card& c, const std::string& description,
         int y = panel.y + ch;
         Console::drawTextBigPx(r, x, y, c.name, c.nameColor, true);
 
-        // cost badge, top right, same wording as the card face
-        std::string num = std::to_string(c.cost);
-        int bw = (5 + (int)num.size()) * cw + 12;
-        SDL_Rect badge{ panel.x + panel.w - bw - cw * 2, y, bw, ch + 4 };
-        fillR(r, badge, tone(19)); frameR(r, badge, tone(60));
-        Console::drawTextPx(r, badge.x + 6, badge.y + 2, "cost:", SDL_Color{ 150,150,168,255 }, false);
-        Console::drawTextPx(r, badge.x + 6 + 5 * cw, badge.y + 2, num,
-                            SDL_Color{ 249,241,165,255 }, true);
+        // cost badge, top right, same wording as the card face. Not on an
+        // item: there is nothing to pay for a relic or a piece of gear.
+        if (!c.item) {
+            std::string num = std::to_string(c.cost);
+            int bw = (5 + (int)num.size()) * cw + 12;
+            SDL_Rect badge{ panel.x + panel.w - bw - cw * 2, y, bw, ch + 4 };
+            fillR(r, badge, tone(19)); frameR(r, badge, tone(60));
+            Console::drawTextPx(r, badge.x + 6, badge.y + 2, "cost:", SDL_Color{ 150,150,168,255 }, false);
+            Console::drawTextPx(r, badge.x + 6 + 5 * cw, badge.y + 2, num,
+                                SDL_Color{ 249,241,165,255 }, true);
+        }
 
         y += Console::bigCellH() + 4;
         Console::drawTextPx(r, x, y, typeLabel, c.tint, true);
         int mx = x + ((int)typeLabel.size() + 2) * cw;
-        if (!c.elemTag.empty()) {
+        // The bracketed tag only when it adds something: "RELIC [RELIC]" said
+        // the same word twice.
+        if (!c.elemTag.empty() && c.elemTag != "[" + typeLabel + "]") {
             Console::drawTextPx(r, mx, y, c.elemTag, SDL_Color{ 249,241,165,255 }, true);
             mx += ((int)c.elemTag.size() + 2) * cw;
         }

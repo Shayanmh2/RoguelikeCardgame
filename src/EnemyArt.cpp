@@ -224,7 +224,7 @@ enum : int { F_IDLE_A = 0, F_IDLE_B = 1, F_ATK1 = 2, F_ATK2 = 3, F_ATK3 = 4, F_H
 // Assets resolve relative to the executable, not the working directory, so the
 // game runs the same whether it's launched from a shell or a file manager.
 std::string basePath() {
-    static std::string base = Audio::exeDir();
+    static std::string base = Audio::dataDir();
     return base;
 }
 
@@ -241,6 +241,7 @@ ArtSet loadSet(const char* rel) {
 struct Library {
     ArtSet MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD;
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
+    ArtSet TRUEKNIGHT;   // the Shadow Knight's true form: the moon itself
     ArtSet named[45];
     Sheet player, slashFx, castFx;
     // The knight's gear, one row of his frames per tier: the armour he wears
@@ -250,6 +251,9 @@ struct Library {
     // was standing in for all of them, so an archer's shot read as a spell.
     Sheet projFx;   // see include/ProjectileTable.h for what each frame is
     Sheet bg[5], tutorialBg, titleBg, bloodMoonBg;
+    // One crimson sky per area for the Moonstruck, the forest's being the
+    // original blood moon. Item icons for the gear screens, and the seal.
+    Sheet crimsonBg[5], items, seal;
 
     Library() {
         MELEE  = loadSet("assets/sprites/melee_goblin.png");
@@ -265,6 +269,7 @@ struct Library {
         HYDRA        = loadSet("assets/sprites/boss_hydra.png");
         DRAGON       = loadSet("assets/sprites/boss_dragon.png");
         SHADOWKNIGHT = loadSet("assets/sprites/boss_shadowknight.png");
+        TRUEKNIGHT   = loadSet("assets/sprites/moon_shadowknight.png");
 
         player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
         playerArmor  = loadSheet(basePath() + "assets/sprites/player_armor.png", 30);
@@ -292,6 +297,16 @@ struct Library {
         tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
         titleBg    = loadSheet(basePath() + "assets/sprites/bg_title.png", 256);
         bloodMoonBg = loadSheet(basePath() + "assets/sprites/bg_forest_bloodmoon.png", 256);
+        const char* crimsonFiles[5] = {
+            "assets/sprites/bg_dungeon_crimson.png",
+            "assets/sprites/bg_dungeon_purple_crimson.png",
+            "assets/sprites/bg_forest_bloodmoon.png",
+            "assets/sprites/bg_lake_crimson.png",
+            "assets/sprites/bg_mountains_crimson.png",
+        };
+        for (int i = 0; i < 5; i++) crimsonBg[i] = loadSheet(basePath() + crimsonFiles[i], 256);
+        items = loadSheet(basePath() + "assets/sprites/items.png", 24);
+        seal  = loadSheet(basePath() + "assets/sprites/seal.png", 32);
     }
 };
 
@@ -311,6 +326,8 @@ const NamedEntry NAMED_TABLE[] = {
     {"Wolf","beast_wolf"}, {"Spider","beast_spider"}, {"Serpent","beast_serpent"},
     {"Wyvern","beast_wyvern"}, {"Basilisk","beast_basilisk"}, {"Manticore","beast_manticore"},
     {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass"},
+    {"Moonstruck Weaver","moon_weaver"}, {"Moonstruck Beguiler","moon_beguiler"},
+    {"Moonstruck Gorgon","moon_gorgon"}, {"Moonstruck Templar","moon_templar"},
     {"Moonstruck","beast_Moonstruck"},
     {"Skeleton","undead_skeleton"}, {"Ghoul","undead_ghoul"}, {"Wraith","undead_wraith"},
     {"Specter","undead_specter"}, {"Banshee","undead_banshee"}, {"Revenant","undead_revenant"},
@@ -327,6 +344,9 @@ const NamedEntry NAMED_TABLE[] = {
 const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
 
 const ArtSet* gNamedVariant = nullptr;
+// Set by name, like the named variants: bosses do not go through the name
+// table (the plain Shadow Knight would match the regular Knight).
+bool gTrueForm = false;
 // The summoned add, if the fight has one standing.
 const ArtSet* gCompanion = nullptr;
 // The add swings and flinches on its own, rather than its master reacting for it.
@@ -342,7 +362,7 @@ const ArtSet& artSet(EnemyType type, BossType boss) {
         case BossType::WARLORD:        return L.WARLORD;
         case BossType::HYDRA:          return L.HYDRA;
         case BossType::DRAGON:         return L.DRAGON;
-        case BossType::SHADOW_KNIGHT:  return L.SHADOWKNIGHT;
+        case BossType::SHADOW_KNIGHT:  return (gTrueForm && L.TRUEKNIGHT.loaded) ? L.TRUEKNIGHT : L.SHADOWKNIGHT;
         default: break;
     }
     if (gNamedVariant && gNamedVariant->loaded) return *gNamedVariant;
@@ -438,8 +458,12 @@ int gWeaponTiers = 0, gArmorTiers = 0;
 // Violet and crimson were both tried first and flattened distinct enemies
 // toward one hue - the goblin lost its green entirely and stopped looking
 // like a goblin. Amber keeps every sprite recognisable.
-bool gGreater = false;
+// 0 the first fifty, 1 Hard, 2 Extreme. Hard reddens every enemy; Extreme
+// drains them to a cold violet, so which road you are on is visible at a
+// glance rather than only in the numbers.
+int gShadeTier = 0;
 bool gPortraitOnly = false;
+bool gPortraitKnight = false;   // portrait mode, but of the player
 Sheet* gBgSheet = nullptr;
 
 // Rescale the backdrop's own dark tone to a chosen brightness, keeping its hue.
@@ -610,9 +634,38 @@ void drawGlyphColumnText(SDL_Renderer* r, const std::string& t, int x, int y,
     }
 }
 
+// The seal after a boss: -1 hidden, 0 whole, 1-3 cracking, 4 broken.
+int gSealFrame = -1;
+
 void drawOverlay() {
     SDL_Renderer* r = Platform::renderer();
     const Uint32 now = SDL_GetTicks();
+
+    // The seal, drawn over the text so the screen that offers it can stay
+    // undimmed. Whole multiples of the 32px art so it stays crisp.
+    if (gSealFrame >= 0 && lib().seal.ok()) {
+        const int W = Platform::screenW(), H = Platform::screenH();
+        int shX = 0, shY = 0;
+        Platform::shakeOffset(shX, shY);
+        int size = std::max(96, std::min(W, H) * 30 / 100);
+        size -= size % 32;
+        const SDL_Rect d{ (W - size) / 2 + shX, H * 40 / 100 - size / 2 + shY, size, size };
+        if (gSealFrame >= 1) {
+            // Light through the cracks: a red bloom that grows as it breaks.
+            const int cx = d.x + size / 2, cy = d.y + size / 2;
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            for (int ring = 4; ring >= 1; ring--) {
+                const int rad = size / 2 + ring * size * std::min(gSealFrame, 3) / 40;
+                SDL_SetRenderDrawColor(r, 200, 24, 30, (Uint8)(12 + gSealFrame * 6));
+                for (int yy = -rad; yy <= rad; yy += 2) {
+                    const int half = (int)std::sqrt((double)rad * rad - (double)yy * yy);
+                    SDL_Rect row{ cx - half, cy + yy, half * 2, 2 };
+                    SDL_RenderFillRect(r, &row);
+                }
+            }
+        }
+        blit(lib().seal, std::min(gSealFrame, lib().seal.count - 1), d, Tint{});
+    }
 
     for (size_t i = 0; i < gSparks.size();) {
         Spark& s = gSparks[i];
@@ -748,6 +801,15 @@ void drawScene() {
 
     const ArtSet& es = artSet(gType, gBoss);
 
+    if (gPortraitOnly && gPortraitKnight) {
+        // View Player's portrait: the knight in the gear he is actually
+        // wearing, breathing on the same cadence as everything else.
+        SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
+        const int kframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
+        drawKnight(kframe, dst, Tint{});
+        return;
+    }
+
     if (gPortraitOnly) {
         SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
         // Breathe on the same 600ms cadence the battle scene uses. View Enemy
@@ -757,7 +819,8 @@ void drawScene() {
         if (es.animated && (pframe2 == F_IDLE_A || pframe2 == F_IDLE_B))
             pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
         Tint pt2 = gEnemyTint;
-        if (gGreater) { pt2.mulG *= 0.80f; pt2.mulB *= 0.55f; }
+        if (gShadeTier == 1) { pt2.mulG *= 0.80f; pt2.mulB *= 0.55f; }
+        else if (gShadeTier >= 2) { pt2.mulR *= 0.88f; pt2.mulG *= 0.72f; pt2.mulB *= 1.20f; pt2.addB += 18; }
         blit(es.sheet, pframe2, dst, pt2);
         return;
     }
@@ -780,7 +843,8 @@ void drawScene() {
 
     Tint et = gEnemyTint;
     if (et.identity()) pickAura(gAuraEnemy, et);
-    if (gGreater) { et.mulG *= 0.80f; et.mulB *= 0.55f; }
+    if (gShadeTier == 1) { et.mulG *= 0.80f; et.mulB *= 0.55f; }
+    else if (gShadeTier >= 2) { et.mulR *= 0.88f; et.mulG *= 0.72f; et.mulB *= 1.20f; et.addB += 18; }
     SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 + spread - gEnemyNudge, floorY, sprW, sprH };
     // While idle, breathe between the two idle frames instead of standing on a
     // single one - the terminal build only flipped these on a menu idle tick.
@@ -957,6 +1021,14 @@ void ensureInstalled() {
 // screen owns the transition, not the battle code.
 void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 
+void setSealFrame(int frame) { ensureInstalled(); gSealFrame = frame; }
+
+void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst) {
+    (void)r;
+    ensureInstalled();
+    blit(lib().items, index, dst, Tint{});
+}
+
 static void popIn(const SDL_Rect& box, int amount, PopKind kind) {
     if (box.w <= 0) return;
 
@@ -1031,8 +1103,18 @@ void print(const Art& art, int /*indent*/) {
     const ArtSet* s = static_cast<const ArtSet*>(art.set);
     if (!s) return;
     gPortraitOnly = true;
+    gPortraitKnight = false;
     gEnemyFrame = art.frame;
     gEnemyTint = Tint{};
+    showScene();
+}
+
+// The knight alone, for View Player. Mirrors print() on the enemy side.
+void printPlayerPortrait() {
+    ensureInstalled();
+    gPortraitOnly = true;
+    gPortraitKnight = true;
+    gPlayerTint = Tint{};
     showScene();
 }
 
@@ -1441,10 +1523,13 @@ void setBattleBackdrop(int encounterNumber) {
     applyGround();
 }
 
-// The ??? encounter's own sky. The same forest, wrong light.
-void setSecretBackdrop() {
+// The Moonstruck's sky: whichever area it catches you in, under the wrong
+// light. Falls back to the blood-moon forest if an area's sheet is missing.
+void setSecretBackdrop(int zone) {
     ensureInstalled();
-    if (lib().bloodMoonBg.ok()) { gBgSheet = &lib().bloodMoonBg; applyGround(); }
+    const int z = ((zone % 5) + 5) % 5;
+    Sheet* s = lib().crimsonBg[z].ok() ? &lib().crimsonBg[z] : &lib().bloodMoonBg;
+    if (s->ok()) { gBgSheet = s; applyGround(); }
 }
 
 void setTutorialBackdrop() {
@@ -1478,8 +1563,9 @@ void setEnemyVariant(const std::string& enemyName) {
     gCompanion = nullptr;   // a new fight never inherits the last one's add
     // Run.cpp prefixes second-wave enemies with "Greater" and bosses with
     // "Ancient", so the name is enough to know which pass this is.
-    gGreater = enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0
-            || enemyName.rfind("Eternal ", 0) == 0;
+    gShadeTier = (enemyName.rfind("Eternal ", 0) == 0) ? 2
+               : (enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0) ? 1 : 0;
+    gTrueForm = enemyName.find("Moonstruck Shadow Knight") != std::string::npos;
     static ArtSet cache[NAMED_COUNT];
     static bool tried[NAMED_COUNT] = { false };
     for (int i = 0; i < NAMED_COUNT; i++) {
