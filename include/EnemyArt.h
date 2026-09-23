@@ -169,6 +169,10 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     // The ??? encounter: the forest under a blood moon.
     // The Moonstruck's crimson sky for the area it appears in (0-4).
     void setSecretBackdrop(int zone = 2);
+    // The Shadow Knight becoming what was wearing it: the sprite bleaches to
+    // white, the true form comes up inside the glare, and the backdrop
+    // crossfades to the final arena underneath.
+    void transformToTrueForm(int zone, const std::string& trueName);
 
     // Tutorial fight only.
     void setTutorialBackdrop();

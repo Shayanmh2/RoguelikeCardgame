@@ -472,6 +472,11 @@ int gShadeTier = 0;
 bool gPortraitOnly = false;
 bool gPortraitKnight = false;   // portrait mode, but of the player
 Sheet* gBgSheet = nullptr;
+// The backdrop being crossfaded out, and how far through that is. Only the
+// transformation uses these: every other backdrop change is a cut, because
+// every other one happens on a screen nobody is looking at.
+Sheet* gBgPrev = nullptr;
+float  gBgFade = 1.0f;
 
 // Rescale the backdrop's own dark tone to a chosen brightness, keeping its hue.
 // Sampling alone gives something so near black the tint is invisible, which
@@ -775,7 +780,34 @@ void drawScene() {
     // Characters stand on the backdrop's floor line rather than its top edge.
     const int floorY = originY + sceneH - sprH;
 
-    if (gBgSheet && gBgSheet->ok()) {
+    // Drawn through a lambda so a crossfade can ask for the same work twice,
+    // once for what is going and once for what is arriving.
+    auto drawBackdrop = [&](Sheet* bg, Uint8 alpha) {
+        if (!bg || !bg->ok() || alpha == 0) return;
+        int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, bg->count);
+        const int screenW = Platform::screenW();
+        const int fullW   = bg->frameW * spriteScale();
+        int cols, srcX, drawW;
+        if (fullW >= screenW) {
+            cols  = (screenW + spriteScale() - 1) / spriteScale();
+            srcX  = f * bg->frameW + (bg->frameW - cols) / 2;
+            drawW = cols * spriteScale();
+        } else {
+            cols  = bg->frameW;
+            srcX  = f * bg->frameW;
+            drawW = screenW;
+        }
+        SDL_Rect bsrc{ srcX, 0, cols, bg->frameH };
+        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, originY, drawW, sceneH };
+        SDL_SetTextureColorMod(bg->tex, 255, 255, 255);
+        SDL_SetTextureAlphaMod(bg->tex, alpha);
+        SDL_RenderCopy(r, bg->tex, &bsrc, &bdst);
+        SDL_SetTextureAlphaMod(bg->tex, 255);
+    };
+    if (gBgPrev && gBgFade < 1.0f) {
+        drawBackdrop(gBgPrev, 255);
+        drawBackdrop(gBgSheet, (Uint8)(gBgFade * 255.0f + 0.5f));
+    } else if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
         int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
         // The backdrop always spans the whole window. Normally there are enough
@@ -1558,6 +1590,7 @@ void setBattleBackdrop(int encounterNumber) {
     int idx = ((encounterNumber - 1) / 10) % 5;
     if (idx < 0) idx = 0;
     gBgSheet = &lib().bg[idx];
+    gBgPrev = nullptr; gBgFade = 1.0f;
     applyGround();
 }
 
@@ -1567,7 +1600,69 @@ void setSecretBackdrop(int zone) {
     ensureInstalled();
     const int z = ((zone % 5) + 5) % 5;
     Sheet* s = lib().crimsonBg[z].ok() ? &lib().crimsonBg[z] : &lib().bloodMoonBg;
-    if (s->ok()) { gBgSheet = s; applyGround(); }
+    if (s->ok()) { gBgSheet = s; gBgPrev = nullptr; gBgFade = 1.0f; applyGround(); }
+}
+
+// The knight burns white, the moon comes up inside it, and the peak turns
+// into the last arena behind it. One continuous shot: the fight never cuts
+// away, because it is still the same fight and still the same body.
+void transformToTrueForm(int zone, const std::string& trueName) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    showScene();
+
+    const int STEPS = 22, MS = 42;
+
+    // Up into the white. The multiplier comes down as the add goes up, so it
+    // bleaches rather than simply glowing brighter.
+    for (int i = 1; i <= STEPS; ++i) {
+        const float k = (float)i / STEPS;
+        Tint t;
+        t.mulR = t.mulG = t.mulB = 1.0f - 0.55f * k;
+        t.addR = (int)(205 * k); t.addG = (int)(205 * k); t.addB = (int)(210 * k);
+        gEnemyTint = t;
+        hold(MS);
+    }
+
+    // At the top of the white, where nothing can be made out, the art is
+    // swapped and the backdrop starts changing underneath.
+    const int z = ((zone % 5) + 5) % 5;
+    Sheet* to = lib().crimsonBg[z].ok() ? &lib().crimsonBg[z] : &lib().bloodMoonBg;
+    const SDL_Color groundFrom = groundFromBackdrop(gBgSheet, 26);
+    // Where the ground ends up: exactly what this backdrop would have been
+    // given on any other Moonstruck fight. An earlier version pushed it
+    // further towards red on top of that, which made the last arena brighter
+    // than the four the moon had already dragged him through.
+    const SDL_Color groundTo = groundFromBackdrop(to, 26);
+    if (to->ok()) {
+        gBgPrev = gBgSheet;
+        gBgSheet = to;
+        gBgFade = 0.0f;
+    }
+    setEnemyVariant(trueName);
+    gEnemyFrame = F_IDLE_A;
+    hold(260);
+
+    // And back down, with the new sky coming through as the glare leaves.
+    for (int i = STEPS; i >= 0; --i) {
+        const float k = (float)i / STEPS;
+        Tint t;
+        t.mulR = t.mulG = t.mulB = 1.0f - 0.55f * k;
+        t.addR = (int)(205 * k); t.addG = (int)(205 * k); t.addB = (int)(210 * k);
+        gEnemyTint = t;
+        gBgFade = 1.0f - k;
+        // The ground travels with the sky, so the whole frame turns together.
+        const float g2 = 1.0f - k;
+        Platform::setGroundColor(SDL_Color{
+            (Uint8)(groundFrom.r + (groundTo.r - groundFrom.r) * g2),
+            (Uint8)(groundFrom.g + (groundTo.g - groundFrom.g) * g2),
+            (Uint8)(groundFrom.b + (groundTo.b - groundFrom.b) * g2), 255 });
+        hold(MS);
+    }
+    gEnemyTint = Tint{};
+    gBgPrev = nullptr;
+    gBgFade = 1.0f;
+    Platform::setGroundColor(groundTo);
 }
 
 void setTutorialBackdrop() {
