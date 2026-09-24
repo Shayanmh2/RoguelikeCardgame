@@ -72,28 +72,15 @@ private:
     DamageType elemType;  // elemental tag (FIRE/POISON/WIND), NONE if untyped
 
 public:
-    // The one place a config/save string becomes an enum. There used to be a
-    // copy of this in Game.cpp and another in RewardPool.cpp; an effect added
-    // to one and not the other silently produced inert cards.
-    // The one definition of the Strength ladder. There were four copies of this
-    // expression (two here, two in Game.cpp) and they all had to be edited in step;
-    // that is precisely how REND went missing from one of the two effect tables.
+    // The one definition of the Strength ladder, which every effect table reads.
     double strengthMultiplier() const;
 
-    // How low upgrades may drive this card's cost. Almost everything reaches 1;
-    // a short list of genuinely strong cards stops at 2 so they cannot be fired
-    // three and four times in a turn once fully upgraded. Legendaries are exempt -
-    // they are rare enough already that reaching 1 is the reward.
+    // How low upgrades may drive this card's cost: 1 for most, 2 or 3 for the
+    // few strong enough to chain in one turn.
     int minCost() const;
 
-    // Heals top you up to a floor instead of adding a flat slice. A flat
-    // percentage was worth MOST when you were already healthy, which is
-    // backwards for an emergency button.
-    //
-    // `value` is the floor, as a percent of max HP. The card also always heals
-    // at least a smaller "top-up" (two fifths of the floor), and the result is
-    // whichever is larger - otherwise the card would pay 1% at 49% HP and 20%
-    // at 51%, which is a cliff in exactly the wrong direction.
+    // Heals up to a floor of `value`% of max HP, so it is worth most when you
+    // are low, but never less than a top-up of two fifths of that floor.
     static int healAmount(int value, int current, int maxHp);
 
     static CardEffect effectFromString(const std::string& s);

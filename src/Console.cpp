@@ -21,10 +21,8 @@ int gHandRows = 0;
 int gHudRows = 0;
 // Text is inset slightly so it clears the log panel border drawn behind it.
 int gTextInset = 0;
-// Vertical twin of gTextInset: the log is drawn inside a framed panel now,
-// and text flush against either end of the region overlapped that frame.
-// Both ends get the same padding, and every row count below subtracts it,
-// so scrolling and hit-testing agree with what is actually drawn.
+// Vertical twin of gTextInset, so the log clears its panel frame. Every row
+// count below subtracts it, so scrolling and hit-testing match the drawing.
 int gTextInsetY = 0;   // top
 int gTextInsetB = 0;   // bottom
 
@@ -44,9 +42,9 @@ std::string gCsi;
 unsigned gUtf8Need = 0;
 char32_t gUtf8Acc = 0;
 
-// 256-color palette lookup, so 38;5;N (ORANGE, the rarity tints, SELECT_CLR's
-// neon lime) resolves to the same color the terminal showed.
-//
+// 256-colour palette lookup, so 38;5;N (ORANGE, the rarity tints) resolves to
+// the colour the terminal showed. 0-15 are Windows Terminal's Campbell scheme
+// (xterm's pure primaries are harsh neon); 16-255 are the standard xterm cube.
 SDL_Color xterm256(int n) {
     static const unsigned char basic[16][3] = {
         { 12, 12, 12}, {197, 15, 31}, { 19,161, 14}, {193,156,  0},
@@ -65,18 +63,7 @@ SDL_Color xterm256(int n) {
     return SDL_Color{ g, g, g, 255 };
 }
 
-// Indices 0-15 are the Campbell scheme - the default in Windows Terminal,
-// which is what hosts console apps on Windows 10/11, so these are the actual
-// RGB values the terminal build displayed. Using xterm's pure primaries here
-// instead made energy a neon (255,255,0) and special cards a neon (255,0,255),
-// both far harsher than the real thing. Indices 16-255 are the standard xterm
-// cube, which Windows Terminal uses unchanged.
-
-
-// The 8 standard + 8 bright ANSI colors. These map onto the same palette
-// entries a terminal uses, rather than a hand-muted set - an earlier version
-// dimmed them "for legibility" and made the HP bars read as too dark compared
-// to the terminal build.
+// The 8 standard + 8 bright ANSI colours, on the terminal's own palette entries.
 SDL_Color ansiBasic(int code) {
     if (code >= 30 && code <= 37) return xterm256(code - 30);
     if (code >= 90 && code <= 97) return xterm256(code - 90 + 8);
@@ -85,8 +72,8 @@ SDL_Color ansiBasic(int code) {
 
 void ensureRow(int row) {
     while ((int)gLines.size() <= row) gLines.push_back({});
-    // The battle log is no longer cleared each turn, so trim from the front
-    // rather than letting a long run grow this without bound.
+    // The battle log is kept across turns, so trim from the front rather than
+    // letting a long run grow it without bound.
     if (gLines.size() > 4000) {
         int drop = (int)gLines.size() - 3000;
         gLines.erase(gLines.begin(), gLines.begin() + drop);
@@ -329,15 +316,11 @@ void clear() {
     gLines.clear();
     gHandRows = 0;              // a cleared screen owns no hand
     // gHudRows deliberately survives: the combat panel belongs to the fight,
-    // not to one screenful. Zeroing it here meant every redraw showed a frame
-    // or two of plain text before Hud re-enabled it - a visible flash of the
-    // old layout on each turn. Hud::setActive(false) ends it instead.
+    // not to one screenful. Hud::setActive(false) ends it instead.
     gCursorRow = gCursorCol = 0;
     gSavedRow = gSavedCol = 0;
-    // Clearing the screen also drops the battle scene, so menus and reward
-    // screens get the full window. Battle screens call clearScreen() and then
-    // EnemyArt::printBattle() back-to-back with no frame drawn in between, so
-    // the scene never visibly flickers off during combat.
+    // Clearing also drops the battle scene so menus get the full window. Battle
+    // screens put it straight back (printBattle) before any frame is drawn.
     gSceneRows = 0;
 }
 
@@ -510,10 +493,8 @@ void drawTextBigPx(SDL_Renderer* r, int x, int y, const std::string& text,
 
 void setViewport(int x, int y, int w, int h) { gViewport = SDL_Rect{ x, y, w, h }; }
 
-// Same as drawTextPx, but honours the ANSI colour already embedded in the
-// string. Status summaries arrive pre-coloured by the game (poison green, burn
-// orange, stun yellow); stripping that and drawing one flat grey threw away
-// information the player relies on to spot an ailment at a glance.
+// Same as drawTextPx, but keeps the ANSI colours already in the string, such
+// as the status summaries' poison green and burn orange.
 int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
                SDL_Color base, bool bold) {
     if (!gFont) return x;

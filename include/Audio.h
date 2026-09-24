@@ -1,10 +1,8 @@
 #pragma once
 #include <string>
 
-// Same public interface as the terminal game's Audio class (RewardPool.cpp
-// calls Audio::exeDir() unchanged), backed by SDL2_mixer instead of the
-// Windows-only MCI API the terminal version used. Cross-platform by
-// construction - no WinAPI calls anywhere in here.
+// Backed by SDL2_mixer. Cross-platform by construction: no WinAPI calls
+// anywhere in here.
 class Audio {
 public:
     static void init();   // call once after SDL_Init
@@ -25,10 +23,8 @@ public:
     static void playSFXPitched(const std::string& name, float ratio);
 
     static std::string exeDir();
-    // Where the game's own files (assets, config, sounds) are read from. The
-    // exe's folder everywhere except inside a macOS .app, where they live in
-    // Contents/Resources: Contents/MacOS is for code only, and data there
-    // stops codesign sealing the bundle.
+    // Where assets, config and sounds are read from: the exe's folder, or
+    // Contents/Resources inside a macOS .app (data in Contents/MacOS breaks codesign).
     static std::string dataDir();
     // Where saves are written. The exe's folder, except inside a macOS .app,
     // where writing into the signed bundle would modify it after signing (and

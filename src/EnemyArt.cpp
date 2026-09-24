@@ -1,12 +1,6 @@
-// SDL2 battle scene.
-//
-// The terminal build drew these sprites as half-block text cells inline in the
-// output stream, using moveCursorUp() to redraw the same rows. Here the scene
-// is a real region above the console text: sheets load as GPU textures, the
-// scene keeps persistent state (poses, tints, auras), and Platform::frame()
-// draws it every frame. The print* entry points below set that state and then
-// hold it for the same durations the terminal version paused for, so combat
-// keeps the exact rhythm it was authored with.
+// SDL2 battle scene: a region above the console text. The print* calls set
+// persistent state (poses, tints, auras) and hold it for the authored
+// durations; Platform::frame() draws it every frame.
 #include "EnemyArt.h"
 #include "ProjectileTable.h"
 #include "Audio.h"
@@ -28,10 +22,8 @@ namespace EnemyArt {
 namespace {
 
 // --- color transforms -------------------------------------------------
-// Every tint in the terminal build was "multiply each channel, then add a
-// constant". Both halves map onto SDL draw calls exactly: the multiply is a
-// color mod on a normal blit, the add is an additive blit of the sprite's
-// white silhouette. So these are the original numbers, not approximations.
+// A tint multiplies each channel, then adds a constant: a colour-mod blit,
+// then an additive blit of the sprite's white silhouette.
 struct Tint {
     float mulR = 1, mulG = 1, mulB = 1;
     int addR = 0, addG = 0, addB = 0;
@@ -80,10 +72,8 @@ struct Sheet {
     // Mean colour of this art's darker half, computed once at load. Backdrops
     // use it to tint the window ground; everything else just ignores it.
     SDL_Color darkAvg{ 13, 13, 15, 255 };
-    // Where a projectile should leave this sprite, as a percentage of frame
-    // height. Taken from the vertical centroid of the attack frame's opaque
-    // pixels, so a bolt leaves a tall caster's hands and a low crawling beast's
-    // mouth instead of every enemy firing from the same spot near the top.
+    // Where a projectile leaves this sprite, as a percentage of frame height:
+    // the vertical centroid of the attack frame's opaque pixels.
     int muzzlePct = 50;
     // The knight casts with his arm up, so the body centroid sits well below
     // where the spell actually leaves him. This is the centroid of the upper
@@ -116,8 +106,7 @@ Sheet loadSheet(const std::string& path, int frameW) {
     }
 
     // White copy: RGB forced to 255, alpha preserved. Additively blitting this
-    // with a color mod adds a flat constant only where the sprite is opaque,
-    // which is what the terminal build's "+140" style tints did per pixel.
+    // with a color mod adds a flat constant only where the sprite is opaque.
     std::vector<unsigned char> white((size_t)w * h * 4);
     for (size_t i = 0; i < (size_t)w * h; i++) {
         white[i * 4 + 0] = 255; white[i * 4 + 1] = 255; white[i * 4 + 2] = 255;
@@ -218,15 +207,24 @@ struct ArtSet {
     Sheet sheet;
     bool loaded = false;
     bool animated = false;
+    // Where the standard 30x32 box sits inside a bigger frame, in art pixels.
+    // Only the true form uses it, so its sword has room to swing.
+    int boxX = 0, boxY = 0;
 };
 
 enum : int { F_IDLE_A = 0, F_IDLE_B = 1, F_ATK1 = 2, F_ATK2 = 3, F_ATK3 = 4, F_HIT = 5, F_DEATH = 6 };
 // Past the seven every sheet ships, and only one sheet has them: the true
-// form's end, which is the only animated death in the game. Guard and cast
-// poses were tried here and dropped - they were the player's frames
-// recoloured, and the player faces the other way, so the knights braced and
-// cast backwards.
+// form's end, which is the only animated death in the game.
 enum : int { F_CRACK1 = 7, F_CRACK2 = 8, F_CRACK3 = 9, F_BURST = 10 };
+// And three more after those, played at the top of the white when the knight
+// turns into it: the knight bending, the shape between, the new one forming.
+enum : int { F_MORPH1 = 11, F_MORPH2 = 12, F_MORPH3 = 13 };
+
+// The true form's frame: 56x36, with the standard box 16 in from the left
+// and 4 down. tools/make_trueform.py draws to these numbers.
+const int TRUE_FORM_FRAME_W = 56;
+const int TRUE_FORM_BOX_X   = 16;
+const int TRUE_FORM_BOX_Y   = 4;
 
 // Assets resolve relative to the executable, not the working directory, so the
 // game runs the same whether it's launched from a shell or a file manager.
@@ -235,16 +233,18 @@ std::string basePath() {
     return base;
 }
 
-ArtSet loadSet(const char* rel) {
+ArtSet loadSet(const char* rel, int frameW = 30, int boxX = 0, int boxY = 0) {
     ArtSet s;
-    s.sheet = loadSheet(basePath() + rel, 30);
+    s.sheet = loadSheet(basePath() + rel, frameW);
     s.loaded = s.sheet.ok();
     s.animated = s.sheet.count >= 7;
+    s.boxX = boxX;
+    s.boxY = boxY;
     return s;
 }
 
-// Sheets are loaded lazily on first use: they need a live SDL renderer, which
-// rules out the terminal build's file-scope static initialization.
+// Sheets are loaded lazily on first use: they need a live SDL renderer, so
+// they cannot be built during static initialization.
 struct Library {
     ArtSet MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD;
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
@@ -276,7 +276,8 @@ struct Library {
         HYDRA        = loadSet("assets/sprites/boss_hydra.png");
         DRAGON       = loadSet("assets/sprites/boss_dragon.png");
         SHADOWKNIGHT = loadSet("assets/sprites/boss_shadowknight.png");
-        TRUEKNIGHT   = loadSet("assets/sprites/moon_shadowknight.png");
+        TRUEKNIGHT   = loadSet("assets/sprites/moon_shadowknight.png",
+                               TRUE_FORM_FRAME_W, TRUE_FORM_BOX_X, TRUE_FORM_BOX_Y);
 
         player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
         playerArmor  = loadSheet(basePath() + "assets/sprites/player_armor.png", 30);
@@ -285,21 +286,17 @@ struct Library {
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
         projFx  = loadSheet(basePath() + "assets/sprites/projectiles.png", 30);
         const char* bgFiles[5] = {
-            // TODO: the two dungeon sheets are one layout recoloured, with a torch
-            // on a strict 16-column period and no variation across 512px, so the
-            // first twenty fights read as the same corridor twice. (An earlier
-            // note here blamed a missing depth pass and called zones 3-5 better;
-            // that was wrong - the mountain sheet is plainer than either dungeon.)
+            // TODO: the two dungeon sheets are one layout recoloured, with a torch on a
+            // strict 16-column period and no variation across 512px, so the first
+            // twenty fights read as the same corridor twice.
             "assets/sprites/bg_dungeon.png",        // 1-10
             "assets/sprites/bg_dungeon_purple.png", // 11-20
             "assets/sprites/bg_forest_night.png",   // 21-30
             "assets/sprites/bg_lake_night.png",     // 31-40
             "assets/sprites/bg_mountains_dusk.png", // 41-50
         };
-        // Backdrops are 256 columns wide, not 94: painted long enough to span
-        // the window so the scene has no bare sides. Character layout still
-        // uses the original 94-unit span (backdropW), so the fight stays
-        // centre-framed while the art runs edge to edge behind it.
+        // Backdrops are 256 wide so they span the window; the fighters still lay
+        // out on the 94-unit span (backdropW), centred.
         for (int i = 0; i < 5; i++) bg[i] = loadSheet(basePath() + bgFiles[i], 256);
         tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
         titleBg    = loadSheet(basePath() + "assets/sprites/bg_title.png", 256);
@@ -322,9 +319,8 @@ Library& lib() {
     return L;
 }
 
-// Per-name sheets, matched against the enemy's name at encounter start. Same
-// table and same fallback rule as the terminal build: a name whose PNG is
-// missing falls through to its type's generic sprite.
+// Per-name sheets, matched against the enemy's name at encounter start. A
+// name whose PNG is missing falls through to its type's generic sprite.
 struct NamedEntry { const char* key; const char* file; };
 const NamedEntry NAMED_TABLE[] = {
     {"Bandit","melee_bandit"}, {"Warrior","melee_warrior"}, {"Raider","melee_raider"},
@@ -385,12 +381,9 @@ const ArtSet& artSet(EnemyType type, BossType boss) {
 }
 
 // --- scene state ------------------------------------------------------
-// The battle screen needs roughly this many text rows: a 4-line encounter
-// header, the ~11-line combat status block (both HP bars, armor, energy),
-// any active status-effect lines, and the card menu. The scene only gets the
-// rows left over after that. Sizing the sprites first instead pushed the
-// status block off the top of the screen on shorter windows - which is why
-// the player's HP sometimes wasn't visible during a fight.
+// Text rows the battle screen needs (header, status block, effects, menu).
+// The scene gets what is left, so a short window never pushes the status
+// block off the top.
 constexpr int MIN_TEXT_ROWS = 27;
 
 // Whole screen pixels per sprite pixel - kept an integer so the pixel art
@@ -414,12 +407,8 @@ int spriteW() { return 30 * charScale(); }
 int spriteH() { return 32 * charScale(); }
 int backdropW() { return 94 * spriteScale(); } // same bg:sprite ratio the terminal had
 int backdropH() { return 32 * spriteScale(); }
-// Clear space between the two fighters at rest, derived from the same layout
-// drawScene() builds: the knight sits spread-left of centre, the enemy
-// spread-right, and both are spriteW() wide. It works out around 150% of a
-// sprite width, which is why a lunge measured against the SPRITE looked like
-// nothing - it closed barely a fifth of the distance and the blade still fell
-// well short. A lunge is a fraction of this instead.
+// Clear space between the two fighters at rest, from drawScene()'s layout
+// (about 1.5 sprite widths). Lunges are fractions of this, not of a sprite.
 int restingGap() { return std::max(0, backdropW() - 2 * spriteW() + 4 * spriteScale()); }
 
 EnemyType gType = EnemyType::MELEE;
@@ -458,16 +447,8 @@ bool gGhost = false;
 // How many weapon / armour drops the knight has taken. Picks which tier
 // frame of the gear sheets he is drawn wearing.
 int gWeaponTiers = 0, gArmorTiers = 0;
-// Second-wave enemies, tinted gilded-amber. Colour-mod can only pull
-// channels down, so this is blue drained hard and green a little: red
-// stays full and the sprite reads as gold-touched.
-//
-// Violet and crimson were both tried first and flattened distinct enemies
-// toward one hue - the goblin lost its green entirely and stopped looking
-// like a goblin. Amber keeps every sprite recognisable.
-// 0 the first fifty, 1 Hard, 2 Extreme. Hard reddens every enemy; Extreme
-// drains them to a cold violet, so which road you are on is visible at a
-// glance rather than only in the numbers.
+// 1 on Hard: every enemy is tinted amber so the mode shows at a glance.
+// Colour-mod only pulls channels down, so blue drops hard and green a little.
 int gShadeTier = 0;
 bool gPortraitOnly = false;
 bool gPortraitKnight = false;   // portrait mode, but of the player
@@ -537,7 +518,25 @@ void blitFlipped(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, bool
     SDL_SetTextureColorMod(s.tex, 255, 255, 255);
 }
 
-void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha = 255) {
+void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha = 255);
+
+// An enemy frame, given the box it stands in. Most sheets are exactly the box.
+// A bigger frame is laid out around it and reaches out of it, and whatever
+// reaches above the scene is cut off there rather than drawn over the HUD.
+void blitInBox(const ArtSet& a, int frame, const SDL_Rect& box, const Tint& tint, Uint8 alpha,
+               int scale, int sceneTop, int sceneH) {
+    const bool bigger = a.boxX || a.boxY || a.sheet.frameW != 30 || a.sheet.frameH != 32;
+    if (!bigger) { blit(a.sheet, frame, box, tint, alpha); return; }
+    const SDL_Rect dst{ box.x - a.boxX * scale, box.y - a.boxY * scale,
+                        a.sheet.frameW * scale, a.sheet.frameH * scale };
+    SDL_Renderer* r = Platform::renderer();
+    const SDL_Rect clip{ 0, sceneTop, Platform::screenW(), sceneH };
+    SDL_RenderSetClipRect(r, &clip);
+    blit(a.sheet, frame, dst, tint, alpha);
+    SDL_RenderSetClipRect(r, nullptr);
+}
+
+void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha) {
     if (!s.ok() || frame < 0 || frame >= s.count) return;
     SDL_Renderer* r = Platform::renderer();
     SDL_Rect src{ frame * s.frameW, 0, s.frameW, s.frameH };
@@ -562,14 +561,8 @@ void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha
 }
 
 // --- floating numbers and impact sparks -------------------------------
-//
-// Drawn in the overlay pass, which runs after Console::render(), so these are
-// the first things in the game able to sit on top of the text.
-//
-// Digits are a hand-built 3x5 bitmap rather than the console font. Scaling
-// DejaVu up would give soft, anti-aliased numbers floating over hard pixel
-// sprites; a bitmap font scales by the same integer factor as the art and
-// reads as part of it.
+// Drawn in the overlay pass, after Console::render(), so they sit over the
+// text. The digits are a 3x5 bitmap so they scale by whole pixels like the art.
 const unsigned char DIGIT_GLYPH[13][5] = {
     {0b111,0b101,0b101,0b101,0b111}, // 0
     {0b010,0b110,0b010,0b010,0b111}, // 1
@@ -648,10 +641,36 @@ void drawGlyphColumnText(SDL_Renderer* r, const std::string& t, int x, int y,
 
 // The seal after a boss: -1 hidden, 0 whole, 1-3 cracking, 4 broken.
 int gSealFrame = -1;
+// The knight at his fire for "Sit a while": the armour tier he is wearing, or
+// -1 when the scene is not up.
+int gRestTier = -1;
+
 
 void drawOverlay() {
     SDL_Renderer* r = Platform::renderer();
     const Uint32 now = SDL_GetTicks();
+
+    // The fire scene sits in the top of the screen and the words go under it.
+    // One strip, three flame frames per armour, baked by
+    // tools/make_campfire_scene.py with the knight and the light already in.
+    if (gRestTier >= 0) {
+        static bool tried = false;
+        static Sheet scene;
+        if (!tried) {
+            tried = true;
+            scene = loadSheet(basePath() + "assets/sprites/campfire_scene.png", 80);
+        }
+        if (scene.ok()) {
+            const int W = Platform::screenW(), H = Platform::screenH();
+            const int tiers = scene.count / 3;
+            const int tier = std::max(0, std::min(tiers - 1, gRestTier));
+            const int scale = std::max(2, std::min(W * 70 / 100 / scene.frameW,
+                                                   H * 40 / 100 / scene.frameH));
+            const SDL_Rect d{ (W - scene.frameW * scale) / 2, H * 4 / 100,
+                              scene.frameW * scale, scene.frameH * scale };
+            blit(scene, tier * 3 + (int)((now / 180) % 3), d, Tint{});
+        }
+    }
 
     // The seal, drawn over the text so the screen that offers it can stay
     // undimmed. Whole multiples of the 32px art so it stays crisp.
@@ -707,8 +726,7 @@ void drawOverlay() {
 
 
 // Title screen backdrop. Drawn from the SCENE hook, which runs before the
-// console text: the earlier version rode the modal hook and therefore painted
-// straight over the menu.
+// console text, so it never paints over the menu.
 bool gTitleMode = false;
 
 void drawTitleScene() {
@@ -743,11 +761,8 @@ void drawTitleScene() {
     }
 }
 
-// Installed with Platform once, then called every frame.
-// The knight in the gear he is carrying: his armour tier drawn in the pose,
-// then his blade over it. Both sheets hold one row of poses per tier. If either
-// is missing the plain sprite is drawn instead, so the game still runs on an
-// install without them.
+// The knight in his gear: the armour tier's pose, then his blade over it.
+// Without those sheets the plain sprite is drawn instead.
 void drawKnight(int frame, const SDL_Rect& dst, const Tint& tint, Uint8 alpha = 255) {
     const Sheet& armour = lib().playerArmor;
     const Sheet& weapon = lib().playerWeapon;
@@ -764,6 +779,7 @@ void drawKnight(int frame, const SDL_Rect& dst, const Tint& tint, Uint8 alpha = 
     }
 }
 
+// Installed with Platform once, then called every frame.
 void drawScene() {
     if (gTitleMode) { drawTitleScene(); return; }
     if (Console::sceneRows() <= 0) return;
@@ -810,15 +826,9 @@ void drawScene() {
     } else if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
         int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
-        // The backdrop always spans the whole window. Normally there are enough
-        // columns to cover it at the scene's own scale, so a centred crop draws
-        // 1:1 and the pixels stay square.
-        //
-        // Short windows are the awkward case: rows are scarce, so a shallow one
-        // shrinks spriteScale, and 256 columns at scale 3 covers 768px of a
-        // 1600px window - the art became an island with bare sides. Stretch the
-        // full width instead. Cropping vertically keeps pixels square but cuts
-        // off the top of the frame, where the dungeon torches live.
+        // The backdrop always spans the window: a centred 1:1 crop when it is wide
+        // enough at the scene's scale, stretched to full width on a short window
+        // (a vertical crop would cut off the dungeon torches).
         const int screenW = Platform::screenW();
         const int fullW   = gBgSheet->frameW * spriteScale();
         int cols, srcX, drawW;
@@ -859,8 +869,7 @@ void drawScene() {
             pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
         Tint pt2 = gEnemyTint;
         if (gShadeTier == 1) { pt2.mulG *= 0.80f; pt2.mulB *= 0.55f; }
-        else if (gShadeTier >= 2) { pt2.mulR *= 0.88f; pt2.mulG *= 0.72f; pt2.mulB *= 1.20f; pt2.addB += 18; }
-        blit(es.sheet, pframe2, dst, pt2);
+        blitInBox(es, pframe2, dst, pt2, 255, scale, originY, sceneH);
         return;
     }
 
@@ -869,7 +878,7 @@ void drawScene() {
     Tint pt = gPlayerTint;
     if (pt.identity()) pickAura(gAuraKnight, pt);
     // Pushed apart by an extra 8 units each: the backdrop reaches the window
-    // edges now, so the pair no longer has to huddle inside a 94-wide island.
+    // edges, so the pair has room to stand apart.
     const int spread = spriteScale() * 8;
     SDL_Rect pdst{ originX + spriteScale() * 6 - spread + gPlayerNudge, floorY, sprW, sprH };
     int pframe = gPlayerFrame;
@@ -883,16 +892,16 @@ void drawScene() {
     Tint et = gEnemyTint;
     if (et.identity()) pickAura(gAuraEnemy, et);
     if (gShadeTier == 1) { et.mulG *= 0.80f; et.mulB *= 0.55f; }
-    else if (gShadeTier >= 2) { et.mulR *= 0.88f; et.mulG *= 0.72f; et.mulB *= 1.20f; et.addB += 18; }
     SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 + spread - gEnemyNudge, floorY, sprW, sprH };
     // While idle, breathe between the two idle frames instead of standing on a
-    // single one - the terminal build only flipped these on a menu idle tick.
+    // single one.
     int eframe = gEnemyFrame;
     if (es.animated && (eframe == F_IDLE_A || eframe == F_IDLE_B))
         eframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
     // Ghost/Illusion: faded and spectral while the enemy can't be touched.
+    // The box, not the frame: shots, sparks and numbers aim at the body.
     gEnemyRect = edst;
-    blit(es.sheet, eframe, edst, et, gGhost ? 110 : 255);
+    blitInBox(es, eframe, edst, et, gGhost ? 110 : 255, scale, originY, sceneH);
 
     // The bolt, drawn last so it passes in front of both fighters.
     if (gProjFrame >= 0) {
@@ -1061,6 +1070,7 @@ void ensureInstalled() {
 void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 
 void setSealFrame(int frame) { ensureInstalled(); gSealFrame = frame; }
+void setRestScene(int armorTier) { ensureInstalled(); gRestTier = armorTier; }
 
 void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst) {
     (void)r;
@@ -1205,10 +1215,9 @@ void animateBattleIdleAt(EnemyType type, BossType boss) {
     showScene();
 }
 
-// Sends a bolt between the two fighters; reverse=true sends it the other way,
-// for the knight's own spells. muzzleX/muzzleY are percentages of the shooter's
-// sprite, -1 meaning "use the value derived from the sheet"; ProjectileTable.h
-// supplies them per enemy, since the derived answer misses a raised weapon.
+// Sends a bolt between the fighters; reverse=true for the knight's own
+// spells. muzzleX/muzzleY are percentages of the shooter's sprite from
+// ProjectileTable.h, -1 to use the value derived from the sheet.
 void flyProjectile(int frame, const Tint& tint, int msPerStep, bool reverse = false,
                    bool isCast = true, int muzzleX = -1, int muzzleY = -1,
                    int dstX = -1, int dstY = -1, bool fall = false) {
@@ -1250,11 +1259,8 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard, bool ran
 
     // With armor up the knight holds his shield brace instead of standing idle.
     gPlayerFrame = knightGuard ? 6 /*block brace*/ : F_IDLE_A;
-    // A ranged attacker holds its ground: the shot travels, not the shooter.
-    // Without this an archer lunged into the knight to fire point blank, which
-    // made it read identically to a brawler.
-    // Fractions of the distance between the two, so the blow actually arrives.
-    // A diving flyer is ranged for every rule but this one: it does cross.
+    // A ranged attacker holds its ground; a diving flyer (closeIn) still
+    // crosses. Lunges are fractions of the gap between the fighters.
     const bool holdsGround = ranged && !closeIn;
     const int gap   = restingGap();
     const int step2 = holdsGround ? 0 : gap * 35 / 100;
@@ -1274,10 +1280,9 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard, bool ran
         if (!holdsGround) { gEnemyNudge = gap * 85 / 100; hold(130); }
     }
 
-    // A ranged attack crosses the gap the same way a cast does. The caller passes
-    // the frame from the generated table; anything negative means nothing crosses,
-    // as for the Wyvern and the Falcon. Not an early return - the resets below
-    // still have to run, or a flyer stays frozen mid-lunge.
+    // A ranged attack sends its projectile across (negative: nothing crosses,
+    // as for the Wyvern and the Falcon). Not an early return: the resets below
+    // must run, or a flyer stays frozen mid-lunge.
     if (ranged && projectile >= 0) {
         // Drop to idle as it leaves: the painted shot disappears from the hand
         // on the same frame ours appears at that spot, so it reads as one
@@ -1303,10 +1308,8 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool co
     const int v = (int)slashVariant(trailElem) * 3;
     const ArtSet& s = artSet(type, boss);
 
-    // Step in on the wind-up, furthest forward on the swing itself. The knight
-    // used to swing from his idle spot, so a melee exchange looked like two
-    // figures hitting the air between them.
-    // Same fractions as the enemy lunge: a step in, then the blade arrives.
+    // Step in on the wind-up, furthest forward on the swing itself, so a melee
+    // exchange reads as a blow landing. Same fractions as the enemy lunge.
     const int gap = restingGap();
     gPlayerFrame = 2; gSlashFrame = v + 0; gPlayerNudge = gap * 35 / 100; hold(70);
     gPlayerFrame = 3; gSlashFrame = v + 1; gPlayerNudge = gap * 70 / 100; hold(70);
@@ -1515,16 +1518,13 @@ void printBattleCast(EnemyType type, BossType boss, CastGlow glow) {
         case CastGlow::WEAK:   fxIdx = 3; break;
         case CastGlow::REND:   fxIdx = 4; break;
     }
-    // Wind-up in his hand, then the spell actually travels. It used to glow on
-    // the knight and take effect on the enemy with nothing crossing between.
+    // Wind-up in his hand, then the spell travels across to the enemy.
     gPlayerFrame = 7; gCastFrame = fxIdx;
     hold(200);
     gCastFrame = -1;
     // The orb in his hand (every cast-fx frame puts it at x83-93%, y3-15%) leaves
     // from exactly there as the enemy orb shape in the same colour, and drops
-    // onto the middle of the enemy. It used to fly the whole cast-fx frame from
-    // (70, 46): the orb sits at the top-right of that frame, so the visible orb
-    // travelled high and landed over the enemy's head.
+    // onto the middle of the enemy.
     int orb = ProjectileTable::PC_POISON;
     switch (glow) {
         case CastGlow::POISON: orb = ProjectileTable::PC_POISON; break;
@@ -1577,10 +1577,9 @@ void setGearTiers(int weaponTiers, int armorTiers) {
     gArmorTiers  = armorTiers;
 }
 
-// Force the lazy Library to build now. It decodes roughly twenty PNGs and
-// creates two GPU textures for each, and it used to happen on the first
-// printBattle call, which put all of it inside the opening beat of the first
-// fight. Called from the title screen instead, where a pause is expected.
+// Force the lazy Library to build now: it decodes roughly twenty PNGs and
+// creates two GPU textures for each. Called from the title screen, where a
+// pause is expected, rather than inside the opening beat of the first fight.
 void preload() { (void)lib(); ensureInstalled(); }
 
 
@@ -1630,9 +1629,7 @@ void transformToTrueForm(int zone, const std::string& trueName) {
     Sheet* to = lib().crimsonBg[z].ok() ? &lib().crimsonBg[z] : &lib().bloodMoonBg;
     const SDL_Color groundFrom = groundFromBackdrop(gBgSheet, 26);
     // Where the ground ends up: exactly what this backdrop would have been
-    // given on any other Moonstruck fight. An earlier version pushed it
-    // further towards red on top of that, which made the last arena brighter
-    // than the four the moon had already dragged him through.
+    // given on any other Moonstruck fight.
     const SDL_Color groundTo = groundFromBackdrop(to, 26);
     if (to->ok()) {
         gBgPrev = gBgSheet;
@@ -1640,6 +1637,17 @@ void transformToTrueForm(int zone, const std::string& trueName) {
         gBgFade = 0.0f;
     }
     setEnemyVariant(trueName);
+    // Inside the glare the knight bends into the new shape: stooping, something
+    // between the two, the true form coming together. Each one shakes the
+    // screen, and the white hides everything but shape.
+    {
+        const ArtSet& t = artSet(gType, gBoss);
+        if (t.sheet.count > F_MORPH3) {
+            gEnemyFrame = F_MORPH1; Platform::shake(180, 2.0f); hold(140);
+            gEnemyFrame = F_MORPH2; Platform::shake(200, 3.0f); hold(140);
+            gEnemyFrame = F_MORPH3; Platform::shake(220, 2.4f); hold(160);
+        }
+    }
     gEnemyFrame = F_IDLE_A;
     hold(260);
 
@@ -1696,8 +1704,7 @@ void setEnemyVariant(const std::string& enemyName) {
     gCompanion = nullptr;   // a new fight never inherits the last one's add
     // Run.cpp prefixes second-wave enemies with "Greater" and bosses with
     // "Ancient", so the name is enough to know which pass this is.
-    gShadeTier = (enemyName.rfind("Eternal ", 0) == 0) ? 2
-               : (enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0) ? 1 : 0;
+    gShadeTier = (enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0) ? 1 : 0;
     gTrueForm = enemyName.find("Moonstruck Shadow Knight") != std::string::npos;
     static ArtSet cache[NAMED_COUNT];
     static bool tried[NAMED_COUNT] = { false };
@@ -1721,10 +1728,8 @@ void printBattleDeath(EnemyType type, BossType boss) {
     showScene();
     const ArtSet& s = artSet(type, boss);
 
-    // The true form is the one thing in the game that gets a death rather
-    // than a frame. It never goes down: it turns away with its sword lowered,
-    // the pose every enemy dies in, and then stays on its feet shaking harder
-    // as the cracks open through it until it is not there any more.
+    // A sheet with crack frames (the true form) gets a death sequence: it turns
+    // away with its sword lowered and shakes as the cracks open until it bursts.
     if (s.sheet.count > F_BURST) {
         gEnemyTint = Tint{};
         gEnemyFrame = F_DEATH;  Platform::shake(360, 1.2f); hold(420);

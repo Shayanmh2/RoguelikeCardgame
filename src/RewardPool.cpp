@@ -26,9 +26,7 @@ void RewardPool::initializeCardPool() {
     auto commonData = ConfigLoader::loadCommonCards(configPath);
     auto rareData = ConfigLoader::loadRareCards(configPath);
 
-    // Delegates. This table used to be duplicated here, and REND went missing
-    // from the copy, so every wind card handed out was an inert SPECIAL with
-    // CardEffect::NONE: no message, no status applied, no matching sound.
+    // Delegates to the one table in Card.cpp, so the two can never disagree.
     auto toEffect = [](const std::string& e) { return Card::effectFromString(e); };
     auto toPhysType = [](const std::string& s) { return Card::damageTypeFromString(s); };
     // Physical and elemental read the same table; a card carries at most one
@@ -62,10 +60,8 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    // Fixed odds per slot: 80% Uncommon / 15% Rare / 5% Super Rare, or
-    // 60% / 25% / 15% with the "Fortunate Soul" rarity boost active.
-    // Legendary (Dodge Reversal) is intentionally excluded - it only ever drops from boss rewards.
-    // Luck widens both good slots at the uncommon slot's expense.
+    // 80/15/5 odds per slot, 60/25/15 with Fortunate Soul. Luck widens both good
+    // slots at the uncommon slot's expense. Legendaries are boss-only.
     int superRareChance  = (rarityBoost ? 15 : 5)  + luck;
     int rareChance       = (rarityBoost ? 25 : 15) + luck;
 
@@ -115,12 +111,8 @@ std::vector<Card> RewardPool::generateRareRewards(int count, int maxCost, const 
 
     std::unordered_set<std::string> owned(ownedNames.begin(), ownedNames.end());
 
-    // Early bosses: 70% Rare / 30% Super Rare, no Legendary.
-    //
-    // Bosses 3 and 4 (Hydra, Undead Dragon) sit late enough that a plain Rare is
-    // not worth a boss kill any more, so they drop Super Rare only, with a 4%
-    // Legendary. Narrower than the old flat 5% on every boss, but wide enough
-    // that the back half of a run can actually show you one.
+    // Early bosses: 70% Rare / 30% Super Rare. Bosses 3 and 4 (Hydra, Undead
+    // Dragon) drop Super Rare only, with a 4% chance of a Legendary.
     const bool lateBoss = (bossIndex == 3 || bossIndex == 4);
     std::vector<Card> rarePool, superRarePool, legendaryPool;
     for (const auto& c : rareCards) {

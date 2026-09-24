@@ -4,20 +4,14 @@
 #include <SDL_ttf.h>
 #include <functional>
 
-// The SDL2 host for the game's blocking, synchronous control flow.
-//
-// Game.cpp calls UIHelper::pause() and the card pickers and expects them
-// to block. Rather than restructure the game into a frame-driven state machine,
-// those blocking calls pump the SDL event/render loop from the inside via
-// frame() - so the window stays responsive, animations play, and the game code
-// itself never has to know it isn't talking to a terminal any more.
+// The SDL2 host. The game's blocking calls (pause(), the card pickers) pump
+// the event and render loop from inside through frame(), so the window stays
+// responsive while the game code runs as if it were in a terminal.
 namespace Platform {
 
-// Default window size. There is deliberately no logical-size scaling: text
-// drawn through a scaled renderer gets resampled at fractional factors (1.2x
-// when a 1600x900 canvas is stretched to a 1080p screen) and turns blurry.
-// Everything lays out against the real output size instead, so glyphs stay
-// pixel-exact at any window size or in fullscreen.
+// Default window size. No logical-size scaling: a scaled renderer resamples
+// text at fractional factors and blurs it, so everything lays out against the
+// real output size instead.
 constexpr int DEFAULT_W = 1600;
 constexpr int DEFAULT_H = 900;
 
@@ -41,14 +35,12 @@ void delay(int ms);
 // How long every authored pause actually holds, as a percentage: 100 plays
 // the durations as written, higher is slower. Combat pacing in Settings.
 void setPacePercent(int pct);
-int  pacePercent();
 
 // Keys are queued by frame() so a blocking read never misses one.
 enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR };
 struct KeyEvent { Key key = Key::NONE; char ch = 0; };
 
 KeyEvent pollKey();               // NONE if nothing queued
-KeyEvent waitKey();               // pumps frames until a key arrives
 void     flushKeys();
 
 // Mouse click in logical coordinates, consumed once. Menus use this so the

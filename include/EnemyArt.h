@@ -4,11 +4,8 @@
 #include <vector>
 #include <string>
 
-// Battle sprites. The terminal build rendered these as 24-bit color
-// half-blocks (U+2580); this build draws the same PNG sheets as real textures
-// through SDL, at a proper on-screen scale, with the sword-trail and cast
-// overlays composited on top. The interface is unchanged so Game.cpp compiles
-// against it untouched.
+// Battle sprites: the PNG sheets drawn as SDL textures, with the sword-trail
+// and cast overlays composited on top.
 // For drawItemIcon. Forward declared so this header stays free of SDL.h.
 struct SDL_Renderer;
 struct SDL_Rect;
@@ -39,16 +36,12 @@ namespace EnemyArt {
     // wherever the console actually put it.
     void animateBattleIdleAt(EnemyType type, BossType boss);
 
-    // Enemy attack: 3-frame windup/swing/impact. knightGuard renders the
-    // knight in his shield-brace pose (set when the player has armor up).
-    // Three flags that disagree for some enemies:
-    //   ranged          - does the attacker close the distance, or shoot from where
-    //                     it stands (also decides whether Parry has a riposte)
-    //   useAttackFrames - does it play its ATK pose. The Vampire's frames show her
-    //                     casting, so her bite closes without them.
-    //   closeIn         - overrides the first flag for movement only. A diving
-    //                     flyer crosses the field like a brawler but still throws
-    //                     nothing and still leaves Parry with nothing to riposte.
+    // Enemy attack: windup, swing, impact. knightGuard shows the knight's shield
+    // brace (he has armour up). Three flags that differ between enemies:
+    //   ranged          - shoots from where it stands; Parry has nothing to riposte
+    //   useAttackFrames - plays its ATK pose (the Vampire's bite closes without it)
+    //   closeIn         - crosses the field like a brawler, for a diving flyer,
+    //                     while staying ranged for every other rule
     void printBattleAttack(EnemyType type, BossType boss = BossType::NONE, bool knightGuard = false,
                            bool ranged = false, bool useAttackFrames = true,
                            int projectile = -1, int muzzleX = -1, int muzzleY = -1,
@@ -62,13 +55,10 @@ namespace EnemyArt {
         enum { NONE = -2 };
     }
 
-    // Player damage lands: knight swings, enemy flashes with its hit face.
-    // trailElem recolors the sword trail + impact spark by the attack's
-    // elemental tag (FIRE/POISON/WIND); NONE/physical keeps the steel trail.
-    // connected=false still swings and draws the trail, but skips the enemy's
-    // flinch and hit-flash: the attack happened, it just did no damage.
-    // onCompanion: the blow lands on the summoned add standing in front of the
-    // enemy (the Lich's skeleton), so IT flashes and sparks, not its master.
+    // The knight's blow lands and the enemy flashes. trailElem colours the sword
+    // trail and spark by element. connected=false swings without the flinch, for
+    // a blow that did no damage. onCompanion lands it on the summoned add in
+    // front (the Lich's skeleton) instead of its master.
     void printBattleHit(EnemyType type, BossType boss = BossType::NONE, DamageType trailElem = DamageType::NONE,
                         bool connected = true, bool onCompanion = false);
 
@@ -82,19 +72,14 @@ namespace EnemyArt {
     // Ailment cast: knight's palm glows in the ailment's color.
     enum class CastGlow { POISON, BURN, STUN, WEAK, REND };
     void printBattleCast(EnemyType type, BossType boss, CastGlow glow);
-    // The enemy casting or shooting something that is not a plain attack: its
-    // attack frames, then a bolt across the field.
-    // projectile: a Proj index for the art that crosses. -1 keeps the status orb,
-    // which is right for an ailment with no art of its own.
-    // scalePct: how big the thing that crosses the field is drawn, as a
-    // percentage of a sprite. 30 is a bolt; a dragon's breath needs far more.
+    // A cast or shot that is not a plain attack: attack frames, then a bolt.
+    // projectile is a Proj index (-1 is the plain status orb); scalePct is its
+    // size as a percentage of a sprite (30 for a bolt, far more for breath).
     void printEnemyCast(EnemyType type, BossType boss, CastGlow glow, int projectile = -1,
                         int muzzleX = -1, int muzzleY = -1, int scalePct = 30);
 
-    // A beam, which is not a projectile: it stays attached to the eye that fires
-    // it and reaches across the field, rather than travelling as an object.
-    // weakGlow washes the ray in the Weak colour, for a gaze that saps rather
-    // than burns. The art is the same ray either way.
+    // A beam stays attached to the eye that fires it instead of travelling.
+    // weakGlow tints it the Weak colour, for a gaze that saps rather than burns.
     void printEnemyBeam(EnemyType type, BossType boss, int projectile,
                         int muzzleX = -1, int muzzleY = -1, bool weakGlow = false);
 
@@ -119,17 +104,13 @@ namespace EnemyArt {
         bool stun     = false;
     };
 
-    // Persistent auras while a status lasts, e.g. the knight glows red under
-    // Strength, blue while Weakened. When a side carries more than one status
-    // at once, its glow cycles through each active color every 2 seconds.
-    // Set before drawing the scene.
+    // Glows that last as long as a status does (red under Strength, blue while
+    // Weak). Several at once cycle every 2 seconds. Set before drawing the scene.
     void setBattleAuras(AuraFlags knight, AuraFlags enemy);
 
 
-    // The gear the knight is carrying, as tier counts (0 = nothing taken yet).
-    // Armour recolours his plate; the weapon recolours the trail his blade
-    // leaves, which is the only part of the sword that is its own art. A status
-    // flash or an aura still wins: this is the colour he rests at.
+    // The gear the knight is wearing, as tiers (0 = the starting kit): each picks
+    // a row of the armour and weapon sheets he is drawn from.
     void setGearTiers(int weaponTiers, int armorTiers);
 
     // Ghost/Illusion: render the enemy faded and spectral (Mystic, Specter,
@@ -144,13 +125,14 @@ namespace EnemyArt {
     // The seal offered after a boss, drawn over the screen: -1 hides it,
     // 0 is whole, 1-3 crack it, 4 is broken.
     void setSealFrame(int frame);
+    // The knight sat at his fire, in the armour he is wearing, over the top of
+    // the screen. -1 takes it down.
+    void setRestScene(int armorTier);
     // Item icons from items.png: swords 0-6 by gear tier, shields 7-13.
     void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst);
 
-// Drawn text: the title wordmark and the headline banners, art rather than a
-// face. `name` is the file stem under assets/sprites. Size returns false when
-// that art is missing, which is the caller's cue to set the words in text
-// rather than show nothing.
+// The title wordmark and headline banners, drawn as art. `name` is the file
+// stem under assets/sprites; false means the art is missing, so use text.
 bool wordmarkSize(const std::string& name, int& w, int& h);
 void drawWordmark(const std::string& name, const SDL_Rect& dst);
 

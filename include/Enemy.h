@@ -42,6 +42,9 @@ public:
     void applyStatus(StatusType type, int amount, double weakMultiplier = 1.5,
                      double strengthMultiplier = 1.2);
     void extendStatus(StatusType type, int extra) { statusEffects.extend(type, extra); }
+    // Everything on it, gone. Only the Paladin does this, and only to itself.
+    bool hasAnyStatus() const { return statusEffects.hasAny(); }
+    void clearStatuses() { statusEffects.reset(); }
     int  processPoison();
     int  processBurn();
     int  processRend();  // spent when this enemy attacks, not on the turn tick

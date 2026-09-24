@@ -3,13 +3,6 @@
 #include <vector>
 #include <sstream>
 
-// Legendary is checked first because Bloodlust carries BOTH superRare and
-// legendary; the old ladder never tested legendary at all, so it was quietly
-// getting the super-rare number.
-//
-// Rare and Super Rare both sit at 2.0 on purpose. No rare-tier Strength card
-// exists today, so nothing is indistinguishable in practice, but a new one
-// would need its own step here.
 int Card::healAmount(int value, int current, int maxHp) {
     if (maxHp <= 0) return 0;
     const int floorHp = maxHp * value / 100;      // "heal up to here"
@@ -21,14 +14,12 @@ int Card::healAmount(int value, int current, int maxHp) {
 }
 
 int Card::minCost() const {
-    // Legendaries first: you only ever see one or two in a run, so letting them
-    // reach 1 is part of the payoff rather than a balance hole.
-    // Stun Strike is the exception to the exception. A hard stun takes a whole
-    // turn away from the enemy, which is worth more than any amount of damage,
-    // so it never gets cheap enough to chain.
+    // Stun Strike never gets cheap enough to chain: a stun takes a whole enemy
+    // turn away.
     if (getBaseName() == "Stun Strike") return 3;
     // A 25% heal for one energy was the best rate in the game.
     if (getBaseName() == "Heal") return 2;
+    // Legendaries reach 1: there are only one or two in a run.
     if (legendary) return 1;
     // Super Rare is the game's own marker for a standout card.
     if (superRare) return 2;
@@ -39,6 +30,8 @@ int Card::minCost() const {
     return 1;
 }
 
+// Legendary first: Bloodlust is both superRare and legendary and takes the
+// legendary number. Rare and Super Rare share 2.0 on purpose.
 double Card::strengthMultiplier() const {
     if (legendary) return 4.0;
     if (superRare) return 2.0;
@@ -213,31 +206,22 @@ std::string Card::getBaseName() const {
 }
 
 int Card::getMaxUpgrades() const {
-    // Weaken/Stun cards aren't upgradable at all - Weak's duration is already
-    // generous, and Stun is fixed at 1 turn regardless of value, so there'd be
-    // nothing upgrading them actually improves. Same logic for a pure-buff
-    // SPECIAL Strength card (its multiplier is fixed by rarity, not value) -
-    // but NOT for an ATTACK card like Bloodlust, where value still raises damage.
+    // Not upgradable when the value changes nothing: Weak, Stun, Taunt and Fear,
+    // and a SPECIAL Strength card, whose multiplier comes from its rarity.
+    // Bloodlust is an ATTACK, so its damage still upgrades.
     if (effect == CardEffect::WEAK || effect == CardEffect::STUN
         || effect == CardEffect::TAUNT || effect == CardEffect::FEAR) return 0;
     if (effect == CardEffect::STRENGTH && type == CardType::SPECIAL) return 0;
-    // The same rule, for the cards whose value is not a number of damage. On two
-    // of them the value IS energy, so a forged Adrenaline handed out four times
-    // what it was priced for; on the rest the value is never read at all, and
-    // forging only bought the card down toward its cost floor. Both are ways of
-    // getting stronger without the number on the card changing, which is exactly
-    // what the ladder of ceilings is there to prevent.
+    // Nor the cards whose value is not damage: forging them made them stronger
+    // while the number on the card stayed the same.
     if (effect == CardEffect::BLOODPRICE || effect == CardEffect::ADRENALINE   // value is energy
         || effect == CardEffect::BLOODPACT || effect == CardEffect::BERSERK    // fixed multiplier
         || effect == CardEffect::BORROWED  || effect == CardEffect::ALLIN      // value unused
         || effect == CardEffect::SACRIFICE)                                    // already a full heal
         return 0;
-    // Starters are not upgradable: the forge is for cards you chose to build
-    // around, and grinding a Strike upward gave every deck the same floor.
-    // Everything you actually picked up still upgrades.
-    // Uncommon 2, Rare 2, Super Rare 3, Legendary 3. Down from 2/3/4/5: with
-    // weapon passives and relics stacking on top, a legendary forged five times
-    // was the whole run's damage in one card.
+    // Starters do not upgrade: the forge is for the cards you chose. Uncommon
+    // and Rare take 2 upgrades, Super Rare and Legendary 3; more let one forged
+    // legendary carry a run on top of weapon passives and relics.
     if (isStarter()) return 0;
     if (legendary)   return 3;
     if (superRare)   return 3;
@@ -251,22 +235,12 @@ void Card::upgrade() {
     const int step = legendary ? 5 : superRare ? 4 : rare ? 3 : 2;
     // Heals are a percentage of max HP, so the same step runs away with them.
     value = (effect == CardEffect::HEAL) ? std::min(70, value + 2) : value + step;
-    // Cost still drops, but only to minCost(). A flat floor of 1 let every strong
-    // card bottom out there, and a fully upgraded deck then bought extra ACTIONS
-    // per turn on top of bigger numbers - five plays against the enemy's one.
-    // Commons still reach 1; rare and above stop at 2.
-    //
-    // And only on the first upgrade. Every forge used to take another energy
-    // off, so a maxed card was both bigger and cheaper; now the forge trims a
-    // card's cost once and every later level is value alone.
+    // Only the first upgrade trims the cost, and never below minCost().
     if (upgradeCount == 0 && cost > minCost()) cost--;
     name += "+";
     upgradeCount++;
-    // keep description text in sync with the new value
-    // Any ATTACK carrying an elemental tag has a 10% on-hit chance to leave its
-    // matching status behind (Game::playCardFromHand). The rebuild below flattens
-    // attack text to "Deal N damage.", so without re-appending this here the note
-    // would survive in cards.json and then vanish on the first upgrade.
+    // Rebuild the description for the new value. Attack text is rebuilt flat,
+    // so the elemental on-hit note is appended again.
     auto elementalNote = [](DamageType e) -> const char* {
         switch (e) {
             case DamageType::FIRE:   return " 10% chance on hit to also apply Burn 3: 4 damage a turn for 2 turns.";
@@ -399,10 +373,8 @@ void Card::upgrade() {
             description = "Counter: reverses the enemy's next attack or ailment back at them, doubled, +" + std::to_string(value)
                         + ". Fizzles if they do neither.";
         else if (effect == CardEffect::PARRY) {
-            // This used to collapse to one line on upgrade and silently drop
-            // the stun, the armour threshold and the ranged caveat - so Parry+
-            // told you less than Parry did. Both now say the same things, with
-            // the value-derived numbers filled in.
+            // Parry and Parry+ say the same things: the stun, the armour threshold
+            // and the ranged caveat, with the value-derived numbers filled in.
             description = "Block the enemy's next attack and riposte for 1.5x their attack "
                           "plus " + std::to_string(value) + ", ignoring their defense, with a chance to stun them. "
                           "How big a blow you can catch is your armor plus " + std::to_string(value * 3) + ": "
@@ -436,6 +408,7 @@ void Card::upgrade() {
             buffStr << buff;
             description = "Gain x" + buffStr.str() + " damage for 2 turns.";
         }
-        // STUN is left as-is - duration no longer scales with value, only cost drops
+        // STUN is left as-is: its duration does not scale with value, only the
+        // cost drops.
     }
 }

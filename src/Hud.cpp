@@ -122,10 +122,9 @@ void draw() {
     int x = panel.x + padX;
     int y = panel.y + std::max(4, ch / 3);
 
-    // Every field used to advance the cursor by a hardcoded column count, which
-    // only held while the numbers stayed short: "ATK +0   DEF +0" is 15 cells
-    // against a 14-cell step, so ARM printed on top of it. Advance by what was
-    // actually drawn instead.
+    // Advance by what was actually drawn, not a fixed column count: the
+    // numbers grow ("ATK +0   DEF +0" is 15 cells) and a fixed step made ARM
+    // print on top of them.
     auto put = [&](int& cx, const std::string& t, SDL_Color col, bool bold = false) {
         Console::drawTextPx(r, cx, y, t, col, bold);
         cx += ((int)t.size() + 3) * cw;
@@ -148,12 +147,8 @@ void draw() {
     int tx = pb.x + pb.w + cw;
     put(tx, std::to_string(gState.playerHp) + "/" + std::to_string(gState.playerMax),
         hpColor(gState.playerHp, gState.playerMax));
-    // Flat bonus plus the gear percentage. Dropping the percentage entirely was a
-    // step too far - taking a weapon then had no visible effect anywhere on this
-    // row. It is back, but short, because the concrete number now lives on every
-    // card face: the cards say what they will hit for, this says why.
-    // A flat bonus of zero is printed as nothing at all. Most runs never raise it,
-    // so "ATK +0 +15%" was a permanent zero sitting where a number should be.
+    // Flat bonus, then the gear percentage; a zero part is left out rather than
+    // printed as "+0".
     auto stat = [](const char* label, int flat, int pct) {
         std::string s = label;
         if (flat) s += " +" + std::to_string(flat);
@@ -219,9 +214,7 @@ void draw() {
     panelLabel(r, panel, "COMBAT");
 
     // --- the log gets a frame of its own -----------------------------------
-    // The text between the panel and the hand is where combat results scroll.
-    // Framing it stops the screen reading as "two widgets floating in a void"
-    // and matches the mock-up's second panel.
+    // The text between the panel and the hand, where combat results scroll.
     SDL_Rect text = Console::textRegion();
     if (text.h > ch * 3) {
         SDL_Rect logPanel{ text.x, text.y + 2, text.w, text.h - 12 };

@@ -1,9 +1,5 @@
-// SDL2 build of UIHelper. Everything that only writes text is unchanged from
-// the terminal version - std::cout is redirected into the Console grid, which
-// understands the same ANSI escapes, so all the layout and color code below
-// renders exactly as it did in the terminal. Only the four genuinely
-// platform-bound pieces are reimplemented: sleeping, reading a key, clearing
-// the screen, and the cursor row queries.
+// SDL2 build of UIHelper. Text goes to std::cout, which Console redirects
+// into its grid; the title screen and headline banners are drawn here.
 #include "UIHelper.h"
 #include "Version.h"
 #include "Colors.h"
@@ -28,9 +24,7 @@ void UIHelper::printLine(int width, char c) {
 }
 
 void UIHelper::printCentered(const std::string& text, int width) {
-    // Centre on the window, not on a fixed 60 columns. The old measure put
-    // everything left of centre on any window wider than that, which is every
-    // window this build actually runs in.
+    // Centre on the window, not on a fixed 60 columns.
     int cols = std::max(width, Console::cols());
     int padding = (cols - visibleLen(text)) / 2;
     if (padding < 0) padding = 0;
@@ -62,8 +56,8 @@ void UIHelper::printCenteredWrapped(const std::string& text, int measure, bool t
     }
 }
 
-void UIHelper::printWrapped(const std::string& text, int indent, int hang, int measure) {
-    const int room = std::max(24, std::min(measure, Console::cols() - indent - 2));
+std::vector<std::string> UIHelper::wrapRows(const std::string& text, int room) {
+    room = std::max(24, std::min(room, Console::cols() - 2));
     std::vector<std::string> out;
     std::string cur;
     size_t i = 0;
@@ -77,6 +71,11 @@ void UIHelper::printWrapped(const std::string& text, int indent, int hang, int m
         i = sp + 1;
     }
     if (!cur.empty()) out.push_back(cur);
+    return out;
+}
+
+void UIHelper::printWrapped(const std::string& text, int indent, int hang, int measure) {
+    const std::vector<std::string> out = wrapRows(text, std::min(measure, Console::cols() - indent - 2));
     for (size_t n = 0; n < out.size(); ++n)
         std::cout << std::string((size_t)(n == 0 ? indent : indent + hang), 0x20) << out[n] << "\n";
 }
@@ -89,11 +88,8 @@ void UIHelper::padToCenter(int lines) {
 }
 
 namespace {
-// The title and its menu are drawn, not printed. On the character grid a one
-// character difference in label length can only move an option by a whole
-// column or none at all, depending on the parity of the console width, so
-// "Start Game" and "How to Play" could never sit correctly relative to each
-// other. Drawn at pixel positions they simply centre.
+// The title and its menu are drawn at pixel positions rather than printed,
+// so labels of different lengths centre properly.
 bool gBannerOn = false;
 
 // The headline overlay. Shares the modal renderer slot with the title
@@ -177,11 +173,7 @@ void drawTitleBanner() {
     if (!gBannerOn) return;
     SDL_Renderer* r = Platform::renderer();
 
-    // The wordmark is art. Scaled by whole numbers only, because half a pixel
-    // of a two pixel stem is what makes pixel art look like a photograph of
-    // pixel art.
-    // Just under half the width: a title screen wants air around the name
-    // more than it wants the name to be enormous.
+    // The wordmark art: whole-number scaling only, at most 46% of the width.
     if (drawBannerArt("wordmark", Platform::screenH() / 6, 46, 5)) {
         layoutTitleMenu();
         drawTitleMenuRows();
@@ -206,10 +198,8 @@ void drawTitleBanner() {
         return;
     }
     const int x = (Platform::screenW() - w) / 2;
-    // Gold on a true black shadow, offset further than the headline's: a warm
-    // colour on a warm-lit backdrop needs more separation than a cool one.
-    // Drawn twice more, a pixel up and a pixel down in a deeper gold, so the
-    // letters have a lit edge and a shaded one at this size.
+    // Gold on a black shadow set further out than the headline's, then a pixel
+    // up and down in deeper gold for a lit and a shaded edge.
     Console::drawTextTitlePx(r, x + 5, y + 6, title, SDL_Color{ 0, 0, 0, 255 }, tracking);
     Console::drawTextTitlePx(r, x, y + 2, title, SDL_Color{ 138, 96, 24, 255 }, tracking);
     Console::drawTextTitlePx(r, x, y, title, SDL_Color{ 240, 200, 60, 255 }, tracking);
@@ -248,9 +238,7 @@ void UIHelper::showHeadline(const std::string& text, int r, int g, int b) {
 }
 
 void UIHelper::printTitle() {
-    // Nothing is printed: the title and menu are both drawn. The tagline and
-    // the five line summary were removed because the opening story beat tells
-    // the same thing properly a moment later.
+    // Nothing is printed: the title and menu are both drawn.
     showTitleBanner(true);
 }
 
@@ -325,7 +313,6 @@ void UIHelper::pause(int ms) {
 // arrives whole, which is what an impatient second read of the story wants.
 static int gTextSpeed = 100;
 void UIHelper::setTextSpeed(int pct) { gTextSpeed = pct < 0 ? 0 : (pct > 400 ? 400 : pct); }
-int  UIHelper::textSpeed() { return gTextSpeed; }
 
 void UIHelper::clearScreen() {
     Console::clear();
@@ -382,14 +369,9 @@ void UIHelper::typeWrite(const std::string& text, int msPerChar) {
     // Applied here rather than at the call sites, so every piece of typed
     // text in the game answers the setting without knowing about it.
     msPerChar = gTextSpeed <= 0 ? 0 : msPerChar * 100 / gTextSpeed;
-    // Timing runs off a wall-clock deadline rather than sleeping per character.
-    //
-    // platSleep() draws at least one vsynced frame, so the old per-character
-    // sleep couldn't take less than a frame (~16ms) no matter what was asked
-    // for - the default 10ms/char actually ran ~60% slower than authored. Here
-    // the deadline advances by exactly msPerChar per character and frames are
-    // drawn only while there's time to spare, so several characters can land
-    // in one frame and the text streams at the speed it was written for.
+    // Runs off a wall-clock deadline, not a sleep per character: platSleep()
+    // always draws a vsynced frame (~16ms), which capped the speed. Several
+    // characters can land in one frame.
     Uint32 deadline = SDL_GetTicks();
     auto waitOne = [&]() {
         if (msPerChar <= 0) return;

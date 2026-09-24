@@ -20,6 +20,9 @@ public:
     // on a screen of its own. Wraps to the window, counts colour codes as
     // zero width, and indents every line after the first by `hang`.
     static void printWrapped(const std::string& text, int indent = 2, int hang = 2, int measure = 96);
+    // The same wrap, handed back as rows instead of printed, for text that is
+    // typed out: the log keeps each row as it arrives and never re-wraps it.
+    static std::vector<std::string> wrapRows(const std::string& text, int room = 96);
     // Blank rows so a block of that many lines sits vertically centred.
     static void padToCenter(int lines);
 
@@ -48,7 +51,6 @@ public:
     // Typing speed as a percentage of the authored rate: 100 is as written,
     // higher types faster, 0 prints whole lines at once. Set from Settings.
     static void setTextSpeed(int pct);
-    static int  textSpeed();
 
     // Sleep for ms milliseconds (cross-platform wrapper).
     static void pause(int ms);

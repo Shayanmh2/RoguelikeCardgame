@@ -189,13 +189,9 @@ bool openFontsAt(int px) {
         Console::setBigFont(gFontBig, gFontBigBold, bw > 0 ? bw : bigPx/2,
                             TTF_FontLineSkip(gFontBig));
 
-        // Title face, shared by the title screen and the headline overlay.
-        // Sized off the grid font, then capped so the longest thing it draws
-        // still fits the window width. The grid font tracks window HEIGHT, so
-        // without the cap a tall narrow window picks a title too wide for it,
-        // and the callers drop to the widget face - a jarring cliff rather
-        // than a title one step smaller. 18 characters is the longest headline
-        // this face draws; the advance of this face is about 0.6 of its point size.
+        // Title face, for the title screen and the headline overlay. Sized off the
+        // grid font (which tracks window height), then capped so an 18-character
+        // headline fits the width; an advance is about 0.6 of the point size.
         const int byHeight = (int)(px * 5.6f + 0.5f);
         const int byWidth  = (screenW() - 44) * 10 / (18 * 6);
         const int dispPx = std::max(px, std::min(byHeight, byWidth));
@@ -209,10 +205,8 @@ bool openFontsAt(int px) {
             Console::setDisplayFont(gFontDisp, dw > 0 ? dw : dispPx/2, TTF_FontLineSkip(gFontDisp));
             if (oldDisp) TTF_CloseFont(oldDisp);
         }
-        // The wordmark's face. Sized for ELEVEN characters rather than the
-        // headline's eighteen, which is why it can be so much larger, and
-        // opened from assets/title.ttf when one is there: dropping a display
-        // font in is then the whole job, no code and no rebuild.
+        // The wordmark's face: sized for eleven characters, and loaded from
+        // assets/title.ttf when that file exists.
         {
             // 6.5, not 9: at nine times the grid font the wordmark filled the
             // upper third of the window and read as a splash screen rather
@@ -261,12 +255,9 @@ void refitFont(int outH) {
 } // anonymous namespace
 
 bool init(const char* title) {
-    // Before SDL_Init, or the process is DPI-unaware and Windows bitmap-
-    // stretches the window on any display at 125%/150% - blurring every glyph
-    // however crisply we drew it. Per-monitor v2 gets real physical pixels.
-    //
-    // Not SDL_WINDOWS_DPI_SCALING though: that switches SDL to DPI-scaled
-    // points and desyncs mouse events from renderer output size.
+    // Before SDL_Init, or Windows bitmap-stretches the window at 125%/150% and
+    // blurs every glyph. Not SDL_WINDOWS_DPI_SCALING: that desyncs mouse events
+    // from the renderer's output size.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 
     // Says what went wrong, where the player can see it. Launched from a Dock
@@ -295,10 +286,9 @@ bool init(const char* title) {
     if (TTF_Init() != 0) return fail("TTF_Init (text)", TTF_GetError());
     Audio::logLaunch("sdl: text engine up");
 
-    // Starts maximized, as the terminal build did (it called ShowWindow with
-    // SW_MAXIMIZE). Rows are the scarce resource for this layout - the battle
-    // screen wants ~33 of them - and on a scaled display a fixed 1600x900 just
-    // doesn't have enough once the font is scaled up to a readable size.
+    // Starts maximized. Rows are the scarce resource for this layout (the
+    // battle screen wants about 33 of them), and on a scaled display a fixed
+    // 1600x900 does not have enough once the font is a readable size.
     gWindow = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                DEFAULT_W, DEFAULT_H,
                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
@@ -329,25 +319,17 @@ bool init(const char* title) {
     // output size is what keeps the text crisp.
     SDL_SetRenderDrawBlendMode(gRenderer, SDL_BLENDMODE_BLEND);
 
-    // DejaVu Sans Mono, bundled next to the exe so the build is self-contained
-    // and legally redistributable on every platform (its license permits that;
-    // Consolas, which this used to ship, does not). It also has the tightest
-    // line spacing of the candidates that carry the block-drawing glyphs the
-    // HP and armor bars need - worth ~6 extra rows, which this layout spends
-    // on a larger battle scene. The system paths below are only a fallback for
-    // a build whose assets folder went missing.
+    // DejaVu Sans Mono, bundled so the build is self-contained and free to
+    // redistribute; it has the block glyphs the bars need. The system paths
+    // below are only a fallback.
     const std::string base = Audio::dataDir();
-    // The bundled face, looked for everywhere it could be. Audio::dataDir()
-    // already knows about the macOS bundle, but a .app that was rearranged or
-    // half-unpacked can still put it beside the executable instead, and the
-    // game must not die because one of two folders was empty.
+    // Looked for in every folder a rearranged .app could leave it in.
     std::vector<std::string> tried;
     for (const std::string& dir : { base, Audio::exeDir(), Audio::exeDir() + "../Resources/" })
         tried.push_back(dir + "assets/DejaVuSansMono.ttf");
-    // Then the system faces, per platform. The old macOS entry pointed at
-    // /Library/Fonts/Menlo.ttc, which Catalina stopped shipping: on any Mac
-    // since, a missing bundled font meant no font at all, and the window
-    // closed the moment it opened.
+    // Then the system faces, per platform. Menlo lives under /System/Library
+    // on macOS: /Library/Fonts/Menlo.ttc is gone since Catalina, and a missing
+    // font leaves the window with nothing to draw.
     for (const char* p : {
             "/System/Library/Fonts/Menlo.ttc",
             "/System/Library/Fonts/SFNSMono.ttf",
@@ -358,12 +340,8 @@ bool init(const char* title) {
             "C:/Windows/Fonts/consola.ttf" })
         tried.push_back(p);
 
-    // Now that the process is DPI-aware, the window is handed real physical
-    // pixels instead of a stretched virtual surface - so a fixed point size
-    // renders physically smaller the higher the display's scaling is set. A
-    // DPI-aware app has to do the scaling itself, which is what this does:
-    // 19 logical px multiplied up by the display's scale factor, so the text
-    // is the same physical size at 100%, 125% or 150% - just sharp now.
+    // DPI-aware, so the font is scaled here: 19 logical px times the display's
+    // scale factor, the same physical size at any scaling.
     float dpiScale = 1.0f;
     {
         float ddpi = 0, hdpi = 0, vdpi = 0;
@@ -390,8 +368,7 @@ bool init(const char* title) {
     }
     Audio::logLaunch(gFontPath.empty() ? "fonts: none opened" : "fonts: using " + gFontPath);
     if (gFontPath.empty()) {
-        // Say so. This used to close the window with nothing on screen and
-        // nothing in any log the player would ever see.
+        // Say so, rather than closing the window with nothing on screen.
         std::string msg = "Moonstruck could not open a monospace font.\n\nIt looked in:\n";
         for (const std::string& p : tried) msg += "  " + p + "\n";
         msg += "\nThe game ships its own font in assets/. If you moved the app's files "
@@ -478,20 +455,12 @@ void frame() {
     gLastFrame = SDL_GetTicks();
 }
 
-// Combat pacing. The terminal build got its rhythm partly for free: a battle
-// redraw cost tens of milliseconds through the Windows console. Those writes
-// are nearly free here, so the same pause() values play back quicker.
-//
-// pause() and EnemyArt::hold() both route through delay(), so scaling here
-// keeps every authored duration in proportion. typeWrite() runs off its own
-// clock and is left alone - typing speed should not move when this is retuned.
-//
-// Raise to slow combat down. 150 is the authored rhythm and the default the
-// Settings screen calls "Normal"; the screen moves this, nothing else does.
+// Combat pacing: pause() and EnemyArt::hold() route through delay(), which
+// scales by this; typeWrite() keeps its own clock. 150 is the authored
+// rhythm, "Normal" on the Settings screen. Higher is slower.
 static int gPacePercent = 150;
 
 void setPacePercent(int pct) { gPacePercent = pct < 10 ? 10 : (pct > 300 ? 300 : pct); }
-int  pacePercent() { return gPacePercent; }
 
 void delay(int ms) {
     if (ms <= 0) { frame(); return; }
@@ -505,17 +474,6 @@ KeyEvent pollKey() {
     KeyEvent k = gKeys.front();
     gKeys.pop_front();
     return k;
-}
-
-KeyEvent waitKey() {
-    while (true) {
-        if (!gKeys.empty()) {
-            KeyEvent k = gKeys.front();
-            gKeys.pop_front();
-            return k;
-        }
-        frame();
-    }
 }
 
 void flushKeys() { gKeys.clear(); gHasClick = false; gMouseDown = false; }

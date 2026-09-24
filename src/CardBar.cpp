@@ -18,19 +18,13 @@ int gEnergy = 0, gEnergyMax = 0;
 // with it, and needs to know not to apply hand-only styling there.
 bool gGridActive = false;
 
-// Layout is derived from the console cell so the hand scales with the font -
-// the same way everything else in this build does.
-// Rows withheld for the hand. Derived rather than fixed: a fullscreen window
-// has plenty to spare and fixed rows left the cards looking lost in it, while a
-// small window cannot afford many at all.
-// Measured against the whole window, not the rows left after the battle scene
-// has taken its share - that is why the hand stayed small on a fullscreen
-// display no matter how much empty space was below it. The text card list is
-// gone now that the widgets replace it, so those rows are free.
+// Rows kept for the hand, a share of the whole window rather than of what
+// the battle scene leaves.
 int handRowsFor(int totalRows) {
     return std::max(9, std::min(17, (totalRows * 30) / 100));
 }
 
+// Derived from the console cell, so the hand scales with the font.
 struct Layout {
     int energyW = 0;   // reserved gutter on the left for the pips
     SDL_Rect band{ 0,0,0,0 };
@@ -71,8 +65,7 @@ Layout compute(int nCards, int nActions) {
     L.energyW = gEnergyMax > 0 ? 7 * std::max(1, Platform::cellW()) : 0;
     const int usable  = L.band.w - actionW - L.energyW - 24;
 
-    // Width follows the band height at a card-like aspect. The old fixed 140px
-    // cap is why the hand looked lost on a fullscreen display.
+    // Width follows the band height at a card-like aspect.
     L.ch = L.band.h - 14;
     L.cw = (int)(L.ch * 0.74f);
     const int fitByWidth = nCards ? (usable / std::max(1, nCards)) - 12 : L.cw;
@@ -80,11 +73,8 @@ Layout compute(int nCards, int nActions) {
     L.gap = std::max(6, L.cw / 9);
     L.step = L.cw + L.gap;
     int total = nCards * L.cw + std::max(0, nCards - 1) * L.gap;
-    // Endurance stacks, so a hand of ten or more is reachable, and below the
-    // 58px floor a card is no longer readable anyway. Past that point the hand
-    // overlaps like a held fan instead of running off the right edge: every
-    // card keeps a visible strip, and the one under the cursor is drawn last
-    // and raised, so it is fully readable.
+    // A hand of ten or more (Endurance stacks) would shrink cards below the 58px
+    // floor, so past that they overlap like a held fan, the hovered one raised.
     if (nCards > 1 && total > usable) {
         L.step = std::max(L.cw / 4, (usable - L.cw) / (nCards - 1));
         total  = L.cw + (nCards - 1) * L.step;
@@ -144,10 +134,7 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     const SDL_Color dim{ 150, 150, 168, 255 };
     const SDL_Color gold{ 232, 196, 84, 255 };
 
-    // Two passes so the selected card is painted last. On a hand wide enough to
-    // overlap, the card under the cursor would otherwise be half-covered by its
-    // right-hand neighbour, and even in a spaced row this keeps a neighbour from
-    // clipping the selection glow.
+    // Two passes, so the selected card and its glow are painted over its neighbours.
     const size_t nDraw = std::min(cards.size(), rects.size());
     for (size_t pass = 0; pass < 2; pass++)
     for (size_t i = 0; i < nDraw; i++) {
@@ -245,12 +232,9 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         const std::string num = std::to_string(c.cost);
         int bw = (longForm ? (5 + (int)num.size()) : (int)num.size()) * cellW + 12;
         SDL_Rect badge{ q.x + 7, q.y + q.h - bh - 8, std::min(room, bw), bh };
-        // A card you cannot pay for says so on the badge. Greying the whole
-        // card told you it was unavailable but not why.
-        // Only in the hand. drawCards is shared with the full-screen picker,
-        // where energy means nothing - a reward you are choosing to OWN is not
-        // unaffordable, and the leftover figure from the last turn made cards
-        // look barred on the reward, forge and deck screens.
+        // A card you cannot pay for says so on its cost badge. Hand only: energy
+        // means nothing in the full-screen picker, and last turn's figure would mark
+        // rewards as unaffordable.
         const bool tooDear = !gGridActive && gEnergyMax > 0 && c.cost > gEnergy;
         fillR(r, badge, tooDear ? SDL_Color{ 58, 26, 26, 255 } : badgeBg);
         frameR(r, badge, tooDear ? SDL_Color{ 176, 68, 60, 255 } : badgeLn);

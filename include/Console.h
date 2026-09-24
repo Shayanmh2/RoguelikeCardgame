@@ -5,15 +5,8 @@
 #include <string>
 #include <vector>
 
-// A virtual terminal.
-//
-// Game.cpp is unchanged from the terminal build: it still writes colored text
-// with std::cout and ANSI escapes. Rather than rewrite ~3400 lines of game
-// logic into a retained-mode UI (which is how the earlier hand-transcribed
-// Battle.cpp drifted out of sync with the original), std::cout is redirected
-// into this grid, the escapes are parsed into per-cell colors, and the grid is
-// drawn with SDL_ttf. The game's own text layout and color choices survive
-// exactly as authored.
+// A virtual terminal: std::cout is redirected into this grid, ANSI escapes
+// become per-cell colours, and the grid is drawn with SDL_ttf.
 namespace Console {
 
 struct Cell {
@@ -81,8 +74,8 @@ void drawTextTitlePx(SDL_Renderer* r, int x, int y, const std::string& text, SDL
 int  dispCellW();
 int  titleCellW();
 
-// The palette the ANSI codes resolve to - Campbell for 0-15, xterm cube above.
-// Widgets use it so a card name is the same colour the terminal build printed.
+// The palette the ANSI codes resolve to: Campbell for 0-15, the xterm cube
+// above. Widgets use it so a card name matches the colour the log prints.
 SDL_Color xterm256Public(int n);
 
 // --- rendering ---

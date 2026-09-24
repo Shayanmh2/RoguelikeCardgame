@@ -4,16 +4,12 @@
 #include <sstream>
 #include <algorithm>
 
-// Upgrades and rarity scale the per-tick damage (the amount passed to apply()),
-// never the duration. The durations below are what give each effect its shape,
-// and they are budgeted so all three deal the same total for a card value V:
-//
-//   Poison  V/2 per turn  x 6 turns  = 3V
-//   Burn    1.5V per turn x 2 turns  = 3V
-//   Rend    V per swing   x 3 swings = 3V, if the enemy keeps swinging
-//
-// Changing a duration here without changing the matching multiplier in apply()
-// silently rebalances every card that applies it.
+// Upgrades scale the per-tick damage, never the duration. The durations are
+// budgeted so each effect deals 3V in total for a card value V:
+//   Poison  V/2 per turn  x 6 turns
+//   Burn    1.5V per turn x 2 turns
+//   Rend    V per swing   x 3 swings, if the enemy keeps swinging
+// Change a duration here and its multiplier in apply() together.
 static const int POISON_DURATION     = 6;
 static const int POISON_MAX_DURATION = 12;
 static const int BURN_DURATION       = 2;
@@ -54,11 +50,8 @@ void StatusEffects::apply(StatusType type, int amount, double weakMultiplier, do
             stun = 1; // always exactly 1 turn, never stacks
             break;
         case StatusType::WEAK:
-            // NOTE: `amount` is deliberately unused here - Weak always runs for
-            // WEAK_DURATION. Callers that passed a turn count in it (and card
-            // text that copied the number) have been wrong twice now.
-            // Reapplying keeps whichever is stronger rather than stacking - a
-            // fresh Weaken shouldn't water down an active Sunder, and vice versa.
+            // `amount` is unused: Weak always runs WEAK_DURATION. Reapplying keeps the
+            // stronger multiplier, so a fresh Weaken never waters down an active Sunder.
             weakMult  = (weakTurns > 0) ? std::max(weakMult, weakMultiplier) : weakMultiplier;
             weakTurns = WEAK_DURATION;
             break;

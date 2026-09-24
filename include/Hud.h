@@ -3,9 +3,8 @@
 
 #include <string>
 
-// The combat status panel. Same information Game.cpp used to print as a text
-// header, drawn with real geometry instead: a text bar is only ever as smooth
-// as its character cell, and it cannot animate.
+// The combat status panel, drawn with real geometry so the bars are smooth
+// and can animate.
 namespace Hud {
 
 struct State {

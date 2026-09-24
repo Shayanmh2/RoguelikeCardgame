@@ -64,10 +64,7 @@ std::string Audio::dataDir() {
         const std::string exe = exeDir();
         std::error_code ec;
         if (inAppBundle(exe)) {
-            // Either layout: Contents/Resources is where the bundle puts data
-            // now, Contents/MacOS is where older bundles kept it. Accepting
-            // both means a binary and a bundle built at different times still
-            // find the game's files instead of starting with nothing.
+            // Either layout: Contents/Resources now, Contents/MacOS in older bundles.
             const std::string res = exe.substr(0, exe.size() - 6) + "Resources/";   // "MacOS/"
             if (std::filesystem::exists(res + "assets", ec)) return res;
             if (std::filesystem::exists(exe + "assets", ec)) return exe;
@@ -118,8 +115,8 @@ std::string Audio::saveDir() {
             }
         }
         // Its own folder, rather than loose beside the exe and the asset
-        // directories. If it cannot be made (a read-only install, say), fall
-        // back to the old location rather than failing to save at all.
+        // directories. If it cannot be made (a read-only install, say), fall back
+        // to the exe's own folder rather than failing to save at all.
         const std::string d = exe + "saves/";
         std::error_code ec;
         std::filesystem::create_directories(d, ec);
@@ -143,11 +140,8 @@ std::string Audio::saveDir() {
 }
 
 void Audio::init() {
-    // Every sound this game ships is an mp3. This static build has minimp3
-    // compiled in, so decoding measurably works without Mix_Init - but that is a
-    // property of how SDL2_mixer happens to be configured here, not a guarantee.
-    // A build that loads its codecs dynamically needs this call, so ask for the
-    // formats explicitly and report if one is genuinely unavailable.
+    // Every sound is an mp3. The static build decodes without Mix_Init, but a
+    // build with dynamically loaded codecs needs it, so ask for the formats.
     const int want = MIX_INIT_MP3 | MIX_INIT_OGG;
     const int got  = Mix_Init(want);
     if ((got & MIX_INIT_MP3) == 0)
@@ -161,13 +155,11 @@ void Audio::init() {
     std::cerr << "Audio: Mix_OpenAudio failed on the default driver ("
               << SDL_GetCurrentAudioDriver() << "): " << Mix_GetError() << "\n";
 
-    // SDL picks WASAPI first on Windows and it does fail on real machines:
-    // exclusive-mode devices, odd virtual endpoints, no endpoint attached.
-    // Older backends usually still reach the device, so walk them rather than
-    // run silent. Each attempt tears the subsystem down and back up, since the
-    // driver is read from the environment at init.
-    //
-    // If the user pinned SDL_AUDIODRIVER themselves, leave it.
+    // SDL tries WASAPI first on Windows, and it does fail on real machines
+    // (exclusive-mode devices, odd virtual endpoints, nothing attached), so walk
+    // the older backends rather than run silent. Each attempt restarts the
+    // subsystem, since the driver is read at init. A user-pinned
+    // SDL_AUDIODRIVER is left alone.
     if (SDL_getenv("SDL_AUDIODRIVER") != nullptr) return;
 
     for (const char* drv : { "directsound", "winmm", "wasapi", "dsp" }) {

@@ -29,11 +29,9 @@ private:
 public:
     StatusEffects();
 
-    // amount is a duration (in turns) for WEAK/STRENGTH, a flat per-turn damage
-    // contribution for POISON/BURN (duration is fixed, see .cpp), and ignored for
-    // STUN (always exactly 1 turn, never stacks). weakMultiplier/strengthMultiplier
-    // only matter for WEAK/STRENGTH respectively - reapplying while already active
-    // keeps whichever is stronger rather than stacking.
+    // amount is per-tick damage for POISON and BURN (per swing for REND), turns
+    // for STRENGTH, and ignored for WEAK (always WEAK_DURATION) and STUN (1 turn).
+    // Reapplying Weak or Strength keeps the stronger multiplier.
     void apply(StatusType type, int amount, double weakMultiplier = 1.5, double strengthMultiplier = 1.2);
     // Deepens what is already applied, past the usual caps: Poison lasts
     // `extra` more turns, Burn ticks `extra` harder, Rend gains `extra`
