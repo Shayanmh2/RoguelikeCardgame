@@ -335,7 +335,7 @@ const NamedEntry NAMED_TABLE[] = {
     {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass"},
     {"Moonstruck Weaver","moon_weaver"}, {"Moonstruck Beguiler","moon_beguiler"},
     {"Moonstruck Gorgon","moon_gorgon"}, {"Moonstruck Templar","moon_templar"},
-    {"Moonstruck","beast_Moonstruck"},
+    {"Moonstruck","moon_werewolf"},
     {"Skeleton","undead_skeleton"}, {"Ghoul","undead_ghoul"}, {"Wraith","undead_wraith"},
     {"Specter","undead_specter"}, {"Banshee","undead_banshee"}, {"Revenant","undead_revenant"},
     {"Lich","undead_lich"},
