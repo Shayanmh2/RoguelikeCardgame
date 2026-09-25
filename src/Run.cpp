@@ -79,7 +79,12 @@ int Run::getEnemyAttack() const {
 int Run::getEnemyDefense() const {
     // Every 7 encounters, not 5. Defense is subtracted per hit, so it bites hardest
     // on the cheap cards a three-card turn relies on.
-    return 2 + (scaledEncounter() - 1) / 7;
+    const int base = 2 + (scaledEncounter() - 1) / 7;
+    // From the lake on it climbs a point faster every 3 encounters, or a late
+    // deck's hits walk straight through it. Counted on the run's own encounter,
+    // so Hard gets the same climb on top of its head start.
+    const int past = cyclePos(currentEncounter) - 30;
+    return base + (past > 0 ? past / 3 : 0);
 }
 
 bool Run::isBossEncounter() const {

@@ -178,8 +178,18 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
             ty = q.y + pad + 8 + Platform::cellH() * 2;
         }
         if (!c.elemTag.empty()) {
-            Console::drawTextPx(r, q.x + pad, ty, clip(c.elemTag),
-                                c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 }, true);
+            // Tags that do not fit side by side stack, split between the
+            // brackets: clipped, "[Pierce][Poison]" lost its closing bracket.
+            const SDL_Color tagCol = c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 };
+            std::string tag = c.elemTag;
+            while ((int)tag.size() > gridFit && gridFit > 1) {
+                const size_t cut = tag.rfind("][", (size_t)gridFit - 1);
+                if (cut == std::string::npos) break;
+                Console::drawTextPx(r, q.x + pad, ty, tag.substr(0, cut + 1), tagCol, true);
+                ty += Platform::cellH();
+                tag = tag.substr(cut + 1);
+            }
+            Console::drawTextPx(r, q.x + pad, ty, clip(tag), tagCol, true);
             ty += Platform::cellH();
         }
         // Wrapped on word boundaries down the card's free space, rather than cut
@@ -760,8 +770,42 @@ void showDetail(const Card& c, const std::string& description,
     const int cw = std::max(1, Platform::cellW());
     const int ch = std::max(1, Platform::cellH());
 
+    // The row under the name, each item with the spaces after it. Measured
+    // before the panel is sized: a twice-forged card with two damage tags ran
+    // "upgraded ++" out past the frame.
+    struct Tag { std::string text; SDL_Color col; int gap; };
+    std::vector<Tag> tags{ { typeLabel, c.tint, 2 } };
+    // The bracketed tag only when it adds something: "RELIC [RELIC]" said
+    // the same word twice.
+    if (!c.elemTag.empty() && c.elemTag != "[" + typeLabel + "]")
+        tags.push_back({ c.elemTag, SDL_Color{ 249,241,165,255 }, 2 });
+    if (!rarityLabel.empty()) tags.push_back({ rarityLabel, c.nameColor, 3 });
+    if (upgrades > 0)
+        tags.push_back({ "upgraded " + std::string((size_t)upgrades, '+'), SDL_Color{ 166,226,46,255 }, 0 });
+    int tagCols = 0;
+    for (size_t i = 0; i < tags.size(); i++)
+        tagCols += (int)tags[i].text.size() + (i + 1 < tags.size() ? tags[i].gap : 0);
+
+    // Wide enough for that row and for the name beside its cost badge, as far
+    // as the window allows.
+    const int badgeW = c.item ? 0 : (5 + (int)std::to_string(c.cost).size()) * cw + 12 + cw * 2;
+    const int needW  = std::max(tagCols * cw, (int)c.name.size() * Console::bigCellW() + badgeW) + cw * 4;
+    const int panelW = std::min(std::max({ 320, std::min(560, Platform::screenW() / 3), needW }),
+                                Platform::screenW() - cw * 4);
+
+    // A window too narrow for the row on one line wraps it, a whole item at a time.
+    std::vector<std::vector<size_t>> tagRows(1);
+    {
+        const int room = (panelW - cw * 4) / cw;
+        int used = 0;
+        for (size_t i = 0; i < tags.size(); i++) {
+            if (used > 0 && used + (int)tags[i].text.size() > room) { tagRows.emplace_back(); used = 0; }
+            tagRows.back().push_back(i);
+            used += (int)tags[i].text.size() + tags[i].gap;
+        }
+    }
+
     // Wrap the description to the panel, on word boundaries.
-    const int panelW = std::max(320, std::min(560, Platform::screenW() / 3));
     const int textCols = std::max(12, (panelW - 6 * cw) / cw);
     std::vector<std::string> lines;
     {
@@ -783,7 +827,8 @@ void showDetail(const Card& c, const std::string& description,
     // more padding: at a flat ch per line the text was set solid and read
     // as a block rather than as sentences.
     const int lineH = (ch * 29) / 20;
-    const int panelH = lineH * (int)lines.size() + ch * 7 + 28;
+    const int panelH = lineH * (int)lines.size() + ch * 7 + 28
+                     + ((int)tagRows.size() - 1) * (ch + 2);
     SDL_Rect panel{ (Platform::screenW() - panelW) / 2,
                     std::max(20, (Platform::screenH() - panelH) / 2 - ch * 2),
                     panelW, panelH };
@@ -817,21 +862,14 @@ void showDetail(const Card& c, const std::string& description,
         }
 
         y += Console::bigCellH() + 4;
-        Console::drawTextPx(r, x, y, typeLabel, c.tint, true);
-        int mx = x + ((int)typeLabel.size() + 2) * cw;
-        // The bracketed tag only when it adds something: "RELIC [RELIC]" said
-        // the same word twice.
-        if (!c.elemTag.empty() && c.elemTag != "[" + typeLabel + "]") {
-            Console::drawTextPx(r, mx, y, c.elemTag, SDL_Color{ 249,241,165,255 }, true);
-            mx += ((int)c.elemTag.size() + 2) * cw;
+        for (size_t row = 0; row < tagRows.size(); row++) {
+            int mx = x;
+            for (size_t ti : tagRows[row]) {
+                Console::drawTextPx(r, mx, y, tags[ti].text, tags[ti].col, true);
+                mx += ((int)tags[ti].text.size() + tags[ti].gap) * cw;
+            }
+            if (row + 1 < tagRows.size()) y += ch + 2;
         }
-        if (!rarityLabel.empty()) {
-            Console::drawTextPx(r, mx, y, rarityLabel, c.nameColor, true);
-            mx += ((int)rarityLabel.size() + 3) * cw;
-        }
-        if (upgrades > 0)
-            Console::drawTextPx(r, mx, y, "upgraded " + std::string((size_t)upgrades, '+'),
-                                SDL_Color{ 166,226,46,255 }, true);
 
         y += ch + 6;
         SDL_SetRenderDrawColor(r, tone(70).r, tone(70).g, tone(70).b, 255);
