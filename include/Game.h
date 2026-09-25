@@ -8,6 +8,7 @@
 #include "RunStats.h"
 #include "StatusEffect.h"
 #include "UpgradeSystem.h"
+#include "Hud.h"
 #include <vector>
 #include <functional>
 #include <iosfwd>
@@ -135,6 +136,9 @@ private:
     // Heads on the Hydra. It starts with two that bite, and every head it
     // grows back adds another to the same move, so mending is the threat.
     int  hydraHeads = 2;
+    // Heads cut off by a Pierce hit whose stumps are still open: Regrowth
+    // brings two back from each. A Fire hit sears them shut.
+    int  hydraStumps = 0;
     // Every Judgement the Paladin lands makes the next one worse.
     int  paladinJudgements = 0;
     // The true form answers your cards with the whole card, price included,
@@ -152,6 +156,7 @@ private:
     // do the same thing twice running.
     int  lastMoveRoll = -1;
     bool redThreadUsed = false;     // Red Thread: once a run
+    bool lastSaveByThread = false;  // the last lethal blow was caught by the Thread, not the boss save
     // Attacks played this turn: the Iron Sword and the Mythril Edge both act on
     // the first. openingAttack is true while that first attack resolves, since
     // the counter has already moved on by then.
@@ -312,7 +317,8 @@ private:
     // rakes with its claws, which means crossing the field to reach you.
     void  bossStrikesPlayer(int damage, bool raw, bool closeIn = false,
                             bool unstoppable = false); // shared boss-attack resolution (armor, Dodge Reversal/Parry interception, damage); unstoppable goes through all of it
-    bool  trySecondWind(); // clamps a lethal playerHealth to 1 and consumes bossSecondWindAvailable; false if already 0 or already used
+    bool  trySecondWind(); // catches a lethal blow: the boss save leaves 1 HP, the Red Thread half; false if neither is left
+    std::string savedLine(const char* bossSave) const; // what to say about the catch; bossSave is the 1 HP wording
     void  prepareShadowKnightMoves(); // Shadow Knight only: secretly pick up to 3 cards to mirror this turn
     void  executeShadowKnightMirror(const Card& mirrored); // plays out one mirrored card's effect against the player
     bool  trueFormMirror(const Card& mirrored, int atk, int v); // the true form's version of the cards the knight only half knew
@@ -370,6 +376,7 @@ public:
     void notice(const std::string& text);      // centred one line result screen
     bool confirm(const std::string& prompt);   // centred yes/no
     void syncHud();                  // push current combat state into the panel
+    Hud::State hudState() const;     // that state, read fresh; the panel pulls it every frame
     void handleInput();
     void displayActionLog() const;   // scrollable replay of this fight
 };

@@ -251,7 +251,7 @@ const Info INFO[COUNT] = {
     { "Bone Dice",             "reroll rewards",     "Once on each card reward after a fight, you can reroll the cards on offer.", false },
     { "Forge Hammer",          "forging heals",      "Forging a card at a rest site also heals 15% of your max HP.", false },
     { "Warden's Lantern",      "+8 armor to start",  "You start every fight with 8 armor.", false },
-    { "Red Thread",            "survive once",       "Once this run, a blow that would kill you leaves you at 1 HP instead.", false },
+    { "Red Thread",            "revive once",        "Once this run, a blow that would kill you brings you back at half your health instead.", false },
     { "Scholar's Lens",        "read its next move", "Regular enemies show their next move beside their health: their own move, or which of their basic moves.", false },
     { "Vigil Ember",           "+5% dmg per vigil",  "Your attacks deal 5% more for every vigil you have put out.", false },
     { "Moonlit Locket",        "??? twice as often", "Whatever it is that follows you turns up twice as often.", false },
@@ -727,11 +727,13 @@ void Game::displayEnemyInfo() const {
                 break;
             case BossType::HYDRA:
                 std::cout << "  " << Color::CARD_SPECIAL << "Venomous Bite" << Color::RESET << " (30%, Poison 5) - venom in the wound\n";
-                std::cout << "  " << Color::RED << "Many Heads" << Color::RESET << " (25%, " << atk
-                          << " dmg x" << hydraHeads << ") - one bite per head it still has\n";
+                std::cout << "  " << Color::RED << "Many Heads" << Color::RESET << " (25%, " << std::max(1, atk / 2)
+                          << " dmg x" << hydraHeads << ") - a half-weight bite per head it has\n";
                 std::cout << "  " << Color::RED << "Bite" << Color::RESET << " (25%, " << atk << " dmg) - a direct attack\n";
-                std::cout << "  " << Color::HEAL << "Regrowth" << Color::RESET << " (20%, heals 18) - two grow back: +1 head, up to "
-                          << HYDRA_HEADS_MAX << "\n";
+                std::cout << "  " << Color::HEAL << "Regrowth" << Color::RESET << " (20%, heals 18) - two heads from every open stump,"
+                          << " else one new head; up to " << HYDRA_HEADS_MAX << "\n";
+                std::cout << "  " << Color::DIM << "Your Pierce hits cut a head off. A Fire hit sears the stumps"
+                          << " shut, so nothing grows back from them." << Color::RESET << "\n";
                 break;
             case BossType::DRAGON:
                 std::cout << "  " << Color::RED << "Cursed Bite" << Color::RESET << " (30%, " << atk
@@ -888,7 +890,8 @@ void Game::displayEnemyInfo() const {
                     break;
                 case EnemyType::CASTER:
                     if (enemy.getHealth() < enemy.getMaxHealth() / 3) {
-                        line(Color::HEAL, "Heal", tag(sig(60), "~" + std::to_string(8 + def / 2) + " HP"), "it is below a third of its HP.");
+                        const int mend = nameHas("Wizard") ? 3 : 8 + def / 2;
+                        line(Color::HEAL, "Heal", tag(sig(60), "~" + std::to_string(mend) + " HP"), "it is below a third of its HP.");
                         line(Color::RED, "Attack", tag(sig(40), dmg(atk + 1)), "a plain cast.");
                     } else {
                         line(Color::CARD_SPECIAL, "Poison Bolt", tag(sig(40), "Poison 3"), "2 dmg a turn for 6 turns.");
@@ -936,6 +939,10 @@ void Game::displayEnemyInfo() const {
                     break;
                 case EnemyType::CASTER:
                     line(Color::RED, "Force bolt", tag(kitPct(45), dmg(atk)), "a plain cast.");
+                    if (nameHas("Wizard")) {   // no hex, and a small mend
+                        line(Color::HEAL, "Mend / brace", tag(kitPct(55), "~3 HP"), "heals when below half HP, else braces for " + armor(def) + ".");
+                        break;
+                    }
                     line(Color::WEAK_CLR, "Hex", tag(kitPct(30), "Weaken 2"), "a settling curse.");
                     line(Color::HEAL, "Mend / brace", tag(kitPct(25), "~" + std::to_string(6 + def) + " HP"), "heals when below half HP, else braces for " + armor(def) + ".");
                     break;
@@ -1131,6 +1138,24 @@ void Game::onPlayerHit(const Card& card, int hpLost) {
         std::cout << "  " << Color::HEAL << "The Ebon Blade drinks. +" << heal << " HP." << Color::RESET << "\n";
     }
     if (!enemy.isAlive()) return;
+    // The Hydra: a Pierce hit cuts a head off, down to one, and leaves the stump
+    // open; a Fire hit sears every open stump shut. Emberlance does both.
+    if (enemy.getBossType() == BossType::HYDRA) {
+        const bool cuts = card.getPhysType() == DamageType::PIERCE || card.getPhysType2() == DamageType::PIERCE;
+        if (cuts && hydraHeads > 1) {
+            hydraHeads--;
+            hydraStumps++;
+            std::cout << "  " << Color::CYAN << "You cut one of its heads off. It has " << hydraHeads
+                      << " left." << Color::RESET << "\n";
+        }
+        if (card.getElemType() == DamageType::FIRE && hydraStumps > 0) {
+            std::cout << "  " << Color::BURN_CLR
+                      << (hydraStumps == 1 ? "The fire sears the stump shut. Nothing will grow back from it."
+                                           : "The fire sears the stumps shut. Nothing will grow back from them.")
+                      << Color::RESET << "\n";
+            hydraStumps = 0;
+        }
+    }
     if (wornWeapon == 1 && d100(gen) <= 15 && applyEnemyStatus(StatusType::POISON, 2))
         std::cout << "  " << Color::POISON_CLR << "Rust gets into the wound. Poison 2." << Color::RESET << "\n";
     const bool smash = card.getPhysType() == DamageType::SMASH || card.getPhysType2() == DamageType::SMASH;
@@ -1172,8 +1197,9 @@ std::string Game::lensIntent() const {
             if (enemyIsFlyer()) return r < 60 ? "Dive" : r < 85 ? "Wingbeat" : "Double rake";
             return r < 60 ? "Shot" : r < 85 ? "Weakening shot" : "Double shot";
         case EnemyType::CASTER:
-            return r < 45 ? "Force bolt" : r < 75 ? "Hex"
-                 : enemy.getHealth() < enemy.getMaxHealth() / 2 ? "Mend" : "Brace";
+            if (r < 45) return "Force bolt";
+            if (r < 75 && enemy.getName().find("Wizard") == std::string::npos) return "Hex";
+            return enemy.getHealth() < enemy.getMaxHealth() / 2 ? "Mend" : "Brace";
         case EnemyType::BEAST:  return r < 55 ? "Lunge" : (r < 85 && canBuff) ? "Frenzy" : "Brace";
         case EnemyType::UNDEAD: return r < 50 ? "Claw" : r < 80 ? "Grave rot" : "Knit";
         default:                return "";
@@ -1737,8 +1763,8 @@ void Game::playCardFromHand(int index) {
                         std::cout << "  " << Color::MAGENTA << "It sidesteps and turns your own blow on you: "
                                   << back << " damage. It takes " << quarter << "." << Color::RESET << "\n";
                         if (held)
-                            std::cout << "  " << Color::BOLD << Color::YELLOW << "You stay on your feet at 1 HP."
-                                      << Color::RESET << "\n";
+                            std::cout << "  " << Color::BOLD << Color::YELLOW
+                                      << savedLine("You stay on your feet at 1 HP.") << Color::RESET << "\n";
                         continue;
                     }
                     int hpBefore = enemy.getHealth();
@@ -2188,7 +2214,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
               << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
     if (savedByThread)
         std::cout << "  " << Color::BOLD << Color::YELLOW
-                  << "The Red Thread holds. You stay on your feet at 1 HP." << Color::RESET << "\n";
+                  << savedLine("You refuse to fall, and cling on at 1 HP.") << Color::RESET << "\n";
     UIHelper::pause(200);
 }
 
@@ -2500,21 +2526,24 @@ void Game::enemyTurn() {
                     if (playerHealth > 0) doAttack(std::max(1, atk / 2), true);
                 }
                 break;
-            case EnemyType::CASTER:
+            case EnemyType::CASTER: {
+                // The Wizard is the third fight: no hex, and a mend of 3.
+                const bool wizard = enemy.getName().find("Wizard") != std::string::npos;
                 if (r < 45) { themedGeneric("It hurls a bolt of raw force."); doAttack(atk, false); }
-                else if (r < 75) {
+                else if (r < 75 && !wizard) {
                     cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
                     applyPlayerStatus(StatusType::WEAK, 2);
                     Audio::playSFXPitched("special", 0.85f);
                     std::cout << Color::WEAK_CLR << "A hex settles over you. You are Weakened." << Color::RESET << "\n";
                     UIHelper::pause(150);
                 } else if (enemy.getHealth() < enemy.getMaxHealth() / 2) {
-                    int h = 6 + def;
+                    int h = wizard ? 3 : 6 + def;
                     enemy.heal(h);
                     std::cout << Color::HEAL << "It knits its wounds closed, healing " << h << " HP." << Color::RESET << "\n";
                     UIHelper::pause(150);
                 } else doDefend(def);
                 break;
+            }
             case EnemyType::BEAST:
                 if (r < 55) { themedGeneric("It lunges at you with teeth and claws."); doAttack(atk, false); }
                 else if (r < 85 && enemy.getBonusAttack() < 6) {
@@ -3029,7 +3058,7 @@ void Game::enemyTurn() {
             break;
         case EnemyType::CASTER:
             if (enemy.getHealth() < enemy.getMaxHealth() / 3 && roll < 60) {
-                int healAmt = 8 + (def / 2);
+                int healAmt = nameHas("Wizard") ? 3 : 8 + (def / 2);
                 enemy.heal(healAmt);
                 std::cout << "Enemy casts heal and recovers " << healAmt << " HP! ("
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << ")\n";
@@ -3079,7 +3108,9 @@ void Game::payPactOfRuin() {
     playerHealth = std::max(0, playerHealth - 6);
     std::cout << "  " << Color::DAMAGE << "The pact takes its 6 HP." << Color::RESET
               << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
-    if (playerHealth <= 0) trySecondWind();
+    if (playerHealth <= 0 && trySecondWind())
+        std::cout << "  " << Color::BOLD << Color::YELLOW
+                  << savedLine("You refuse to fall, and cling on at 1 HP.") << Color::RESET << "\n";
 }
 
 // Everything a drawback card took for the length of one fight comes back here.
@@ -3183,7 +3214,7 @@ void Game::endPlayerTurn() {
                       << playerHealth << Color::RESET << ")\n";
             if (trySecondWind())
                 std::cout << "  " << Color::BOLD << Color::YELLOW
-                          << "You refuse to fall! Clinging to 1 HP, you survive the poison!"
+                          << savedLine("You refuse to fall! Clinging to 1 HP, you survive the poison!")
                           << Color::RESET << "\n";
             UIHelper::pause(250);
         }
@@ -3197,7 +3228,7 @@ void Game::endPlayerTurn() {
                       << playerHealth << Color::RESET << ")\n";
             if (trySecondWind())
                 std::cout << "  " << Color::BOLD << Color::YELLOW
-                          << "You refuse to fall! Clinging to 1 HP, you survive the flames!"
+                          << savedLine("You refuse to fall! Clinging to 1 HP, you survive the flames!")
                           << Color::RESET << "\n";
             UIHelper::pause(250);
         }
@@ -3264,7 +3295,9 @@ void Game::endPlayerTurn() {
         EnemyArt::popNumber(squeeze, false, EnemyArt::PopKind::DAMAGE);
         std::cout << "  " << Color::MAGENTA << "The tentacles tighten: " << squeeze << " damage."
                   << Color::RESET << "\n";
-        trySecondWind();
+        if (trySecondWind())
+            std::cout << "  " << Color::BOLD << Color::YELLOW
+                      << savedLine("You refuse to fall, and cling on at 1 HP.") << Color::RESET << "\n";
         UIHelper::pause(200);
     }
     cardsPlayedThisTurn = 0; attacksPlayedThisTurn = 0;
@@ -3370,6 +3403,11 @@ bool Game::confirm(const std::string& prompt) {
 }
 
 void Game::syncHud() {
+    Hud::set(hudState());
+    Hud::setActive(true);
+}
+
+Hud::State Game::hudState() const {
         Hud::State h;
         h.turn = turnNumber;
         h.energy = playerEnergy; h.maxEnergy = maxEnergy;
@@ -3437,6 +3475,12 @@ void Game::syncHud() {
         if (enemyInvulnerable) etags += std::string(" ") + Color::CYAN + "[Phased: immune]" + Color::RESET;
         if (enemyReflectNext) etags += std::string(" ") + Color::MAGENTA + "[Reversal set]" + Color::RESET;
         if (enemyParryStance && enemy.isBoss()) etags += std::string(" ") + Color::MAGENTA + "[Parry stance]" + Color::RESET;
+        if (enemy.getBossType() == BossType::HYDRA) {
+            etags += std::string(" ") + Color::MAGENTA + "[" + std::to_string(hydraHeads) + " heads]" + Color::RESET;
+            if (hydraStumps > 0)
+                etags += std::string(" ") + Color::RED + "[" + std::to_string(hydraStumps)
+                       + (hydraStumps == 1 ? " open stump]" : " open stumps]") + Color::RESET;
+        }
         // Taunt and Fear both change what it is about to do, so each gets a short
         // readout; this row already carries every status.
         if (enemyTauntTurns > 0)
@@ -3459,8 +3503,7 @@ void Game::syncHud() {
         h.addName   = lichAddName;
         h.addHp     = lichAddHp;
         h.addMax    = lichAddMaxHp;
-        Hud::set(h);
-        Hud::setActive(true);
+        return h;
     }
 
 void Game::handleInput() {
@@ -3816,7 +3859,9 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         if (saved) {
             Audio::playSFX("special");
-            std::cout << "  " << Color::BOLD << Color::YELLOW << "You refuse to fall! Clinging to 1 HP, you survive the killing blow!" << Color::RESET << "\n";
+            std::cout << "  " << Color::BOLD << Color::YELLOW
+                      << savedLine("You refuse to fall! Clinging to 1 HP, you survive the killing blow!")
+                      << Color::RESET << "\n";
         }
     } else {
         int actual = std::max(0, damage - playerArmor);
@@ -3834,7 +3879,9 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
                   << playerHealth << "/" << maxPlayerHealth << Color::RESET << "\n";
         if (saved) {
             Audio::playSFX("special");
-            std::cout << "  " << Color::BOLD << Color::YELLOW << "You refuse to fall! Clinging to 1 HP, you survive the killing blow!" << Color::RESET << "\n";
+            std::cout << "  " << Color::BOLD << Color::YELLOW
+                      << savedLine("You refuse to fall! Clinging to 1 HP, you survive the killing blow!")
+                      << Color::RESET << "\n";
         }
     }
     if (weakMult < 1.0)
@@ -3843,19 +3890,29 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
 }
 
 bool Game::trySecondWind() {
+    lastSaveByThread = false;
     if (playerHealth > 0) return false;
     if (bossSecondWindAvailable) {
         bossSecondWindAvailable = false;
         playerHealth = 1;
         return true;
     }
-    // The Red Thread: once a run, any fight, any source.
+    // The Red Thread: once a run, any fight, any source, and it brings you
+    // back at half your health rather than hanging on at one.
     if (hasRelic(Relic::RED_THREAD) && !redThreadUsed) {
         redThreadUsed = true;
-        playerHealth = 1;
+        lastSaveByThread = true;
+        playerHealth = std::max(1, maxPlayerHealth / 2);
         return true;
     }
     return false;
+}
+
+std::string Game::savedLine(const char* bossSave) const {
+    if (lastSaveByThread)
+        return "The Red Thread pulls tight and hauls you back to your feet at "
+             + std::to_string(playerHealth) + " HP.";
+    return bossSave;
 }
 
 void Game::bossAction() {
@@ -4010,11 +4067,18 @@ void Game::bossAction() {
                 const int healAmt = 18;
                 enemy.heal(healAmt);
                 bossMend();
-                const bool grew = hydraHeads < HYDRA_HEADS_MAX;
-                if (grew) hydraHeads++;
+                // Two grow back from every open stump; with none open, one new
+                // head pushes through. Seared stumps stay shut.
+                const int  before  = hydraHeads;
+                const int  stumps  = hydraStumps;
+                hydraHeads  = std::min(HYDRA_HEADS_MAX, hydraHeads + (stumps > 0 ? 2 * stumps : 1));
+                hydraStumps = 0;
+                const bool grew = hydraHeads > before;
                 std::cout << Color::MAGENTA
-                          << (grew ? "Two grow back where one fell. The Hydra heals "
-                                   : "The stumps knit shut. The Hydra heals ")
+                          << (!grew       ? "It has no room for another head. The Hydra heals "
+                              : stumps > 1 ? "Two grow back where each one fell. The Hydra heals "
+                              : stumps == 1 ? "Two grow back where one fell. The Hydra heals "
+                                            : "A new head pushes out of its neck. The Hydra heals ")
                           << Color::HEAL << healAmt << " HP" << Color::RESET;
                 if (grew)
                     std::cout << Color::MAGENTA << ", and strikes with " << hydraHeads
@@ -4031,14 +4095,14 @@ void Game::bossAction() {
                     + " You gain " + Color::POISON_CLR + "Poison 5" + Color::RESET + "!\n");
                 UIHelper::pause(350);
             } else if (roll < 75) {
-                // One bite per head. Two is where it starts and five is where
-                // it ends, so a fight that lets it mend four times is a very
-                // different fight from one that does not.
+                // One bite per head, each at half weight: two heads land one
+                // full bite, five land two and a half. At full weight, five
+                // heads could take a whole health bar in one turn.
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Hydra lashes out with "
                     + std::to_string(hydraHeads) + " HEADS AT ONCE!" + Color::RESET + "\n");
                 UIHelper::pause(200);
                 for (int h = 0; h < hydraHeads && enemy.isAlive() && playerHealth > 0; ++h)
-                    doAttack(atk, false);
+                    doAttack(std::max(1, atk / 2), false);
             } else {
                 UIHelper::typeWrite(std::string(Color::MAGENTA) + "Hydra bites!" + Color::RESET + "\n");
                 UIHelper::pause(200);
@@ -5241,10 +5305,13 @@ void Game::startEncounter() {
 
     trueFormPhase = false;   // whatever rose last wave does not carry over
     hydraHeads = 2;          // and the Hydra starts every fight with two
+    hydraStumps = 0;         // and nothing cut yet
     paladinJudgements = 0;   // and the Paladin has not judged anyone yet
+    // The 1 HP save belongs to boss fights. Set either way, so a regular fight
+    // after a boss it was not spent on does not inherit it.
+    bossSecondWindAvailable = currentRun.isBossEncounter();
     if (currentRun.isBossEncounter()) {
         enemy = generateBossEnemy();
-        bossSecondWindAvailable = true;
     } else {
         int health  = sealScaled(currentRun.getEnemyHealth(), SEAL_HP_PCT);
         int attack  = sealScaled(currentRun.getEnemyAttack(), SEAL_ATK_PCT);
@@ -6337,7 +6404,7 @@ void Game::applyUpgrades() {
 // Each point of Luck adds this many percentage points to every roll in the
 // run. Kept in one place so "increases all odds" stays literally true rather
 // than something that has to be remembered at each call site.
-int Game::luckBonus() const { return runLuck * 2; }
+int Game::luckBonus() const { return runLuck * 3; }
 
 void Game::offerBoon() {
     UIHelper::clearScreen();
@@ -6353,7 +6420,7 @@ void Game::offerBoon() {
         return b;
     };
     std::vector<CardBar::Card> widgets{
-        boonCard("Fortune",   "+2% all rolls", "rarity, drops, every chance roll"),
+        boonCard("Fortune",   "+3% all rolls", "rarity, drops, every chance roll"),
         boonCard("Endurance", "+1 card/turn",  "every turn, for the rest of the run"),
         boonCard("Foresight", "+1 reward",     "one more card to choose from on every reward"),
         boonCard("Attunement","+8% elements",  "your elemental attacks land their status more often"),
@@ -6368,7 +6435,7 @@ void Game::offerBoon() {
     std::vector<CardBar::Action> acts{ CardBar::Action{ "Take none", "walk on empty-handed", false } };
     // The face only has room for a few words; this is what "+" shows.
     std::vector<std::string> details = {
-        "Every chance roll for the rest of this run is 2 percentage points kinder, "
+        "Every chance roll for the rest of this run is 3 percentage points kinder, "
         "including card rarity and reward drops. Stacks each time you take it.",
         "Draw one extra card at the start of every turn for the rest of this run.",
         "Every card reward screen offers one extra card to choose from for the rest of "
@@ -7393,6 +7460,8 @@ bool Game::mainMenuFlow() {
 void Game::run() {
     // Gear cards draw their sword or shield through the art layer.
     CardBar::setIconRenderer(&EnemyArt::drawItemIcon);
+    // The panel reads the fight live, so the bars move as blows land.
+    Hud::setSource([this] { return hudState(); });
     loadProgress();   // which roads this player has already earned
     loadSettings();   // and how they like it read to them
     init();

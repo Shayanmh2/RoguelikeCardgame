@@ -1,6 +1,7 @@
 #ifndef HUD_H
 #define HUD_H
 
+#include <functional>
 #include <string>
 
 // The combat status panel, drawn with real geometry so the bars are smooth
@@ -37,6 +38,9 @@ struct State {
 };
 
 void set(const State& s);
+// Read every frame while the panel is up, so health, armour and statuses move
+// the moment they change. The band keeps the size the last set() gave it.
+void setSource(const std::function<State()>& fn);
 
 // Damage the hovered card would take off the enemy, drawn as a pale bite
 // out of the end of its health bar. 0 clears it.

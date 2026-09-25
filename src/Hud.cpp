@@ -10,6 +10,7 @@ namespace Hud {
 namespace {
 
 State gState;
+std::function<State()> gSource;   // the live fight, read every frame
 int   gPreview = 0;   // hovered card's damage, drawn on the enemy bar
 bool  gActive = false;
 bool  gInstalled = false;
@@ -95,6 +96,15 @@ void ease(float& lag, float target, float dt) {
 
 void draw() {
     if (!gActive) return;
+    // Live, except the two fields that size the band: changing those here
+    // would move the log halfway through a frame, so they wait for set().
+    if (gSource) {
+        State s = gSource();
+        s.addActive = gState.addActive;
+        s.notice    = gState.notice;
+        if (s.enemyName != gState.enemyName) gEnemyLag = -1.0f;
+        gState = s;
+    }
     SDL_Renderer* r = Platform::renderer();
     SDL_Rect band = Console::hudRegion();
     if (band.h <= 0) return;
@@ -241,6 +251,8 @@ void set(const State& s) {
     // every update rather than only when the panel is switched on.
     if (gActive) Console::setHudRows(rowsNeeded());
 }
+
+void setSource(const std::function<State()>& fn) { gSource = fn; }
 
 void setPreview(int hpLoss) { gPreview = std::max(0, hpLoss); }
 
