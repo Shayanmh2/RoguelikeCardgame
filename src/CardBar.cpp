@@ -117,6 +117,91 @@ int  rad() { return std::max(4, Platform::cellH() / 3); }
 void fillR(SDL_Renderer* r, SDL_Rect q, SDL_Color c, Uint8 a = 255) { DrawUtil::fillRound(r, q, rad(), c, a); }
 void frameR(SDL_Renderer* r, SDL_Rect q, SDL_Color c) { DrawUtil::frameRound(r, q, rad(), c); }
 
+// Where a card's text has to stop: clear of the cost badge and the "+".
+int cardTextBottom(const SDL_Rect& q) {
+    return q.y + q.h - std::max(18, Platform::cellH() + 4) - 14;
+}
+
+// A card's text, top down: name, tags, effect, note. Returns the y the text
+// ended at, and only draws when asked, so the grid can measure every card
+// before it decides how big their pictures can be.
+int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
+    const SDL_Color dim{ 150, 150, 168, 255 };
+    const int pad = std::max(11, q.w / 12);
+    const int nameRoom = q.w - pad * 2;
+    const int gridFit = nameRoom / std::max(1, Platform::cellW());
+    auto clip = [&](std::string t) {
+        if ((int)t.size() > gridFit) t = t.substr(0, std::max(1, gridFit));
+        return t;
+    };
+    const SDL_Color nameCol = c.disabled ? dim : c.nameColor;
+    std::string nm = c.name;
+    int ty = q.y + pad + 8 + Console::bigCellH();
+    if ((int)nm.size() * Console::bigCellW() <= nameRoom) {
+        if (draw) Console::drawTextBigPx(r, q.x + pad, q.y + pad + 6, nm, nameCol, true);
+    } else if ((int)nm.size() <= gridFit) {
+        if (draw) Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm, nameCol, true);
+    } else {
+        // Too long even for the small face: wrap at a space rather than
+        // cutting it off. "Cracked Seal Fragment" read as "Cracked Seal Fr",
+        // and a thrice-forged card lost its pluses the same way.
+        size_t cut = nm.rfind(' ', (size_t)gridFit);
+        if (cut == std::string::npos || cut == 0) cut = (size_t)gridFit;
+        std::string rest = nm.substr(nm[cut] == ' ' ? cut + 1 : cut);
+        if (draw) {
+            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm.substr(0, cut), nameCol, true);
+            Console::drawTextPx(r, q.x + pad, q.y + pad + 8 + Platform::cellH(), clip(rest), nameCol, true);
+        }
+        ty = q.y + pad + 8 + Platform::cellH() * 2;
+    }
+    if (!c.elemTag.empty()) {
+        // Tags that do not fit side by side stack, split between the
+        // brackets: clipped, "[Pierce][Poison]" lost its closing bracket.
+        const SDL_Color tagCol = c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 };
+        std::string tag = c.elemTag;
+        while ((int)tag.size() > gridFit && gridFit > 1) {
+            const size_t cut = tag.rfind("][", (size_t)gridFit - 1);
+            if (cut == std::string::npos) break;
+            if (draw) Console::drawTextPx(r, q.x + pad, ty, tag.substr(0, cut + 1), tagCol, true);
+            ty += Platform::cellH();
+            tag = tag.substr(cut + 1);
+        }
+        if (draw) Console::drawTextPx(r, q.x + pad, ty, clip(tag), tagCol, true);
+        ty += Platform::cellH();
+    }
+    // Wrapped on word boundaries down the card's free space, rather than cut
+    // at its width.
+    int lineY = ty + 2;
+    const int textBottom = cardTextBottom(q);
+    auto drawWrapped = [&](const std::string& text, SDL_Color col) {
+        if (text.empty()) return;
+        std::string line;
+        size_t i3 = 0;
+        while (i3 <= text.size()) {
+            const size_t sp = text.find(' ', i3);
+            const std::string word = text.substr(i3, sp == std::string::npos ? std::string::npos : sp - i3);
+            const std::string cand = line.empty() ? word : line + " " + word;
+            if ((int)cand.size() > gridFit && !line.empty()) {
+                if (lineY > textBottom) return;
+                if (draw) Console::drawTextPx(r, q.x + pad, lineY, line, col, false);
+                lineY += Platform::cellH();
+                line = word;
+            } else {
+                line = cand;
+            }
+            if (sp == std::string::npos) break;
+            i3 = sp + 1;
+        }
+        if (!line.empty() && lineY <= textBottom) {
+            if (draw) Console::drawTextPx(r, q.x + pad, lineY, clip(line), col, false);
+            lineY += Platform::cellH();
+        }
+    };
+    drawWrapped(c.effect, dim);
+    drawWrapped(c.note, c.disabled ? dim : c.noteColor);
+    return lineY;
+}
+
 // Shared by the in-battle hand and the full-screen picker. They differ only in
 // where the rects are.
 void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
@@ -134,8 +219,20 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     const SDL_Color dim{ 150, 150, 168, 255 };
     const SDL_Color gold{ 232, 196, 84, 255 };
 
-    // Two passes, so the selected card and its glow are painted over its neighbours.
+    // One icon size for every card in the grid: the largest the most crowded
+    // one has room for. Sized card by card, a two-line name left one medal
+    // half the size of its neighbours.
     const size_t nDraw = std::min(cards.size(), rects.size());
+    int iconSz = 24 * 6;
+    for (size_t i = 0; i < nDraw; i++) {
+        if (cards[i].icon < 0) continue;
+        const SDL_Rect& q = rects[i];
+        const int room = cardTextBottom(q) - cardText(r, cards[i], q, false);
+        iconSz = std::min(iconSz, std::min(q.w - 2 * std::max(11, q.w / 12), room));
+    }
+    iconSz = iconSz / 24 * 24;
+
+    // Two passes, so the selected card and its glow are painted over its neighbours.
     for (size_t pass = 0; pass < 2; pass++)
     for (size_t i = 0; i < nDraw; i++) {
         const Card& c = cards[i];
@@ -152,86 +249,14 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         DrawUtil::fillRound(r, SDL_Rect{ q.x+3, q.y+3, q.w-6, std::max(4, rad()) },
                             rad()-1, c.tint, c.disabled ? 140 : 255);
 
-        const int pad = std::max(11, q.w / 12);
-        const int nameRoom = q.w - pad * 2;
-        const int gridFit = nameRoom / std::max(1, Platform::cellW());
-        auto clip = [&](std::string t) {
-            if ((int)t.size() > gridFit) t = t.substr(0, std::max(1, gridFit));
-            return t;
-        };
-        const SDL_Color nameCol = c.disabled ? dim : c.nameColor;
-        std::string nm = c.name;
-        int ty = q.y + pad + 8 + Console::bigCellH();
-        if ((int)nm.size() * Console::bigCellW() <= nameRoom) {
-            Console::drawTextBigPx(r, q.x + pad, q.y + pad + 6, nm, nameCol, true);
-        } else if ((int)nm.size() <= gridFit) {
-            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm, nameCol, true);
-        } else {
-            // Too long even for the small face: wrap at a space rather than
-            // cutting it off. "Cracked Seal Fragment" read as "Cracked Seal Fr",
-            // and a thrice-forged card lost its pluses the same way.
-            size_t cut = nm.rfind(' ', (size_t)gridFit);
-            if (cut == std::string::npos || cut == 0) cut = (size_t)gridFit;
-            Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm.substr(0, cut), nameCol, true);
-            std::string rest = nm.substr(nm[cut] == ' ' ? cut + 1 : cut);
-            Console::drawTextPx(r, q.x + pad, q.y + pad + 8 + Platform::cellH(), clip(rest), nameCol, true);
-            ty = q.y + pad + 8 + Platform::cellH() * 2;
-        }
-        if (!c.elemTag.empty()) {
-            // Tags that do not fit side by side stack, split between the
-            // brackets: clipped, "[Pierce][Poison]" lost its closing bracket.
-            const SDL_Color tagCol = c.disabled ? dim : SDL_Color{ 249, 241, 165, 255 };
-            std::string tag = c.elemTag;
-            while ((int)tag.size() > gridFit && gridFit > 1) {
-                const size_t cut = tag.rfind("][", (size_t)gridFit - 1);
-                if (cut == std::string::npos) break;
-                Console::drawTextPx(r, q.x + pad, ty, tag.substr(0, cut + 1), tagCol, true);
-                ty += Platform::cellH();
-                tag = tag.substr(cut + 1);
-            }
-            Console::drawTextPx(r, q.x + pad, ty, clip(tag), tagCol, true);
-            ty += Platform::cellH();
-        }
-        // Wrapped on word boundaries down the card's free space, rather than cut
-        // at its width.
-        int lineY = ty + 2;
-        const int textBottom = q.y + q.h - std::max(18, Platform::cellH() + 4) - 14;
-        auto drawWrapped = [&](const std::string& text, SDL_Color col) {
-            if (text.empty()) return;
-            std::string line;
-            size_t i3 = 0;
-            while (i3 <= text.size()) {
-                const size_t sp = text.find(' ', i3);
-                const std::string word = text.substr(i3, sp == std::string::npos ? std::string::npos : sp - i3);
-                const std::string cand = line.empty() ? word : line + " " + word;
-                if ((int)cand.size() > gridFit && !line.empty()) {
-                    if (lineY > textBottom) return;
-                    Console::drawTextPx(r, q.x + pad, lineY, line, col, false);
-                    lineY += Platform::cellH();
-                    line = word;
-                } else {
-                    line = cand;
-                }
-                if (sp == std::string::npos) break;
-                i3 = sp + 1;
-            }
-            if (!line.empty() && lineY <= textBottom) {
-                Console::drawTextPx(r, q.x + pad, lineY, clip(line), col, false);
-                lineY += Platform::cellH();
-            }
-        };
-        drawWrapped(c.effect, dim);
-        drawWrapped(c.note, c.disabled ? dim : c.noteColor);
+        const int lineY = cardText(r, c, q, true);
+        const int textBottom = cardTextBottom(q);
 
-        // The item's own picture, centred in what the text left free, at a
-        // whole multiple of the 24px art so it never blurs.
-        if (c.icon >= 0 && gIconRenderer) {
-            const int room = std::min(q.w - pad * 2, textBottom - lineY);
-            if (room >= 24) {
-                const int sz = std::min(room, 24 * 6) / 24 * 24;
-                SDL_Rect d{ q.x + (q.w - sz) / 2, lineY + (textBottom - lineY - sz) / 2 + 4, sz, sz };
-                gIconRenderer(r, c.icon, d);
-            }
+        // The item's own picture, centred in what the text left free, at the
+        // grid's one size and a whole multiple of the 24px art so it never blurs.
+        if (c.icon >= 0 && gIconRenderer && iconSz >= 24) {
+            SDL_Rect d{ q.x + (q.w - iconSz) / 2, lineY + (textBottom - lineY - iconSz) / 2 + 4, iconSz, iconSz };
+            gIconRenderer(r, c.icon, d);
         }
 
         const int cellW = std::max(1, Platform::cellW());

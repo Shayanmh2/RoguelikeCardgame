@@ -161,7 +161,7 @@
     },
     {
       "name": "Fear",
-      "description": "Frighten the enemy. For their next 2 turns they are far more likely to brace than to attack or cast. Useless against anything with no defensive move of its own, and like Taunt it fails one time in five.",
+      "description": "Frighten the enemy. For their next 2 turns they are far more likely to brace than to attack or cast; a boss, half as likely. Useless against anything with no defensive move of its own, and like Taunt it fails one time in five.",
       "type": "SPECIAL",
       "effect": "FEAR",
       "cost": 1,
@@ -582,7 +582,7 @@
     },
     {
       "name": "Pact of Ruin",
-      "description": "Deal 24 damage. For the rest of the encounter every attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card you play costs you 6 HP.",
+      "description": "Deal 24 damage. For the rest of the encounter every attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card you play costs you 2 HP.",
       "type": "ATTACK",
       "effect": "PACTRUIN",
       "cost": 3,

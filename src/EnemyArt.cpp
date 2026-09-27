@@ -3,6 +3,7 @@
 // durations; Platform::frame() draws it every frame.
 #include "EnemyArt.h"
 #include "ProjectileTable.h"
+#include "IntroTable.h"
 #include "Audio.h"
 #include "Console.h"
 #include "Platform.h"
@@ -645,10 +646,98 @@ int gSealFrame = -1;
 // -1 when the scene is not up.
 int gRestTier = -1;
 
+// The opening at the pond: which shot is up (-1: none), when it began, and
+// the last step whose sound has already played.
+int gIntroShot = -1;
+Uint32 gIntroStart = 0;
+int gIntroSounded = -1;
+
+// One image, frames in rows of IntroTable::COLUMNS. Loaded on first use and
+// kept: it is only wanted at the start of a run.
+SDL_Texture* introSheet() {
+    static SDL_Texture* tex = nullptr;
+    static bool tried = false;
+    if (tried) return tex;
+    tried = true;
+    int w = 0, h = 0, comp = 0;
+    const std::string path = basePath() + "assets/sprites/intro_scene.png";
+    unsigned char* data = stbi_load(path.c_str(), &w, &h, &comp, 4);
+    if (!data) return nullptr;
+    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormatFrom(data, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32);
+    if (surf) {
+        tex = SDL_CreateTextureFromSurface(Platform::renderer(), surf);
+        SDL_FreeSurface(surf);
+    }
+    stbi_image_free(data);
+    return tex;
+}
+
+const IntroTable::Shot& introShotDef() { return IntroTable::SHOT[gIntroShot]; }
+
+int introIntroMs() {
+    const IntroTable::Shot& s = introShotDef();
+    int ms = 0;
+    for (int i = 0; i < s.intro; i++) ms += IntroTable::STEPS[s.first + i].ms;
+    return ms;
+}
+
+// The step showing `elapsed` ms into the shot: its own steps once, then its
+// loop round and round.
+int introStepAt(Uint32 elapsed) {
+    const IntroTable::Shot& s = introShotDef();
+    Uint32 t = elapsed;
+    for (int i = 0; i < s.intro; i++) {
+        const Uint32 ms = (Uint32)IntroTable::STEPS[s.first + i].ms;
+        if (t < ms) return s.first + i;
+        t -= ms;
+    }
+    if (s.loop <= 0) return s.first + std::max(0, s.intro - 1);
+    Uint32 cycle = 0;
+    for (int i = 0; i < s.loop; i++) cycle += (Uint32)IntroTable::STEPS[s.first + s.intro + i].ms;
+    t %= std::max<Uint32>(1, cycle);
+    for (int i = 0; i < s.loop; i++) {
+        const Uint32 ms = (Uint32)IntroTable::STEPS[s.first + s.intro + i].ms;
+        if (t < ms) return s.first + s.intro + i;
+        t -= ms;
+    }
+    return s.first + s.intro;
+}
+
+// Whole multiples of the art, so it stays crisp: as big as fits in the top
+// of the window with room for the words under it.
+SDL_Rect introRect() {
+    const int W = Platform::screenW(), H = Platform::screenH();
+    const int scale = std::max(2, std::min(W * 80 / 100 / IntroTable::FRAME_W,
+                                           H * 64 / 100 / IntroTable::FRAME_H));
+    return SDL_Rect{ (W - IntroTable::FRAME_W * scale) / 2, H * 4 / 100,
+                     IntroTable::FRAME_W * scale, IntroTable::FRAME_H * scale };
+}
+
+void drawIntro(Uint32 now) {
+    SDL_Texture* tex = introSheet();
+    if (!tex) return;
+    const int step = introStepAt(now - gIntroStart);
+    // Sounds belong to the steps that play once; each is heard as its step
+    // comes up, and never again for the same showing.
+    const IntroTable::Shot& s = introShotDef();
+    for (int i = std::max(gIntroSounded + 1, (int)s.first); i <= step && i < s.first + s.intro; i++)
+        if (IntroTable::STEPS[i].sfx) Audio::playSFX(IntroTable::STEPS[i].sfx);
+    gIntroSounded = std::max(gIntroSounded, std::min(step, s.first + s.intro - 1));
+
+    const int frame = IntroTable::STEPS[step].frame;
+    const SDL_Rect src{ (frame % IntroTable::COLUMNS) * IntroTable::FRAME_W,
+                        (frame / IntroTable::COLUMNS) * IntroTable::FRAME_H,
+                        IntroTable::FRAME_W, IntroTable::FRAME_H };
+    const SDL_Rect dst = introRect();
+    SDL_RenderCopy(Platform::renderer(), tex, &src, &dst);
+}
+
 
 void drawOverlay() {
     SDL_Renderer* r = Platform::renderer();
     const Uint32 now = SDL_GetTicks();
+
+    if (gIntroShot >= 0) drawIntro(now);
 
     // The fire scene sits in the top of the screen and the words go under it.
     // One strip, three flame frames per armour, baked by
@@ -1072,10 +1161,45 @@ void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 void setSealFrame(int frame) { ensureInstalled(); gSealFrame = frame; }
 void setRestScene(int armorTier) { ensureInstalled(); gRestTier = armorTier; }
 
+void setIntroShot(int shot) {
+    ensureInstalled();
+    gIntroShot = (shot >= 0 && shot < IntroTable::SHOTS) ? shot : -1;
+    gIntroStart = SDL_GetTicks();
+    gIntroSounded = -1;
+}
+
+bool introSceneReady() { ensureInstalled(); return introSheet() != nullptr; }
+
+bool introShotPlaying() {
+    return gIntroShot >= 0 && SDL_GetTicks() - gIntroStart < (Uint32)introIntroMs();
+}
+
+void finishIntroShot() {
+    if (gIntroShot < 0) return;
+    gIntroStart = SDL_GetTicks() - (Uint32)introIntroMs();
+    const IntroTable::Shot& s = introShotDef();
+    gIntroSounded = s.first + s.intro - 1;
+}
+
+int introSceneBottom() {
+    const SDL_Rect d = introRect();
+    return d.y + d.h;
+}
+
 void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst) {
     (void)r;
+    if (index >= MEDAL_ICON0) { drawMedal(index - MEDAL_ICON0, dst); return; }
     ensureInstalled();
     blit(lib().items, index, dst, Tint{});
+}
+
+// Loaded on first use, like the wordmarks: the title screen's achievement list
+// can want one before any fight has loaded the library.
+void drawMedal(int frame, const SDL_Rect& dst) {
+    static Sheet medals;
+    static bool tried = false;
+    if (!tried) { tried = true; medals = loadSheet(basePath() + "assets/sprites/medals.png", 24); }
+    if (medals.ok()) blit(medals, frame, dst, Tint{});
 }
 
 // Loaded the first time something asks for it, and kept. These are not in

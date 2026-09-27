@@ -34,6 +34,7 @@ std::function<void()> gOverlayRenderer;
 std::function<void()> gHandRenderer;
 std::function<void()> gHudRenderer;
 std::function<void()> gModalRenderer;
+std::function<void()> gToastRenderer;
 SDL_Color gGround{ 13, 13, 15, 255 };
 
 // Font sizing state. The point size is not fixed: a short window has too few
@@ -446,6 +447,7 @@ void frame() {
     if (gOverlayRenderer) gOverlayRenderer();
     if (gHandRenderer) gHandRenderer();
     if (gModalRenderer) gModalRenderer();
+    if (gToastRenderer) gToastRenderer();
 
     SDL_RenderPresent(gRenderer);
 
@@ -500,6 +502,7 @@ void setOverlayRenderer(const std::function<void()>& fn) { gOverlayRenderer = fn
 void setHandRenderer(const std::function<void()>& fn) { gHandRenderer = fn; }
 void setHudRenderer(const std::function<void()>& fn) { gHudRenderer = fn; }
 void setModalRenderer(const std::function<void()>& fn) { gModalRenderer = fn; }
+void setToastRenderer(const std::function<void()>& fn) { gToastRenderer = fn; }
 
 SDL_Color groundTone(int luma) {
     float cur = std::max(1.0f, (gGround.r * 77 + gGround.g * 150 + gGround.b * 29) / 256.0f);

@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Achievements.h"
 #include "Audio.h"
 #include "Colors.h"
 #include "UIHelper.h"
@@ -661,6 +662,13 @@ void Game::displayPlayerInfo() const {
     // Named the way the encounter is named: it is still a secret.
     row("???       ", std::to_string(moonstruckMet) + " met this run");
 
+    head("ACHIEVEMENTS");
+    row("Earned    ", std::to_string(Achievements::earnedCount()) + " of "
+        + std::to_string((int)Achievements::COUNT) + ":  "
+        + std::to_string(Achievements::earnedCount(Achievements::BRONZE)) + " bronze, "
+        + std::to_string(Achievements::earnedCount(Achievements::SILVER)) + " silver, "
+        + std::to_string(Achievements::earnedCount(Achievements::GOLD)) + " gold");
+
     std::string now;
     auto add = [&](const std::string& t) { now += "    " + t + "\n"; };
     if (vulnerableTurns > 0)   add("Exposed: you take x" + std::to_string((int)(vulnerableMult * 100)) + "% damage until your next turn.");
@@ -669,7 +677,7 @@ void Game::displayPlayerInfo() const {
     if (cardSoftenPct > 0)     add("Your attacks deal " + std::to_string(cardSoftenPct) + "% less this turn.");
     if (energyDebt > 0)        add("You start next turn " + std::to_string(energyDebt) + " energy short.");
     if (cardLimitThisTurn > 0) add("Only " + std::to_string(std::max(0, cardLimitThisTurn - cardsPlayedThisTurn)) + " more card(s) this turn.");
-    if (pactOfRuinActive)      add("The Pact of Ruin: every card costs 6 HP, every attack festers.");
+    if (pactOfRuinActive)      add("The Pact of Ruin: every card costs 2 HP, every attack festers.");
     if (noHealThisEncounter)   add("You cannot heal until this fight ends.");
     if (extraTurnsPending > 0) add(std::to_string(extraTurnsPending) + " borrowed turn(s) to come, and a stun after each.");
     if (statusWardTurns > 0)   add("Status Guard: ailments blocked for " + std::to_string(statusWardTurns) + " more turn(s).");
@@ -844,7 +852,7 @@ void Game::displayEnemyInfo() const {
         else if (nameHas("Assassin")) {
             // Not a turn move: it fires during YOUR turn, so its turns use the
             // generic ranged moves listed with it.
-            line(Color::RED, "Ambush", "45% per card you play, " + dmg(atk), "once per turn, strikes from the shadows past half your armor.");
+            line(Color::RED, "Ambush", "45% per card you play, " + dmg(atk), "once per turn, strikes from the shadows.");
             named = false;
         }
         else if (nameHas("Falcon"))    line(Color::CYAN, "Gouge", tag(all, dmg(atk + 1)), "a wind-borne dive that rakes past half your armor.");
@@ -931,6 +939,12 @@ void Game::displayEnemyInfo() const {
                         line(Color::RED, "Dive", tag(kitPct(60), dmg(atk)), "comes in fast and is gone before Parry can answer.");
                         line(Color::WEAK_CLR, "Wingbeat", tag(kitPct(25), "Weaken 2"), "a gust in your face.");
                         line(Color::RED, "Double rake", tag(kitPct(15), dmg(std::max(1, atk / 2)) + " x2"), "two passes on a wingtip.");
+                        break;
+                    }
+                    if (nameHas("Assassin")) {   // thrown blades: armour stops them
+                        line(Color::RED, "Throw", tag(kitPct(60), dmg(atk)), "a blade from the dark.");
+                        line(Color::WEAK_CLR, "Weakening shot", tag(kitPct(25), "Weaken 2"), "clips your arm.");
+                        line(Color::RED, "Double throw", tag(kitPct(15), dmg(std::max(1, atk / 2)) + " x2"), "two blades, one after the other.");
                         break;
                     }
                     line(Color::RED, "Shot", tag(kitPct(60), dmg(atk)), "bypasses half your armor.");
@@ -1147,8 +1161,10 @@ void Game::onPlayerHit(const Card& card, int hpLost) {
             hydraStumps++;
             std::cout << "  " << Color::CYAN << "You cut one of its heads off. It has " << hydraHeads
                       << " left." << Color::RESET << "\n";
+            if (hydraHeads == 1) earn(Achievements::ONE_HEAD);
         }
         if (card.getElemType() == DamageType::FIRE && hydraStumps > 0) {
+            earn(Achievements::SEAR);
             std::cout << "  " << Color::BURN_CLR
                       << (hydraStumps == 1 ? "The fire sears the stump shut. Nothing will grow back from it."
                                            : "The fire sears the stumps shut. Nothing will grow back from them.")
@@ -1247,6 +1263,10 @@ void Game::offerRelic() {
         const Relic::Info& r = Relic::INFO[pool[choice]];
         if (!confirm(std::string("Take the ") + r.name + "? Relics last the whole run.")) continue;
         relicsOwned |= 1 << pool[choice];
+        earn(Achievements::RELIC);
+        int held = 0;
+        for (int i = 0; i < Relic::COUNT; i++) held += hasRelic(i) ? 1 : 0;
+        if (held >= 5) earn(Achievements::COLLECTOR);
         Audio::playSFX("upgrade");
         notice(std::string(r.name) + ". " + r.text);
         return;
@@ -1284,7 +1304,7 @@ void Game::resetEnergy() {
     }
 }
 
-// Taunt and Fear both miss one time in ten. Shared, so the two cannot drift
+// Taunt and Fear both miss one time in five. Shared, so the two cannot drift
 // apart the way the two copies of the effect table did.
 static bool provokeFizzles() {
     static thread_local std::mt19937 g(std::random_device{}());
@@ -1436,7 +1456,7 @@ void Game::applyCardEffect(const Card& card) {
             break;
         }
         // Taunt and Fear are one card pointed in opposite directions, and both
-        // are a read rather than a guarantee: one time in ten it does not land.
+        // are a read rather than a guarantee: one time in five it does not land.
         case CardEffect::TAUNT:
             if (provokeFizzles()) {
                 std::cout << "  " << Color::DIM << "The taunt glances off. They are not listening." << Color::RESET << "\n";
@@ -1476,7 +1496,7 @@ namespace {
 }
 
 // Routes ailments through Dodge Reversal/Status Guard before applying them.
-void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier) {
+bool Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier) {
     EnemyArt::CastGlow glow;
     if (counterAttackActive) {
         counterAttackActive = false;
@@ -1487,7 +1507,7 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
                   << counterBonusValue << "!" << Color::RESET << "\n";
         if (glowFor(type, glow))
             EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), glow, true);
-        return;
+        return false;
     }
     if (statusWardTurns > 0) {
         // Holds for its whole duration rather than popping on the first
@@ -1495,11 +1515,12 @@ void Game::applyPlayerStatus(StatusType type, int amount, double weakMultiplier)
         std::cout << "  " << Color::CYAN << "Status Guard blocks the ailment!" << Color::RESET
                   << " " << Color::DIM << "(" << statusWardTurns
                   << (statusWardTurns == 1 ? " turn" : " turns") << " left)" << Color::RESET << "\n";
-        return;
+        return false;
     }
     playerStatus.apply(type, amount, weakMultiplier);
     if (glowFor(type, glow))
         EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), glow, false);
+    return true;
 }
 
 // Same idea in reverse; false means warded (caller skips its own "applied" message).
@@ -1542,8 +1563,9 @@ bool Game::applyEnemyStatus(StatusType type, int amount, double weakMultiplier) 
 // stance, a summon and a self-heal all count. test_fear re-derives this
 // from enemyTurn().
 bool Game::enemyCanDefend() const {
-    // Bosses never reach enemyTurn() - bossAction() has no brace path at all.
-    if (enemy.isBoss()) return false;
+    // A boss can be frightened too: bossAction() gives it a smaller chance to
+    // flinch and brace.
+    if (enemy.isBoss()) return true;
 
     // The archetype kit is the answer: TANK, CASTER, BEAST and UNDEAD each have
     // a defensive or restorative turn in their three moves, MELEE and RANGED do
@@ -1558,9 +1580,11 @@ bool Game::enemyCanDefend() const {
             break;
     }
 
-    // One exception: the Knight is MELEE but its signature is a shield bash, so
-    // it does raise a guard even though its archetype template never would.
-    return enemy.getName().find("Knight") != std::string::npos;
+    // Two exceptions. The Knight is MELEE but its signature is a shield bash.
+    // The Archer has no move of its own, so its signature turns come from the
+    // plain ranged kit, which braces. Both raise a guard, so both can be scared.
+    const std::string& n = enemy.getName();
+    return n.find("Knight") != std::string::npos || n.find("Archer") != std::string::npos;
 }
 
 // Silent when warded: callers print their own resisted message.
@@ -1569,7 +1593,10 @@ bool Game::tryStunEnemy() {
         enemyStatusWardActive = false;
         return false;
     }
-    return enemy.tryApplyStun();
+    const bool stunned = enemy.tryApplyStun();
+    if (stunned) earn(Achievements::STUN);
+    if (stunned && enemy.getBossType() == BossType::WARLORD) earn(Achievements::STORM_STOPS);
+    return stunned;
 }
 
 void Game::refreshBattleAuras() {
@@ -1777,6 +1804,8 @@ void Game::playCardFromHand(int index) {
                                         : hitsWeakness ? EnemyArt::PopKind::WEAK_HIT
                                                        : EnemyArt::PopKind::DAMAGE);
                     int armorBlocked = damageDealt - hpLost;
+                    if (hpLost >= 200) earn(Achievements::BIG_HIT);
+                    if (hpLost >= 500) earn(Achievements::HUGE_HIT);
                     Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "attack");
                     std::cout << "  " << Color::PLAYER_ATTACK << hitLabel << hpLost << " damage to enemy!"
                               << Color::RESET << " (Enemy HP: "
@@ -2143,6 +2172,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
         EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
         EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
         Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "attack");
+        earn(Achievements::SIDESTEP);
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
@@ -2159,10 +2189,11 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
             bool tooFarToRiposte = !enemy.isBoss() && ranged;
             if (tooFarToRiposte) {
                 Audio::playSFX("special");
-                if (enemyIsFlyer())
+                if (enemyIsFlyer()) {
+                    earn(Achievements::FLEW_AWAY);
                     std::cout << Color::CYAN << "Parried!! But the creature flew away."
                               << Color::RESET << "\n";
-                else
+                } else
                     std::cout << Color::CYAN << "Parry! You block the shot. No damage taken, but they're too far away to riposte."
                               << Color::RESET << "\n";
                 UIHelper::pause(300);
@@ -2184,6 +2215,8 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
                       << " damage!" << (stunned ? " Enemy is stunned!" : " Enemy resists the stun!") << Color::RESET
                       << " (Enemy HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            earn(Achievements::PARRY);
+            parryLanded = true;
             UIHelper::pause(300);
             return;
         } else {
@@ -2231,7 +2264,7 @@ void Game::triggerAssassinAmbush() {
     UIHelper::pause(200);
     // Thrown from the dark, like the Bandit's dagger: it never closes, so Parry
     // catches it without a riposte and the sprite holds its ground.
-    enemyStrikePlayer(enemy.getBaseAttack() + enemy.getBonusAttack(), true,
+    enemyStrikePlayer(enemy.getBaseAttack() + enemy.getBonusAttack(), false,
                       enemy.getWeakMultiplier(), /*ranged*/true, /*useFrames*/true,
                       enemyProjectile());
     refreshBattleAuras();
@@ -2273,7 +2306,7 @@ void Game::enemyTurn() {
         if (poisonResist) std::cout << " " << Color::DIM << "[Resisted x0.5]" << Color::RESET;
         std::cout << "\n";
         UIHelper::pause(250);
-        if (!enemy.isAlive()) { Audio::playSFX(deathSfx(enemy.isBoss())); return; }
+        if (!enemy.isAlive()) { earn(Achievements::SLOW_BURN); Audio::playSFX(deathSfx(enemy.isBoss())); return; }
     }
     int burnDmg = enemy.processBurn();
     if (burnDmg > 0) {
@@ -2290,7 +2323,7 @@ void Game::enemyTurn() {
         if (burnResist) std::cout << " " << Color::DIM << "[Resisted x0.5]" << Color::RESET;
         std::cout << "\n";
         UIHelper::pause(250);
-        if (!enemy.isAlive()) { Audio::playSFX(deathSfx(enemy.isBoss())); return; }
+        if (!enemy.isAlive()) { earn(Achievements::SLOW_BURN); Audio::playSFX(deathSfx(enemy.isBoss())); return; }
     }
     if (enemy.processStun()) {
         UIHelper::typeWrite(std::string(Color::STUN_CLR) + "Enemy is STUNNED and loses their turn!" + Color::RESET + "\n");
@@ -2460,6 +2493,7 @@ void Game::enemyTurn() {
         if (rollDist(gen) < FEAR_BRACE_CHANCE) {
             UIHelper::typeWrite(std::string(Color::CYAN)
                 + "The enemy flinches back and throws up its guard." + Color::RESET + "\n");
+            earn(Achievements::COLD_FEET);
             doDefend(def);
             return;
         }
@@ -2493,7 +2527,7 @@ void Game::enemyTurn() {
                     doAttack(std::max(1, atk / 2), false);
                 }
                 break;
-            case EnemyType::RANGED:
+            case EnemyType::RANGED: {
                 // A flyer has no bow. It is RANGED so that Parry closes on empty
                 // air as it climbs away, but a shot and a double shot were the
                 // wrong moves entirely: it dives, rakes and beats its wings.
@@ -2513,7 +2547,12 @@ void Game::enemyTurn() {
                     }
                     break;
                 }
-                if (r < 60) { themedGeneric("It looses a shot straight through your guard."); doAttack(atk, true); }
+                // The Assassin's are thrown blades, and your armour stops them.
+                const bool slips = enemy.getName().find("Assassin") == std::string::npos;
+                if (r < 60) {
+                    themedGeneric(slips ? "It looses a shot straight through your guard." : "It throws a blade at you.");
+                    doAttack(atk, slips);
+                }
                 else if (r < 85) {
                     cast(EnemyArt::CastGlow::WEAK, enemyProjectile());
                     applyPlayerStatus(StatusType::WEAK, 2);
@@ -2522,10 +2561,11 @@ void Game::enemyTurn() {
                     UIHelper::pause(150);
                 } else {
                     themedGeneric("It fires twice in quick succession!");
-                    doAttack(std::max(1, atk / 2), true);
-                    if (playerHealth > 0) doAttack(std::max(1, atk / 2), true);
+                    doAttack(std::max(1, atk / 2), slips);
+                    if (playerHealth > 0) doAttack(std::max(1, atk / 2), slips);
                 }
                 break;
+            }
             case EnemyType::CASTER: {
                 // The Wizard is the third fight: no hex, and a mend of 3.
                 const bool wizard = enemy.getName().find("Wizard") != std::string::npos;
@@ -3105,8 +3145,8 @@ void Game::enemyTurn() {
 
 void Game::payPactOfRuin() {
     if (!pactOfRuinActive) return;
-    playerHealth = std::max(0, playerHealth - 6);
-    std::cout << "  " << Color::DAMAGE << "The pact takes its 6 HP." << Color::RESET
+    playerHealth = std::max(0, playerHealth - 2);
+    std::cout << "  " << Color::DAMAGE << "The pact takes its 2 HP." << Color::RESET
               << " (" << playerHealth << "/" << maxPlayerHealth << ")\n";
     if (playerHealth <= 0 && trySecondWind())
         std::cout << "  " << Color::BOLD << Color::YELLOW
@@ -3302,7 +3342,9 @@ void Game::endPlayerTurn() {
     }
     cardsPlayedThisTurn = 0; attacksPlayedThisTurn = 0;
     playerTurnActive = true;
-    UIHelper::waitForKey("  (press any key for your turn)");
+    // A beat to see what it did, rather than a key, if the prompt is skipped.
+    if (optConfirm >= 1) UIHelper::pause(450);
+    else UIHelper::waitForKey("  (press any key for your turn)");
     // handleInput() will clear and redraw the full state for the new turn
 }
 
@@ -3391,12 +3433,15 @@ void Game::notice(const std::string& text) {
     UIHelper::clearScreen();
     UIHelper::padToCenter(3);
     UIHelper::printCenteredWrapped(text, 70);
+    // With every prompt skipped, the result still shows, just long enough to read.
+    if (optConfirm >= 2) { UIHelper::pause(900); return; }
     std::cout << "\n";
     UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
     UIHelper::waitForKey("");
 }
 
-bool Game::confirm(const std::string& prompt) {
+bool Game::confirm(const std::string& prompt, bool always) {
+    if (!always && optConfirm >= 2) return true;
     std::vector<CardBar::Action> acts{ CardBar::Action{ "Yes", false },
                                        CardBar::Action{ "No",  false } };
     return CardBar::pick(prompt, {}, acts, 0) == 0;
@@ -3716,9 +3761,16 @@ void Game::handleInput() {
         displayEnemyInfo();
         UIHelper::waitForKey();
     } else if (choice == handCount + 2) {
-        UIHelper::clearScreen();
-        displayPlayerInfo();
-        UIHelper::waitForKey();
+        // Buttons in the hand band, where the battle menu keeps its own, and
+        // back here after the achievements rather than straight to the fight.
+        const std::vector<CardBar::Action> acts{ CardBar::Action{ "Achievements", false },
+                                                 CardBar::Action{ "Back", false } };
+        while (true) {
+            UIHelper::clearScreen();
+            displayPlayerInfo();
+            if (CardBar::select({}, acts) != 0) break;
+            Achievements::showScreen();
+        }
     } else {
         displayActionLog();
     }
@@ -3812,6 +3864,7 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
         EnemyArt::printBattleHit(enemy.getType(), enemy.getBossType(), DamageType::NONE, hpLost > 0);
         EnemyArt::popNumber(hpLost, true, EnemyArt::PopKind::DAMAGE);
         Audio::playSFX(!enemy.isAlive() ? deathSfx(enemy.isBoss()) : "attack");
+        earn(Achievements::SIDESTEP);
         std::cout << Color::GREEN << "Dodge Reversal! You sidestep the boss's attack and counter for " << hpLost << " damage!" << Color::RESET
                   << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                   << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
@@ -3838,6 +3891,8 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
                       << " damage!" << (stunned ? " Boss is stunned!" : " Boss resists the stun!") << Color::RESET
                       << " (Boss HP: " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
                       << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
+            earn(Achievements::PARRY);
+            parryLanded = true;
             UIHelper::pause(300);
             return;
         } else {
@@ -3903,6 +3958,7 @@ bool Game::trySecondWind() {
         redThreadUsed = true;
         lastSaveByThread = true;
         playerHealth = std::max(1, maxPlayerHealth / 2);
+        earn(Achievements::THREAD);
         return true;
     }
     return false;
@@ -3941,6 +3997,29 @@ void Game::bossAction() {
     enemy.processStrength();
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
 
+    // Fear reaches a boss as well, half as often as anything else: it flinches,
+    // raises its guard and gives up whatever it was about to do.
+    const int BOSS_FEAR_BRACE_CHANCE = 30;
+    if (enemyFearTurns > 0) {
+        enemyFearTurns--;
+        if (rollDist(gen) < BOSS_FEAR_BRACE_CHANCE) {
+            const int guard = enemy.getBaseDefense();
+            enemy.gainArmor(guard);
+            const bool fizzled = counterAttackActive || parryActive;
+            counterAttackActive = false;
+            parryActive = false;
+            Audio::playSFXPitched("defend", 0.8f);
+            UIHelper::typeWrite(std::string(Color::CYAN) + "The " + enemy.getName()
+                + " flinches back and throws up its guard, +" + std::to_string(guard) + " armor."
+                + Color::RESET + "\n");
+            if (fizzled)
+                std::cout << "  " << Color::DIM << "(No attack. Your stance fizzles.)" << Color::RESET << "\n";
+            earn(Achievements::COLD_FEET);
+            UIHelper::pause(250);
+            return;
+        }
+    }
+
     // Every boss move that is not a plain attack shows something crossing the
     // field or landing on one of the two fighters.
     auto bossCast = [&](EnemyArt::CastGlow g, int proj = -1, int scalePct = 30) {
@@ -3976,7 +4055,9 @@ void Game::bossAction() {
             if (roll < 15) {
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Stone Colossus uses EARTHQUAKE SLAM!" + Color::RESET + "\n");
                 UIHelper::pause(300);
+                parryLanded = false;
                 doAttack(15, true);
+                if (parryLanded) earn(Achievements::UNSHAKEN);
             } else if (roll < 45) {
                 EnemyArt::printBattleSelfBuff(enemy.getType(), enemy.getBossType(),
                                               EnemyArt::SelfGlow::STRENGTH);
@@ -4022,10 +4103,14 @@ void Game::bossAction() {
             } else {
                 // Thrown larger than a bolt: the ground itself comes up.
                 bossCast(EnemyArt::CastGlow::POISON, enemyProjectile(), 55);
-                applyPlayerStatus(StatusType::POISON, 6);
                 Audio::playSFX("poison");
-                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!" + Color::RESET
-                    + " You gain " + Color::POISON_CLR + "Poison 6" + Color::RESET + "!\n");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Vile Witch casts TOXIC ERUPTION!"
+                    + Color::RESET + "\n");
+                // Announced first, so a reversal or a ward reads as the answer to it.
+                const bool reversing = counterAttackActive;
+                if (applyPlayerStatus(StatusType::POISON, 6))
+                    std::cout << "  You gain " << Color::POISON_CLR << "Poison 6" << Color::RESET << "!\n";
+                if (reversing) earn(Achievements::HER_OWN);
                 UIHelper::pause(350);
             }
             break;
@@ -4033,10 +4118,13 @@ void Game::bossAction() {
         case BossType::WARLORD:
             if (roll < 12) {
                 bossCast(EnemyArt::CastGlow::STUN);
-                applyPlayerStatus(StatusType::STUN, 1);
                 Audio::playSFXPitched("volt", 0.85f);
-                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast unleashes a THUNDERSTRIKE!" + Color::RESET
-                    + " You are " + Color::STUN_CLR + "STUNNED" + Color::RESET + "!\n");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Thunder Beast unleashes a THUNDERSTRIKE!"
+                    + Color::RESET + "\n");
+                if (applyPlayerStatus(StatusType::STUN, 1)) {
+                    std::cout << "  You are " << Color::STUN_CLR << "STUNNED" << Color::RESET << "!\n";
+                    if (++thunderStuns >= 2) earn(Achievements::TWICE_STRUCK);
+                }
                 UIHelper::pause(350);
             } else if (roll < 27) {
                 // A roar is thrown at you, not cast: it works itself up and the
@@ -4074,6 +4162,7 @@ void Game::bossAction() {
                 hydraHeads  = std::min(HYDRA_HEADS_MAX, hydraHeads + (stumps > 0 ? 2 * stumps : 1));
                 hydraStumps = 0;
                 const bool grew = hydraHeads > before;
+                if (grew) hydraRegrew = true;
                 std::cout << Color::MAGENTA
                           << (!grew       ? "It has no room for another head. The Hydra heals "
                               : stumps > 1 ? "Two grow back where each one fell. The Hydra heals "
@@ -4114,11 +4203,14 @@ void Game::bossAction() {
             if (roll < 20) {
                 // A wall of flame out of the jaws, at well over a bolt's size.
                 bossCast(EnemyArt::CastGlow::BURN, enemyProjectile(), 80);
-                // Burn 8: four stacks was two ticks of chip damage at encounter 40.
-                applyPlayerStatus(StatusType::BURN, 8);
                 Audio::playSFX("fire");
-                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon unleashes FIRE BREATH!" + Color::RESET
-                    + " You gain " + Color::BURN_CLR + "Burn 8" + Color::RESET + "!\n");
+                UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "Dragon unleashes FIRE BREATH!"
+                    + Color::RESET + "\n");
+                // Burn 8: four stacks was two ticks of chip damage at encounter 40.
+                const bool reversing = counterAttackActive;
+                if (applyPlayerStatus(StatusType::BURN, 8))
+                    std::cout << "  You gain " << Color::BURN_CLR << "Burn 8" << Color::RESET << "!\n";
+                if (reversing) earn(Achievements::BACKDRAFT);
                 UIHelper::pause(350);
             } else if (roll < 45) {
                 // A gust, not a bolt: wind has its own art now.
@@ -4799,9 +4891,9 @@ namespace {
     const Lines PEAK_APPROACH = {
         "Above the clouds the sky turns a bruised purple, and the moon hangs so low and so "
         "dark it seems to be waiting too.",
-        "At the summit's edge stands a knight in his own armor, carrying his own sword. It is "
-        "the thing from the reflection, wearing the only shape it ever wanted, and it has had "
-        "the whole climb to practise."
+        "At the summit's edge stands a knight in his own armor, carrying his own sword, both "
+        "of them taken from him at the pond. It is the thing from the reflection, wearing the "
+        "only shape it ever wanted, and it has had the whole climb to practise."
     };
     // When the Shadow Knight falls with the true form earned: it drops his
     // shape and fights to escape the sleep.
@@ -4824,7 +4916,7 @@ namespace {
                "cannot say how he knows, but he is sure of it." } },
         { 0, { "Water drips somewhere behind him, steady as a clock. He shifts until the puddle "
                "is at his back.",
-               "He remembers how it started, or the edge of it. A clear night, a still pond, and "
+               "He remembers how it started, or the edge of it. A red moon over a still pond, and "
                "a moon in the water that was brighter than the one in the sky.",
                "He looked at it too long. That was all it needed from him." } },
         { 0, { "Not much comes back about who he was before all this.",
@@ -4900,12 +4992,11 @@ namespace {
                "The thing at the top has been copying those small things for years and never got "
                "one of them right. It makes a very good knight, standing still.",
                "The moment it has to move, it has to guess." } },
-        { 4, { "He wonders if he was the first. It took him apart too neatly for that. It had "
-               "practice from somewhere.",
-               "There may be other people out there in pieces, scattered through places like the "
-               "ones he has just climbed out of.",
-               "He cannot put them back together. He can end the thing that took them apart. "
-               "He supposes that is a kind of help." } },
+        { 4, { "He wonders if anyone came before him. He doubts it. Anything that had done this "
+               "before would have been better at it.",
+               "It never meant to break him. It wanted all of him, and it held on too hard.",
+               "Almost everything it let fall, he has picked back up. He would like it to know "
+               "that." } },
 
         { 5, { "The last fire. He knows it the way he knows most things now, without being "
                "told.",
@@ -4916,22 +5007,25 @@ namespace {
     };
     const int SIT_COUNT = (int)(sizeof(SIT) / sizeof(SIT[0]));
 
-    // Plays once, at the start of every new run, before the first fight.
+    // Plays once, at the start of every new run, before the first fight: one
+    // line to each shot of the pond (tools/make_intro_scene.py).
     const Lines INTRO = {
+        "Once in a long while the moon comes up crimson. On one of those nights, a knight "
+        "stood by a still pond and watched it.",
         "There is something that lives in the moon's reflection. It has no shape of its own "
-        "and a long appetite for other people's.",
-        "It spent a long time watching people and finding none of them worth the "
-        "trouble. Then it found a knight who was, and it decided it would rather be him "
-        "than keep watching him.",
-        "The night the moon went dark it came down and took him apart. His strength, his "
-        "speed, the sure way his hands knew a blade, and under all of it, his soul.",
-        "The pieces went where torn things go: out into the dark places between here and "
-        "the peak, and whatever found them first kept them.",
+        "and has always wanted one. It had been watching him for some time.",
+        "None of the people it had watched were worth the trouble, but this knight was "
+        "worthy to be its vessel. It came up out of the water to take over his life, and "
+        "it broke off far more of him than it meant to.",
+        "Five great pieces tore loose: his strength, his wits, his speed, the sure way his "
+        "hands knew a blade, and under all of it, his soul. Every move he had ever learned "
+        "went with them in smaller pieces, out into the dark between here and the peak.",
         "There is an old word for someone the moon has been at. " + std::string(Color::BOLD)
         + Color::WHITE + "Moonstruck" + Color::RESET + Color::DIM + ". Nobody ever meant it "
         "like this.",
-        "What is left of him stands up anyway, and picks up a wooden sword. A soul in pieces "
-        "can still feel where its pieces are."
+        "What is left of him stands up anyway, and picks up a wooden sword. Every piece of "
+        "him is in something's keeping now, and a soul in pieces can still feel where its "
+        "pieces are. He goes after them."
     };
 
     void showStoryBeat(const Lines& lines) {
@@ -5029,7 +5123,11 @@ bool Game::rollSecretEncounter() {
 void Game::beginSecretEncounter() {
     moonZone = moonZoneFor(currentRun.getCurrentEncounter());
     moonZonesSeen |= 1 << moonZone;
+    // Every shape met, in any run, kept with the progress.
+    if (Achievements::seeForm(moonZone)) earn(Achievements::ALL_FORMS);
+    saveProgress();
     moonstruckMet++;
+    earn(Achievements::MEET_MOON);
     inSecretEncounter = true;
     const MoonForm& form = MOON_FORMS[moonZone];
 
@@ -5186,14 +5284,52 @@ void Game::beginTrueForm() {
     Console::setHistoryCapture(false);
 }
 
-// Beating it: one guaranteed Super Rare, then straight on to the fight it
-// interrupted. No rest site, no equipment roll - this was never on the map.
+namespace {
+// Waits out one line of the opening. A key moves on, but while the shot is
+// still playing the first one only lets it finish, so reading fast never
+// costs the picture. False means Esc: skip the rest.
+bool waitIntroKey() {
+    // Keys pressed while the line typed out are spent, except Esc.
+    for (Platform::KeyEvent k = Platform::pollKey(); k.key != Platform::Key::NONE; k = Platform::pollKey())
+        if (k.key == Platform::Key::ESCAPE) return false;
+    int cx, cy;
+    Platform::takeClick(cx, cy);
+    while (true) {
+        const Platform::KeyEvent k = Platform::pollKey();
+        if (k.key == Platform::Key::ESCAPE) return false;
+        if (k.key != Platform::Key::NONE || Platform::takeClick(cx, cy)) {
+            if (!EnemyArt::introShotPlaying()) return true;
+            EnemyArt::finishIntroShot();
+        }
+        Platform::frame();
+    }
+}
+} // namespace
+
+// The night at the pond, a line at a time under the picture. Without its art
+// it is the words alone, as it always was.
 void Game::showIntro() {
-    showStoryBeat(INTRO);
+    if (!EnemyArt::introSceneReady()) { showStoryBeat(INTRO); return; }
+    for (size_t i = 0; i < INTRO.size(); ++i) {
+        UIHelper::clearScreen();
+        Hud::setActive(false);
+        EnemyArt::setIntroShot((int)i);
+        const int below = EnemyArt::introSceneBottom() - Console::textRegion().y;
+        for (int r = 0, pad = below / Platform::cellH() + 2; r < pad; r++) std::cout << "\n";
+        UIHelper::printCenteredWrapped(std::string(Color::DIM) + INTRO[i] + Color::RESET, 74, true);
+        std::cout << "\n";
+        UIHelper::printCentered(std::string(Color::DIM) + "(any key to go on, Esc to skip)" + Color::RESET);
+        if (!waitIntroKey()) break;
+    }
+    EnemyArt::setIntroShot(-1);
 }
 
+// Beating it: one guaranteed Super Rare, then straight on to the fight it
+// interrupted. No rest site, no equipment roll - this was never on the map.
 void Game::handleSecretWin() {
     inSecretEncounter = false;
+    earn(Achievements::MOONSTRUCK);
+    if (curseTurnsLeft > 0) earn(Achievements::STONE_COLD);   // the Gorgon's gaze still spreading
     Hud::setActive(false);
     EnemyArt::printBattleDeath(enemy.getType(), enemy.getBossType());
     Audio::playSFX("win");
@@ -5243,6 +5379,7 @@ void Game::handleSecretWin() {
         playerDeck.addCard(prize[0]);
         runStats.addCardToRun();
         Audio::playSFX("upgrade");
+        checkDeckAchievements();
         notice("Added " + prize[0].getName() + " to your deck.");
     } else {
         notice("You already own every card it could have been carrying.");
@@ -5306,6 +5443,8 @@ void Game::startEncounter() {
     trueFormPhase = false;   // whatever rose last wave does not carry over
     hydraHeads = 2;          // and the Hydra starts every fight with two
     hydraStumps = 0;         // and nothing cut yet
+    hydraRegrew = false;
+    thunderStuns = 0;
     paladinJudgements = 0;   // and the Paladin has not judged anyone yet
     // The 1 HP save belongs to boss fights. Set either way, so a regular fight
     // after a boss it was not spent on does not inherit it.
@@ -5591,6 +5730,7 @@ bool Game::forgeMenu(const std::string& baseTitle) {
         int upgradedCount = playerDeck.upgradeCardGroup(beforeName);
         if (upgradedCount > 0) {
             Audio::playSFX("upgrade");
+            earn(Achievements::FORGE);
             std::vector<Card> updated = playerDeck.getAllCardsOrdered();
             auto it = std::find_if(updated.begin(), updated.end(),
                                     [&](const Card& c) { return c.getName() == afterName; });
@@ -5650,6 +5790,8 @@ void Game::restSite() {
     if (siteChoice == sitChoice) {
         // Free, and the rest site is still there afterwards.
         satCount = sitNext + 1;
+        earn(Achievements::SIT);
+        if (sitNext == SIT_COUNT - 1) earn(Achievements::LAST_FIRE);
         showSitBeat(SIT[sitNext].lines, wornArmor);
         continue;
     } else if (siteChoice == 0) {
@@ -5659,6 +5801,7 @@ void Game::restSite() {
 
         playerHealth = maxPlayerHealth;
         Audio::playSFX("heal");
+        earn(Achievements::REST);
         notice("You rest and fully recover to " + std::to_string(maxPlayerHealth) + " HP.");
         break; // committed - progress as normal
     } else if (siteChoice == 1) {
@@ -5855,6 +5998,7 @@ void Game::viewDeckManage() {
         if (!confirm(confirmPrompt)) continue;
 
         if (playerDeck.removeCardByName(name)) {
+            earn(Achievements::TRAVEL_LIGHT);
             notice("Discarded one " + name + " from your deck.");
             // stay here: browsing and discarding never cost the rest site visit
         }
@@ -5882,6 +6026,33 @@ void Game::handleEncounterWin() {
     UIHelper::pause(300);
     UIHelper::printCentered("Enemies defeated: " + std::string(Color::GREEN)
                             + std::to_string(currentRun.getEncountersWon()) + Color::RESET);
+
+    earn(Achievements::WIN_FIGHT);
+    if (turnNumber == 1) earn(Achievements::FIRST_TURN);
+    if (playerHealth * 10 <= maxPlayerHealth) earn(Achievements::BY_A_HAIR);
+    if (curseTurnsLeft > 0) earn(Achievements::STONE_COLD);
+    switch (enemy.getBossType()) {
+        case BossType::STONE_COLOSSUS: earn(Achievements::COLOSSUS); break;
+        case BossType::VILE_WITCH:     earn(Achievements::WITCH);    break;
+        case BossType::WARLORD:        earn(Achievements::THUNDER);  break;
+        case BossType::HYDRA:
+            earn(Achievements::HYDRA);
+            if (!hydraRegrew) earn(Achievements::CLEAN_CUTS);
+            break;
+        case BossType::DRAGON:         earn(Achievements::DRAGON);   break;
+        case BossType::SHADOW_KNIGHT: {
+            earn(Achievements::CLEAR);
+            if (trueFormPhase) earn(Achievements::TRUE_FORM);
+            // Checked before the Knight's own legendary is handed over.
+            bool legend = false;
+            for (const Card& c : playerDeck.getAllCardsOrdered()) legend = legend || c.isLegendary();
+            if (!legend) earn(Achievements::NO_LEGENDS);
+            for (int u = 0; u < 5; u++)
+                if (upgrades.isActive(u)) { earn(Achievements::HEAD_START); break; }
+            break;
+        }
+        default: break;
+    }
 
     if (enemy.isBoss()) {
         int bossOccurrence = currentRun.getBossNumber(); // 1-indexed, including this one
@@ -5959,6 +6130,7 @@ void Game::handleEncounterWin() {
 
     restSite();
 
+    checkDeckAchievements();
     offerContinueOrEndRun();
 }
 
@@ -6119,6 +6291,8 @@ void Game::offerSeal() {
         }
     }
     sealsBroken++;
+    earn(Achievements::VIGIL);
+    if (sealsBroken >= 4) earn(Achievements::EVERY_VIGIL);
     for (int i = 0, pad = Console::rows() * 64 / 100; i < pad; i++) std::cout << "\n";
     UIHelper::printCentered(std::string(Color::BOLD) + Color::RED
         + "The vigil goes out. Somewhere above you, something that cannot afford to sleep "
@@ -6154,8 +6328,8 @@ void Game::handleGameVictory() {
     for (int i = 0, pad = Console::rows() * 44 / 100; i < pad; i++) std::cout << "\n";
     UIHelper::printCenteredWrapped(firstTime
         ? "The knight stands on the peak wearing all of himself again: his strength, his "
-          "speed, his hands, his soul, and the shape nothing else is walking around in any "
-          "more. Whole, and no longer only a legend."
+          "wits, his speed, his hands, his soul, and the shape nothing else is walking around "
+          "in any more. Whole, and no longer only a legend."
         : "Fifty encounters on a road that hits like a hundred. You went back up knowing "
           "exactly what was waiting, and it still was not enough. There is nothing on this "
           "mountain that has not already lost to you.", 64);
@@ -6172,6 +6346,7 @@ void Game::handleGameVictory() {
         std::uniform_int_distribution<> lpick(0, (int)legendaries.size() - 1);
         const Card& leg = legendaries[lpick(lg2)];
         playerDeck.addCard(leg);
+        checkDeckAchievements();
         runStats.addCardToRun();
         Audio::playSFX("upgrade");
         UIHelper::clearScreen();
@@ -6470,6 +6645,7 @@ void Game::offerBoon() {
         if (!confirm("Take " + names[choice] + "? It lasts the whole run.")) continue;
         break;
     }
+    earn(Achievements::BOON);
 
     if (choice == 3) {
         attunementBoons++;
@@ -6600,6 +6776,8 @@ void Game::offerEquipmentDrop() {
             // and a counter drifting past it would keep offering the same
             // piece as if it were new.
             weaponTier = std::min(maxGearTier(), weaponTier + 1);
+            earn(Achievements::GEAR);
+            if (weaponTier >= TIER_SHADOW) earn(Achievements::TROPHY);
             wornWeapon = weaponTier;   // new gear goes straight on
             equipDamagePercent = gearPercentFor(weaponTier, true);
             Audio::playSFX("upgrade");
@@ -6608,6 +6786,8 @@ void Game::offerEquipmentDrop() {
                    + std::to_string(equipDamagePercent) + "%).";
         } else if (choice == 1) {
             armorTier = std::min(maxGearTier(), armorTier + 1);
+            earn(Achievements::GEAR);
+            if (armorTier >= TIER_SHADOW) earn(Achievements::TROPHY);
             wornArmor = armorTier;
             equipArmorPercent = gearPercentFor(armorTier, false);
             Audio::playSFX("upgrade");
@@ -6643,6 +6823,7 @@ int Game::showMainMenu() {
         std::vector<std::string> opts = {"Start Game"};
         if (hasSave) opts.push_back("Load Save");
         opts.push_back("How to Play");
+        opts.push_back("Achievements");
         opts.push_back("Settings");
         opts.push_back("Quit");
 
@@ -6653,9 +6834,10 @@ int Game::showMainMenu() {
         UIHelper::showTitleBanner(false);
         if (chosen == "Start Game") return 0;
         if (chosen == "Load Save")  return 1;
-        if (chosen == "How to Play" || chosen == "Settings") {
-            if (chosen == "Settings") showSettings();
-            else                      showHowToPlay();
+        if (chosen == "How to Play" || chosen == "Settings" || chosen == "Achievements") {
+            if (chosen == "Settings")          showSettings();
+            else if (chosen == "Achievements") Achievements::showScreen();
+            else                               showHowToPlay();
             UIHelper::clearScreen();
             Hud::setActive(false);   // nothing from in there belongs on the title
             UIHelper::printTitle();
@@ -6677,7 +6859,9 @@ void Game::loadSettings() {
         else if (tag == "PACE")  in >> optPace;
         else if (tag == "MUSIC") in >> optMusic;
         else if (tag == "SFX")   in >> optSfx;
+        else if (tag == "CONFIRM") in >> optConfirm;
     }
+    optConfirm = std::max(0, std::min(2, optConfirm));
     applySettings();
 }
 
@@ -6688,7 +6872,8 @@ void Game::saveSettings() const {
         << "TEXT "  << optTextSpeed << "\n"
         << "PACE "  << optPace      << "\n"
         << "MUSIC " << optMusic     << "\n"
-        << "SFX "   << optSfx       << "\n";
+        << "SFX "   << optSfx       << "\n"
+        << "CONFIRM " << optConfirm << "\n";
 }
 
 // The four values reach four different systems, so this is the one place
@@ -6701,7 +6886,7 @@ void Game::applySettings() const {
 }
 
 void Game::showSettings() {
-    // Four sliders and a way out. Left and right move the row under the
+    // Five sliders and a way out. Left and right move the row under the
     // cursor, and the value is applied as it moves, so a volume is heard
     // while it is being set rather than after the screen closes.
     auto speedWord = [](int v) {
@@ -6718,6 +6903,9 @@ void Game::showSettings() {
         return std::to_string(v) + "%   " + (v == 0 ? "off" : v < 35 ? "quiet"
                                            : v < 75 ? "medium" : "full");
     };
+    auto confirmWord = [](int v) {
+        return std::string(v == 0 ? "ask every time" : v == 1 ? "skip the battle one" : "skip all of them");
+    };
     auto applied = [this]() { applySettings(); };
     auto heard   = [this]() { applySettings(); if (optSfx > 0) Audio::playSFX("special"); };
 
@@ -6730,6 +6918,9 @@ void Game::showSettings() {
         pace,
         CardBar::Action{ "Music",       &optMusic,       0, 100,  5, volWord,   applied },
         CardBar::Action{ "Sound",       &optSfx,         0, 100,  5, volWord,   heard   },
+        // The press-a-key before each of your turns, or that and every yes/no
+        // and result screen. Story pauses and overwriting a save always ask.
+        CardBar::Action{ "Confirmations", &optConfirm,   0,   2,  1, confirmWord, applied },
         CardBar::Action{ "Back", "keep these and return", false },
     };
     CardBar::pick("Settings        left and right to set", {}, acts, 0);
@@ -6743,10 +6934,19 @@ void Game::loadProgress() {
     std::ifstream in(progressPath());
     if (!in.is_open()) return;
     std::string tag;
+    unsigned long long ach = 0;
+    int forms = 0;
     while (in >> tag) {
         if (tag == "CLEARED") in >> clearedMask;
         else if (tag == "SETS") in >> unlockedSets;
+        else if (tag == "ACH") in >> ach;
+        else if (tag == "FORMS") in >> forms;
     }
+    // Clears from before there were achievements still count, quietly.
+    if (clearedMask & 1) ach |= 1ULL << Achievements::CLEAR;
+    if (clearedMask & 6) ach |= 1ULL << Achievements::HARD;
+    Achievements::setMask(ach);
+    Achievements::setFormsSeen(forms);
 }
 
 void Game::saveProgress() const {
@@ -6755,6 +6955,17 @@ void Game::saveProgress() const {
     out << "MOONSTRUCK_PROGRESS_V1\n";
     out << "CLEARED " << clearedMask << "\n";
     out << "SETS " << unlockedSets << "\n";
+    out << "ACH " << Achievements::mask() << "\n";
+    out << "FORMS " << Achievements::formsSeen() << "\n";
+}
+
+void Game::earn(int achievement) {
+    if (Achievements::earn(achievement)) saveProgress();
+}
+
+void Game::checkDeckAchievements() {
+    for (const Card& c : playerDeck.getAllCardsOrdered())
+        if (c.isLegendary()) { earn(Achievements::LEGEND); return; }
 }
 
 // A clear: record the road walked, and keep the run that walked it so the
@@ -6766,6 +6977,8 @@ void Game::recordClear() {
     // road, which is the only place it was ever going to come from.
     if (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD) unlockedSets |= 2;
     else                                                       unlockedSets |= 1;
+    if (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD) earn(Achievements::HARD);
+    if (runMode == Mode::RANDOM_HARD) earn(Achievements::RANDOM_HARD);
     saveProgress();
     writeWinSave();
 }
@@ -6855,7 +7068,7 @@ int Game::chooseSaveSlot(const std::string& title, bool forSaving) {
         const int slot = slotOf[choice];
         if (!forSaving && saveSummary(slot).empty()) continue;   // an empty slot has nothing to load
         if (forSaving && !saveSummary(slot).empty()
-            && !confirm("Overwrite slot " + std::to_string(slot) + "?")) continue;
+            && !confirm("Overwrite slot " + std::to_string(slot) + "?", /*always*/true)) continue;
         return slot;
     }
 }
@@ -7155,12 +7368,12 @@ void Game::showHowToPlay() {
     std::cout << "  " << Color::YELLOW << "cursed" << Color::RESET << ", and wears the same gold ring the risky cards do.\n\n";
 
     head("VIGILS");
-    std::cout << "  Each area's boss has one burning in its chest. They are what keeps the\n";
-    std::cout << "  thing on the peak awake, and putting one out costs it a night it cannot\n";
-    std::cout << "  spare, so it answers by pouring more of itself into everything left:\n";
-    std::cout << "  +15% health and +10% attack each, and they stack. Nothing forces you to\n";
-    std::cout << "  touch them, and putting out all four is the only way to see what is\n";
-    std::cout << "  actually wearing your face.\n\n";
+    std::cout << "  The first four area bosses each have one burning in the chest. They\n";
+    std::cout << "  are what keeps the thing on the peak awake, and putting one out costs\n";
+    std::cout << "  it a night it cannot spare, so it answers by pouring more of itself\n";
+    std::cout << "  into everything left: +15% health and +10% attack each, and they\n";
+    std::cout << "  stack. Nothing forces you to touch them, and putting out all four is\n";
+    std::cout << "  the only way to see what is actually wearing your face.\n\n";
 
     head("THE ROADS");
     std::cout << "  A run is fifty encounters, and it ends there. Finishing it opens\n";
@@ -7385,8 +7598,8 @@ void Game::showTutorial() {
     std::cout << "  " << Color::YELLOW << "Relics" << Color::RESET << "     from the 6th encounter, then every 12th. They cost no\n";
     std::cout << "             energy and last the run. One kind is cursed, and says so.\n";
     std::cout << "  " << Color::YELLOW << "Boons" << Color::RESET << "      every 12th encounter, one of five lasting blessings\n";
-    std::cout << "  " << Color::YELLOW << "Vigils" << Color::RESET << "     one burns in each boss. Put it out and everything left\n";
-    std::cout << "             gets tougher, because more of the moon is in it.\n\n";
+    std::cout << "  " << Color::YELLOW << "Vigils" << Color::RESET << "     one burns in each of the first four bosses. Putting one out\n";
+    std::cout << "             makes everything left tougher: more of the moon is in it.\n\n";
     UIHelper::waitForKey("  (press any key to return to the menu)");
 
     // Restore pre-tutorial state so the real run starts clean
@@ -7462,6 +7675,7 @@ void Game::run() {
     CardBar::setIconRenderer(&EnemyArt::drawItemIcon);
     // The panel reads the fight live, so the bars move as blows land.
     Hud::setSource([this] { return hudState(); });
+    Achievements::install();
     loadProgress();   // which roads this player has already earned
     loadSettings();   // and how they like it read to them
     init();

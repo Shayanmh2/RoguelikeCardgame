@@ -285,61 +285,7 @@ void Card::upgrade() {
         else if (effect == CardEffect::PACTRUIN)
             description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
                           "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
-                          "you play costs you 6 HP.";
-        else if (effect == CardEffect::RECKLESS)
-            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
-        else if (effect == CardEffect::OVEREXTEND)
-            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
-                          "You draw one fewer card next turn.";
-        else if (effect == CardEffect::WILDCHARGE)
-            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
-        else if (effect == CardEffect::EMBERBLADE)
-            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
-        else if (effect == CardEffect::SHATTERPOINT)
-            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
-        else if (effect == CardEffect::ALLIN)
-            description = "Deal twice your current armor in damage, then lose all of it. "
-                          "You are Weakened for 2 turns.";
-        else if (effect == CardEffect::PACTRUIN)
-            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
-                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
-                          "you play costs you 6 HP.";
-        else if (effect == CardEffect::RECKLESS)
-            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
-        else if (effect == CardEffect::OVEREXTEND)
-            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
-                          "You draw one fewer card next turn.";
-        else if (effect == CardEffect::WILDCHARGE)
-            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
-        else if (effect == CardEffect::EMBERBLADE)
-            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
-        else if (effect == CardEffect::SHATTERPOINT)
-            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
-        else if (effect == CardEffect::ALLIN)
-            description = "Deal twice your current armor in damage, then lose all of it. "
-                          "You are Weakened for 2 turns.";
-        else if (effect == CardEffect::PACTRUIN)
-            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
-                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
-                          "you play costs you 6 HP.";
-        else if (effect == CardEffect::RECKLESS)
-            description = "Deal " + std::to_string(value) + " damage. Your cards deal 2 less next turn.";
-        else if (effect == CardEffect::OVEREXTEND)
-            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense. "
-                          "You draw one fewer card next turn.";
-        else if (effect == CardEffect::WILDCHARGE)
-            description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
-        else if (effect == CardEffect::EMBERBLADE)
-            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
-        else if (effect == CardEffect::SHATTERPOINT)
-            description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
-        else if (effect == CardEffect::ALLIN)
-            description = "Deal twice your current armor in damage, then lose all of it. "
-                          "You are Weakened for 2 turns.";
-        else if (effect == CardEffect::PACTRUIN)
-            description = "Deal " + std::to_string(value) + " damage. For the rest of the encounter every "
-                          "attack you play also applies 3 Burn and 2 Rend, you cannot heal, and every card "
-                          "you play costs you 6 HP.";
+                          "you play costs you 2 HP.";
         else
             description = "Deal " + std::to_string(value) + " damage.";
         description += elementalNote(elemType);

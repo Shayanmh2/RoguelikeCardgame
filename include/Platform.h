@@ -68,6 +68,7 @@ void setGroundColor(SDL_Color c);
 //   overlay  damage numbers, sparks
 //   hand     the cards
 //   modal    a full-screen panel and the dim behind it
+//   toast    achievement notices, over everything
 //
 // Only overlay and below can draw on top of the log text. Each is optional.
 void setSceneRenderer(const std::function<void()>& fn);
@@ -75,6 +76,7 @@ void setHudRenderer(const std::function<void()>& fn);
 void setOverlayRenderer(const std::function<void()>& fn);
 void setHandRenderer(const std::function<void()>& fn);
 void setModalRenderer(const std::function<void()>& fn);
+void setToastRenderer(const std::function<void()>& fn);
 
 // The window ground colour rescaled to a chosen brightness, hue preserved.
 // Widgets take their surfaces from this so the whole interface re-tints with

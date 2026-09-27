@@ -139,6 +139,11 @@ private:
     // Heads cut off by a Pierce hit whose stumps are still open: Regrowth
     // brings two back from each. A Fire hit sears them shut.
     int  hydraStumps = 0;
+    // For the achievements that watch one fight: the Hydra growing a head, the
+    // Thunder Beast's stuns that landed, and whether the last blow was parried.
+    bool hydraRegrew  = false;
+    int  thunderStuns = 0;
+    bool parryLanded  = false;
     // Every Judgement the Paladin lands makes the next one worse.
     int  paladinJudgements = 0;
     // The true form answers your cards with the whole card, price included,
@@ -219,7 +224,8 @@ private:
     void resetEnergy();
     void playCardFromHand(int index);
     void applyCardEffect(const Card& card);
-    void applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5); // routes through Status Guard's ward
+    // Routes through Dodge Reversal and Status Guard's ward; true only if it landed on you.
+    bool applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5);
     bool applyEnemyStatus(StatusType type, int amount, double weakMultiplier = 1.5); // same, mirrored; false if warded
     void tickPlayerRend(); // Rend fires on the player's swing too (Shadow Knight mirror)
     bool tickEnemyRend(); // Rend fires on the enemy's swing; true if it killed them
@@ -255,6 +261,8 @@ private:
     void loadProgress();
     void saveProgress() const;
     void recordClear();
+    void earn(int achievement);       // Achievements::earn, saved at once if it is new
+    void checkDeckAchievements();     // the ones a card in the deck earns, whichever way it arrived
     void writeWinSave() const;
     bool loadWinSave();
     bool hasWinSave() const;
@@ -268,6 +276,9 @@ private:
     int  optPace      = 150;
     int  optMusic     = 100;
     int  optSfx       = 100;
+    // Which prompts to skip: 0 none, 1 the battle's "press a key for your
+    // turn", 2 that and every yes/no and result notice as well.
+    int  optConfirm   = 0;
     std::string settingsPath() const;
     void loadSettings();
     void saveSettings() const;
@@ -374,7 +385,9 @@ public:
     void init();
     void run();
     void notice(const std::string& text);      // centred one line result screen
-    bool confirm(const std::string& prompt);   // centred yes/no
+    // Centred yes/no. Skipped under the "skip all" setting unless `always`:
+    // the one that overwrites a save still asks.
+    bool confirm(const std::string& prompt, bool always = false);
     void syncHud();                  // push current combat state into the panel
     Hud::State hudState() const;     // that state, read fresh; the panel pulls it every frame
     void handleInput();

@@ -128,8 +128,23 @@ namespace EnemyArt {
     // The knight sat at his fire, in the armour he is wearing, over the top of
     // the screen. -1 takes it down.
     void setRestScene(int armorTier);
+    // The opening at the pond, over the top of the screen: shot 0-5, one per
+    // line of the intro (tools/make_intro_scene.py). -1 takes it down.
+    void setIntroShot(int shot);
+    // False when its art is missing, so the intro can fall back to words.
+    bool introSceneReady();
+    // True while the shot is still playing its way in, before its loop.
+    bool introShotPlaying();
+    // Straight to the shot's loop, without the sounds it would have made.
+    void finishIntroShot();
+    // The bottom edge of the picture in pixels, so the words can go under it.
+    int introSceneBottom();
     // Item icons from items.png: swords 0-6 by gear tier, shields 7-13.
+    // From MEDAL_ICON0 on, the achievement medals instead.
     void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst);
+    // medals.png: bronze, silver, gold, then the locked one.
+    constexpr int MEDAL_ICON0 = 100, MEDAL_LOCKED = 3;
+    void drawMedal(int frame, const SDL_Rect& dst);
 
 // The title wordmark and headline banners, drawn as art. `name` is the file
 // stem under assets/sprites; false means the art is missing, so use text.

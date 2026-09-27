@@ -54,6 +54,7 @@ add_executable(cardgame_sdl2 WIN32
     src/CardBar.cpp
     src/Hud.cpp
     src/Audio.cpp
+    src/Achievements.cpp
     # Game logic, unchanged from the terminal build.
     src/Game.cpp
     src/Card.cpp
