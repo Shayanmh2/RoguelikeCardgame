@@ -61,6 +61,13 @@ int  bigCellW();
 
 int  bigCellH();
 
+// Card-text face, smaller than the grid's: a card brief too long for the
+// card at the grid size shrinks to this rather than being cut short.
+void setSmallFont(TTF_Font* regular, int cellW, int cellH);
+void drawTextSmallPx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color);
+int  smallCellW();
+int  smallCellH();
+
 // Title-sized face, larger again.
 void setDisplayFont(TTF_Font* f, int cellW, int cellH);
 // The wordmark's own face: bigger than the headline face, and optionally a

@@ -228,6 +228,102 @@ int Card::getMaxUpgrades() const {
     return 2;
 }
 
+// Most fit a card face in four or five lines; CardBar shrinks the few that do
+// not. The numbers follow the same formulas upgrade() writes into the
+// description below, so the face and the details panel never disagree.
+std::string Card::brief(int shown, int elemChance, bool live) const {
+    const std::string v = std::to_string(shown);
+    auto times = [](double m) { std::ostringstream o; o << m; return o.str(); };
+    std::string s;
+    switch (effect) {
+        // Attacks
+        case CardEffect::PIERCE:       s = "Deal " + v + " damage, ignoring defense."; break;
+        case CardEffect::DOUBLE_HIT:   s = "Deal " + v + " damage twice."; break;
+        case CardEffect::TRUESTRIKE:   s = "Deal " + v + " damage. Nothing reduces it."; break;
+        case CardEffect::TRUE_DOUBLE:  s = "Deal " + v + " damage twice. Nothing reduces it."; break;
+        case CardEffect::RECKLESS:     s = "Deal " + v + " damage. Your cards deal 2 less next turn."; break;
+        case CardEffect::OVEREXTEND:   s = "Deal " + v + " damage, ignoring defense. Draw one fewer next turn."; break;
+        case CardEffect::WILDCHARGE:   s = "Deal " + v + " damage. You lose all your armor."; break;
+        case CardEffect::EMBERBLADE:   s = "Deal " + v + " damage and apply 4 Burn. You take 2 Burn."; break;
+        case CardEffect::SHATTERPOINT: s = "Deal " + v + " damage. Only one more card this turn."; break;
+        case CardEffect::ALLIN:
+            s = live ? "Deal " + v + ", twice your armor, then lose it all. You are Weakened for 2 turns."
+                     : "Deal twice your armor, then lose it all. You are Weakened for 2 turns.";
+            break;
+        case CardEffect::PACTRUIN:
+            s = "Deal " + v + " damage. For the rest of the fight your attacks also Burn and Rend, "
+                "you cannot heal, and every card costs 2 HP.";
+            break;
+
+        // Defends
+        case CardEffect::FORTIFY:      s = "Gain " + v + " armor that lasts 3 turns."; break;
+        case CardEffect::IMPAIR:       s = "Gain " + v + " armor. 50% chance to Weaken the enemy."; break;
+        case CardEffect::CHIP:         s = "Gain " + v + " armor and deal 3 damage."; break;
+        case CardEffect::WARD:         s = "Gain " + v + " armor. Block ailments for 2 turns."; break;
+        case CardEffect::SCRAP:        s = "Gain " + v + " armor. You take 1 damage."; break;
+        case CardEffect::SELFWEAK:     s = "Gain " + v + " armor. Your attacks deal 10% less this turn."; break;
+        case CardEffect::TURTLE:       s = "Gain " + v + " armor that lasts 3 turns. You are Weakened for 3 turns."; break;
+        case CardEffect::UNSTABLEWARD:
+            s = "Gain " + v + " armor. Block ailments for 5 turns. Draw two fewer next turn.";
+            break;
+        case CardEffect::LASTSTAND:
+            s = live ? "Gain " + v + " armor, your missing HP +" + std::to_string(value)
+                       + ", for 3 turns. No more healing this fight."
+                     : "Gain your missing HP +" + std::to_string(value)
+                       + " as armor for 3 turns. No more healing this fight.";
+            break;
+
+        // Specials. The poison and burn ticks mirror StatusEffects::apply().
+        case CardEffect::POISON: s = "Poison the enemy: " + std::to_string((shown + 1) / 2) + " damage a turn for 6 turns."; break;
+        case CardEffect::BURN:   s = "Burn the enemy: " + std::to_string(shown + shown / 2) + " damage a turn for 2 turns."; break;
+        case CardEffect::REND:   s = "Rend the enemy: " + v + " damage the next 3 times they attack."; break;
+        case CardEffect::STUN:   s = "The enemy loses their next turn. Bosses often resist."; break;
+        case CardEffect::WEAK:
+            s = std::string("Weaken the enemy for 3 turns: their attacks deal ")
+              + (superRare ? "2" : rare ? "1.75" : "1.5") + "x less.";
+            break;
+        case CardEffect::COUNTER: s = "Turn the enemy's next attack or ailment back on them, doubled, +" + v + "."; break;
+        case CardEffect::PARRY:
+            s = "Block their next attack and hit back for 1.5x its damage +" + v
+              + ". Holds up to your armor +" + std::to_string(shown * 3) + ".";
+            break;
+        case CardEffect::HEAL:
+            s = "Heal to " + v + "% of your max HP, or " + std::to_string(shown * 2 / 5) + "% if already above that.";
+            break;
+        case CardEffect::TAUNT:      s = "The enemy mostly attacks for 2 turns. Fails 1 time in 5."; break;
+        case CardEffect::FEAR:       s = "The enemy mostly braces for 2 turns. Fails 1 time in 5."; break;
+        case CardEffect::BLOODPRICE: s = "Gain " + v + " energy. Lose 6 HP."; break;
+        case CardEffect::ADRENALINE: s = "Gain " + v + " energy now. Start next turn with 2 less."; break;
+        case CardEffect::BERSERK:    s = "Your attacks deal x1.5 next turn. You take x1.5 damage until then."; break;
+        case CardEffect::BLOODPACT:  s = "Your attacks deal x2 for 3 turns. Lose 15% of your max HP this fight."; break;
+        case CardEffect::BORROWED:
+            s = "Take another turn now. Then lose a turn, and your max HP drops to 60% this fight.";
+            break;
+        case CardEffect::SACRIFICE:  s = "Heal to full. This card is gone for the rest of the fight."; break;
+
+        // Strength is an attack on Bloodlust and a card of its own on Strengthen.
+        case CardEffect::STRENGTH:
+            s = (type == CardType::ATTACK ? "Deal " + v + " damage, then your attacks deal x"
+                                          : std::string("Your attacks deal x"))
+              + times(strengthMultiplier()) + " for 2 turns."
+              + (legendary ? " You are Weakened after." : "");
+            break;
+
+        default:
+            s = type == CardType::DEFEND ? "Gain " + v + " armor." : "Deal " + v + " damage.";
+            break;
+    }
+    // Every elemental attack can land its status on a hit. Burning Blade
+    // burns them anyway, so its face leaves the chance to the details.
+    if (type == CardType::ATTACK && effect != CardEffect::EMBERBLADE && elemChance > 0) {
+        const char* st = elemType == DamageType::FIRE   ? "Burn"
+                       : elemType == DamageType::POISON ? "Poison"
+                       : elemType == DamageType::WIND   ? "Rend" : nullptr;
+        if (st) s += " " + std::to_string(elemChance) + "% chance to " + st + ".";
+    }
+    return s;
+}
+
 void Card::upgrade() {
     // The step scales with rarity: at a flat +3 a maxed uncommon reached 1
     // energy for 18 damage, which is a printed rare at a third of the cost.

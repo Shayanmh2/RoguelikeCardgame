@@ -46,6 +46,7 @@ int gFontPx = 0;            // what is currently loaded
 int gLastFitH = -1;         // output height the current fit was computed for
 TTF_Font* gFontBig = nullptr;
 TTF_Font* gFontBigBold = nullptr;
+TTF_Font* gFontSmall = nullptr;
 TTF_Font* gFontDisp = nullptr;
 TTF_Font* gFontTitle = nullptr;
 
@@ -174,6 +175,19 @@ bool openFontsAt(int px) {
     if (gCellH <= 0) gCellH = 20;
     gFontPx = px;
     Console::setFont(gFont, gFontBold, gCellW, gCellH);
+
+    // Card-text face, four fifths of the grid, for a card brief too long for
+    // its card at the grid size. Never under 11px, past which it is hard to read.
+    const int smallPx = std::max(11, (int)(px * 0.8f + 0.5f));
+    if (TTF_Font* sf = TTF_OpenFont(gFontPath.c_str(), smallPx)) {
+        TTF_SetFontHinting(sf, TTF_HINTING_LIGHT);
+        TTF_Font* oldSmall = gFontSmall;
+        gFontSmall = sf;
+        int sw = 0, sh = 0;
+        TTF_SizeUTF8(gFontSmall, "M", &sw, &sh);
+        Console::setSmallFont(gFontSmall, sw > 0 ? sw : smallPx / 2, TTF_FontLineSkip(gFontSmall));
+        if (oldSmall) TTF_CloseFont(oldSmall);
+    }
 
     // Widget face, ~1.9x the grid. Card titles are sized against the card, not
     // the text grid, so they need their own point size rather than a scale-up.

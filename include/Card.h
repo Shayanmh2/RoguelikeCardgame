@@ -114,6 +114,14 @@ public:
     DamageType getElemType() const;
     std::string getTypeTag() const; // bracketed display tag, e.g. "[PIERCE][WIND]", empty if untyped
 
+    // What the card does, in a sentence or two for its face; the description
+    // is the long form in the details panel. `shown` is the value as it would
+    // land (through gear, and in the hand through Weak and Strength),
+    // `elemChance` the live chance an elemental attack lands its status, and
+    // `live` says the hand is showing it, where All In and Last Stand can
+    // quote the armour they would throw or give.
+    std::string brief(int shown, int elemChance, bool live) const;
+
     void upgrade();
 };
 

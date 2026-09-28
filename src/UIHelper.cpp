@@ -96,6 +96,7 @@ bool gBannerOn = false;
 // banner and the card pickers, which never want it at the same time.
 std::string gHeadline;
 SDL_Color   gHeadlineCol{ 134, 209, 107, 255 };
+int         gHeadlineTopPct = 20;
 std::vector<std::string> gTitleOpts;
 int gTitleSel = 0;
 std::vector<SDL_Rect> gTitleRects;
@@ -142,9 +143,9 @@ bool drawBannerArt(const char* name, int topY, int widthPct, int heightDiv) {
 void drawHeadline() {
     if (gHeadline.empty()) return;
     SDL_Renderer* r = Platform::renderer();
-    if (drawBannerArt(bannerFor(gHeadline), Platform::screenH() / 5, 58, 6)) return;
+    if (drawBannerArt(bannerFor(gHeadline), Platform::screenH() * gHeadlineTopPct / 100, 58, 6)) return;
     const int w = (int)gHeadline.size() * Console::dispCellW();
-    const int y = Platform::screenH() / 4;
+    const int y = Platform::screenH() * (gHeadlineTopPct + 5) / 100;
     if (w > Platform::screenW() - 40) {
         // Too narrow for the display face: clipped text reads worse than
         // smaller text, so the widget face carries it instead.
@@ -230,8 +231,9 @@ void UIHelper::showTitleBanner(bool on) {
                                   : std::function<void()>());
 }
 
-void UIHelper::showHeadline(const std::string& text, int r, int g, int b) {
+void UIHelper::showHeadline(const std::string& text, int r, int g, int b, int topPct) {
     gHeadline = text;
+    gHeadlineTopPct = topPct;
     gHeadlineCol = SDL_Color{ (Uint8)r, (Uint8)g, (Uint8)b, 255 };
     Platform::setModalRenderer(text.empty() ? std::function<void()>()
                                             : std::function<void()>(&drawHeadline));

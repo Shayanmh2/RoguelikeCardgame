@@ -4,6 +4,7 @@
 #include "EnemyArt.h"
 #include "ProjectileTable.h"
 #include "IntroTable.h"
+#include "EndingTable.h"
 #include "Audio.h"
 #include "Console.h"
 #include "Platform.h"
@@ -646,57 +647,71 @@ int gSealFrame = -1;
 // -1 when the scene is not up.
 int gRestTier = -1;
 
-// The opening at the pond: which shot is up (-1: none), when it began, and
-// the last step whose sound has already played.
-int gIntroShot = -1;
-Uint32 gIntroStart = 0;
-int gIntroSounded = -1;
+// The cutscenes: their sheets and timelines, which one is up and which shot
+// (-1: none), when the shot began, and the last step whose sound has played.
+struct SceneDef {
+    const char* file;
+    const CutsceneStep* steps;
+    const CutsceneShot* shots;
+    int shotCount, frameW, frameH, columns;
+};
+const SceneDef SCENES[] = {
+    { "assets/sprites/intro_scene.png", IntroTable::STEPS, IntroTable::SHOT, IntroTable::SHOTS,
+      IntroTable::FRAME_W, IntroTable::FRAME_H, IntroTable::COLUMNS },
+    { "assets/sprites/ending_scene.png", EndingTable::STEPS, EndingTable::SHOT, EndingTable::SHOTS,
+      EndingTable::FRAME_W, EndingTable::FRAME_H, EndingTable::COLUMNS },
+};
+int gScene = 0, gSceneShot = -1;
+Uint32 gSceneStart = 0;
+int gSceneSounded = -1;
 
-// One image, frames in rows of IntroTable::COLUMNS. Loaded on first use and
-// kept: it is only wanted at the start of a run.
-SDL_Texture* introSheet() {
-    static SDL_Texture* tex = nullptr;
-    static bool tried = false;
-    if (tried) return tex;
-    tried = true;
+// A whole image as one texture, loaded on first use and kept: each is only
+// wanted at the start or the end of a run. Null when the file is missing.
+SDL_Texture* wholeTexture(const std::string& rel) {
+    static std::map<std::string, SDL_Texture*> cache;
+    auto it = cache.find(rel);
+    if (it != cache.end()) return it->second;
+    SDL_Texture* tex = nullptr;
     int w = 0, h = 0, comp = 0;
-    const std::string path = basePath() + "assets/sprites/intro_scene.png";
-    unsigned char* data = stbi_load(path.c_str(), &w, &h, &comp, 4);
-    if (!data) return nullptr;
-    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormatFrom(data, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32);
-    if (surf) {
-        tex = SDL_CreateTextureFromSurface(Platform::renderer(), surf);
-        SDL_FreeSurface(surf);
+    const std::string path = basePath() + rel;
+    if (unsigned char* data = stbi_load(path.c_str(), &w, &h, &comp, 4)) {
+        if (SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormatFrom(data, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32)) {
+            tex = SDL_CreateTextureFromSurface(Platform::renderer(), surf);
+            SDL_FreeSurface(surf);
+        }
+        stbi_image_free(data);
     }
-    stbi_image_free(data);
+    cache[rel] = tex;
     return tex;
 }
 
-const IntroTable::Shot& introShotDef() { return IntroTable::SHOT[gIntroShot]; }
+const SceneDef& sceneDef() { return SCENES[gScene]; }
+const CutsceneShot& shotDef() { return sceneDef().shots[gSceneShot]; }
 
-int introIntroMs() {
-    const IntroTable::Shot& s = introShotDef();
+int shotIntroMs() {
+    const CutsceneShot& s = shotDef();
     int ms = 0;
-    for (int i = 0; i < s.intro; i++) ms += IntroTable::STEPS[s.first + i].ms;
+    for (int i = 0; i < s.intro; i++) ms += sceneDef().steps[s.first + i].ms;
     return ms;
 }
 
 // The step showing `elapsed` ms into the shot: its own steps once, then its
 // loop round and round.
-int introStepAt(Uint32 elapsed) {
-    const IntroTable::Shot& s = introShotDef();
+int sceneStepAt(Uint32 elapsed) {
+    const CutsceneStep* steps = sceneDef().steps;
+    const CutsceneShot& s = shotDef();
     Uint32 t = elapsed;
     for (int i = 0; i < s.intro; i++) {
-        const Uint32 ms = (Uint32)IntroTable::STEPS[s.first + i].ms;
+        const Uint32 ms = (Uint32)steps[s.first + i].ms;
         if (t < ms) return s.first + i;
         t -= ms;
     }
     if (s.loop <= 0) return s.first + std::max(0, s.intro - 1);
     Uint32 cycle = 0;
-    for (int i = 0; i < s.loop; i++) cycle += (Uint32)IntroTable::STEPS[s.first + s.intro + i].ms;
+    for (int i = 0; i < s.loop; i++) cycle += (Uint32)steps[s.first + s.intro + i].ms;
     t %= std::max<Uint32>(1, cycle);
     for (int i = 0; i < s.loop; i++) {
-        const Uint32 ms = (Uint32)IntroTable::STEPS[s.first + s.intro + i].ms;
+        const Uint32 ms = (Uint32)steps[s.first + s.intro + i].ms;
         if (t < ms) return s.first + s.intro + i;
         t -= ms;
     }
@@ -705,31 +720,47 @@ int introStepAt(Uint32 elapsed) {
 
 // Whole multiples of the art, so it stays crisp: as big as fits in the top
 // of the window with room for the words under it.
-SDL_Rect introRect() {
+SDL_Rect sceneRect() {
+    const SceneDef& d = sceneDef();
     const int W = Platform::screenW(), H = Platform::screenH();
-    const int scale = std::max(2, std::min(W * 80 / 100 / IntroTable::FRAME_W,
-                                           H * 64 / 100 / IntroTable::FRAME_H));
-    return SDL_Rect{ (W - IntroTable::FRAME_W * scale) / 2, H * 4 / 100,
-                     IntroTable::FRAME_W * scale, IntroTable::FRAME_H * scale };
+    const int scale = std::max(2, std::min(W * 80 / 100 / d.frameW, H * 64 / 100 / d.frameH));
+    return SDL_Rect{ (W - d.frameW * scale) / 2, H * 4 / 100, d.frameW * scale, d.frameH * scale };
 }
 
-void drawIntro(Uint32 now) {
-    SDL_Texture* tex = introSheet();
+// The ending's knight, in the gear he finished the run wearing, lit for the
+// step: his armour, then his weapon over it, from ending_knight.png.
+void drawEndingKnight(const SDL_Rect& scene, int knight, int scale) {
+    SDL_Texture* tex = wholeTexture("assets/sprites/ending_knight.png");
+    if (!tex || knight < 0) return;
+    using namespace EndingTable;
+    const int light = std::min(LIGHTS - 1, knight / POSES), pose = knight % POSES;
+    const int armour = std::max(0, std::min(TIERS - 1, gArmorTiers));
+    const int weapon = std::max(0, std::min(TIERS - 1, gWeaponTiers));
+    const int layers[2] = { armour * POSES + pose, TIERS * POSES + weapon * POSES + pose };
+    const SDL_Rect to{ scene.x + KNIGHT_X * scale, scene.y + KNIGHT_Y * scale, KNIGHT_W * scale, KNIGHT_H * scale };
+    for (int c : layers) {
+        const SDL_Rect from{ c * KNIGHT_W, light * KNIGHT_H, KNIGHT_W, KNIGHT_H };
+        SDL_RenderCopy(Platform::renderer(), tex, &from, &to);
+    }
+}
+
+void drawCutscene(Uint32 now) {
+    const SceneDef& d = sceneDef();
+    SDL_Texture* tex = wholeTexture(d.file);
     if (!tex) return;
-    const int step = introStepAt(now - gIntroStart);
+    const int step = sceneStepAt(now - gSceneStart);
     // Sounds belong to the steps that play once; each is heard as its step
     // comes up, and never again for the same showing.
-    const IntroTable::Shot& s = introShotDef();
-    for (int i = std::max(gIntroSounded + 1, (int)s.first); i <= step && i < s.first + s.intro; i++)
-        if (IntroTable::STEPS[i].sfx) Audio::playSFX(IntroTable::STEPS[i].sfx);
-    gIntroSounded = std::max(gIntroSounded, std::min(step, s.first + s.intro - 1));
+    const CutsceneShot& s = shotDef();
+    for (int i = std::max(gSceneSounded + 1, (int)s.first); i <= step && i < s.first + s.intro; i++)
+        if (d.steps[i].sfx) Audio::playSFX(d.steps[i].sfx);
+    gSceneSounded = std::max(gSceneSounded, std::min(step, s.first + s.intro - 1));
 
-    const int frame = IntroTable::STEPS[step].frame;
-    const SDL_Rect src{ (frame % IntroTable::COLUMNS) * IntroTable::FRAME_W,
-                        (frame / IntroTable::COLUMNS) * IntroTable::FRAME_H,
-                        IntroTable::FRAME_W, IntroTable::FRAME_H };
-    const SDL_Rect dst = introRect();
+    const int frame = d.steps[step].frame;
+    const SDL_Rect src{ (frame % d.columns) * d.frameW, (frame / d.columns) * d.frameH, d.frameW, d.frameH };
+    const SDL_Rect dst = sceneRect();
     SDL_RenderCopy(Platform::renderer(), tex, &src, &dst);
+    if (d.steps[step].knight >= 0) drawEndingKnight(dst, d.steps[step].knight, dst.w / d.frameW);
 }
 
 
@@ -737,7 +768,7 @@ void drawOverlay() {
     SDL_Renderer* r = Platform::renderer();
     const Uint32 now = SDL_GetTicks();
 
-    if (gIntroShot >= 0) drawIntro(now);
+    if (gSceneShot >= 0) drawCutscene(now);
 
     // The fire scene sits in the top of the screen and the words go under it.
     // One strip, three flame frames per armour, baked by
@@ -1161,28 +1192,32 @@ void setTitleMode(bool on) { ensureInstalled(); gTitleMode = on; }
 void setSealFrame(int frame) { ensureInstalled(); gSealFrame = frame; }
 void setRestScene(int armorTier) { ensureInstalled(); gRestTier = armorTier; }
 
-void setIntroShot(int shot) {
+void setCutsceneShot(Cutscene scene, int shot) {
     ensureInstalled();
-    gIntroShot = (shot >= 0 && shot < IntroTable::SHOTS) ? shot : -1;
-    gIntroStart = SDL_GetTicks();
-    gIntroSounded = -1;
+    gScene = scene == Cutscene::ENDING ? 1 : 0;
+    gSceneShot = (shot >= 0 && shot < SCENES[gScene].shotCount) ? shot : -1;
+    gSceneStart = SDL_GetTicks();
+    gSceneSounded = -1;
 }
 
-bool introSceneReady() { ensureInstalled(); return introSheet() != nullptr; }
-
-bool introShotPlaying() {
-    return gIntroShot >= 0 && SDL_GetTicks() - gIntroStart < (Uint32)introIntroMs();
+bool cutsceneReady(Cutscene scene) {
+    ensureInstalled();
+    return wholeTexture(SCENES[scene == Cutscene::ENDING ? 1 : 0].file) != nullptr;
 }
 
-void finishIntroShot() {
-    if (gIntroShot < 0) return;
-    gIntroStart = SDL_GetTicks() - (Uint32)introIntroMs();
-    const IntroTable::Shot& s = introShotDef();
-    gIntroSounded = s.first + s.intro - 1;
+bool cutsceneShotPlaying() {
+    return gSceneShot >= 0 && SDL_GetTicks() - gSceneStart < (Uint32)shotIntroMs();
 }
 
-int introSceneBottom() {
-    const SDL_Rect d = introRect();
+void finishCutsceneShot() {
+    if (gSceneShot < 0) return;
+    gSceneStart = SDL_GetTicks() - (Uint32)shotIntroMs();
+    const CutsceneShot& s = shotDef();
+    gSceneSounded = s.first + s.intro - 1;
+}
+
+int cutsceneBottom() {
+    const SDL_Rect d = sceneRect();
     return d.y + d.h;
 }
 

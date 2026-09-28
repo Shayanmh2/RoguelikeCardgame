@@ -128,17 +128,20 @@ namespace EnemyArt {
     // The knight sat at his fire, in the armour he is wearing, over the top of
     // the screen. -1 takes it down.
     void setRestScene(int armorTier);
-    // The opening at the pond, over the top of the screen: shot 0-5, one per
-    // line of the intro (tools/make_intro_scene.py). -1 takes it down.
-    void setIntroShot(int shot);
-    // False when its art is missing, so the intro can fall back to words.
-    bool introSceneReady();
+    // The cutscenes over the top of the screen, a shot to each line of text:
+    // the opening at the pond and the ending on the peak
+    // (tools/make_intro_scene.py, tools/make_ending_scene.py).
+    enum class Cutscene { INTRO, ENDING };
+    // Puts a shot up; -1 takes the cutscene down.
+    void setCutsceneShot(Cutscene scene, int shot);
+    // False when its art is missing, so the words can stand on their own.
+    bool cutsceneReady(Cutscene scene);
     // True while the shot is still playing its way in, before its loop.
-    bool introShotPlaying();
+    bool cutsceneShotPlaying();
     // Straight to the shot's loop, without the sounds it would have made.
-    void finishIntroShot();
+    void finishCutsceneShot();
     // The bottom edge of the picture in pixels, so the words can go under it.
-    int introSceneBottom();
+    int cutsceneBottom();
     // Item icons from items.png: swords 0-6 by gear tier, shields 7-13.
     // From MEDAL_ICON0 on, the achievement medals instead.
     void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst);

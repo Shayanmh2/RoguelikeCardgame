@@ -12,7 +12,7 @@ namespace CardBar {
 
 struct Card {
     std::string name;
-    std::string effect;      // short line: "6 dmg", "+8 armor"
+    std::string effect;      // what it does, in brief: "Deal 6 damage."
     std::string typeLabel;   // ATTACK / DEFEND / SPECIAL - details panel only
     std::string elemTag;     // damage school: [Smash], [Pierce][Wind], [Fire]...
     std::string note;        // per-screen state, e.g. the Forge's "2 upgrades left"

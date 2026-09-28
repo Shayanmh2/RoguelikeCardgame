@@ -33,7 +33,9 @@ public:
     // One line of display-face text drawn over the console, centred near the
     // top. For moments that want to be an event rather than a log line.
     // An empty string takes it back down.
-    static void showHeadline(const std::string& text, int r, int g, int b);
+    // topPct: how far down the screen its top sits (20 unless a picture needs
+    // the room under it).
+    static void showHeadline(const std::string& text, int r, int g, int b, int topPct = 20);
 
     // The title screen's own menu, drawn at pixel positions so the options
     // centre properly instead of snapping to character columns.

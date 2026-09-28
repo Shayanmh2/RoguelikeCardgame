@@ -197,6 +197,11 @@ TTF_Font* gFontBigBold = nullptr;
 int gCellWBig = 0, gCellHBig = 0;
 std::unordered_map<GlyphKey, SDL_Texture*, GlyphHash> gGlyphsBig;
 
+// And a smaller one, for card text that does not fit at the grid size.
+TTF_Font* gFontSmall = nullptr;
+int gCellWSmall = 0, gCellHSmall = 0;
+std::unordered_map<GlyphKey, SDL_Texture*, GlyphHash> gGlyphsSmall;
+
 // A third size, for the title. Same reasoning, more so at this scale.
 TTF_Font* gFontDisp = nullptr;
 int gCellWDisp = 0, gCellHDisp = 0;
@@ -226,6 +231,19 @@ SDL_Texture* glyphTextureDisp(SDL_Renderer* r, const Cell& cell) {
     SDL_Texture* tex = surf ? SDL_CreateTextureFromSurface(r, surf) : nullptr;
     if (surf) SDL_FreeSurface(surf);
     gGlyphsDisp[key] = tex;
+    return tex;
+}
+
+SDL_Texture* glyphTextureSmall(SDL_Renderer* r, const Cell& cell) {
+    if (!gFontSmall) return nullptr;
+    Uint32 rgba = ((Uint32)cell.fg.r << 24) | ((Uint32)cell.fg.g << 16) | ((Uint32)cell.fg.b << 8) | 255u;
+    GlyphKey key{ cell.ch, rgba, cell.bold };
+    auto it = gGlyphsSmall.find(key);
+    if (it != gGlyphsSmall.end()) return it->second;
+    SDL_Surface* surf = TTF_RenderUTF8_Blended(gFontSmall, toUtf8(cell.ch).c_str(), cell.fg);
+    SDL_Texture* tex = surf ? SDL_CreateTextureFromSurface(r, surf) : nullptr;
+    if (surf) SDL_FreeSurface(surf);
+    gGlyphsSmall[key] = tex;
     return tex;
 }
 
@@ -397,6 +415,32 @@ void setBigFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH) {
     gFontBig = regular; gFontBigBold = bold; gCellWBig = cellW; gCellHBig = cellH;
 }
 int bigCellW() { return gCellWBig ? gCellWBig : gCellW; }
+
+void setSmallFont(TTF_Font* regular, int cellW, int cellH) {
+    for (auto& kv : gGlyphsSmall) if (kv.second) SDL_DestroyTexture(kv.second);
+    gGlyphsSmall.clear();
+    gFontSmall = regular; gCellWSmall = cellW; gCellHSmall = cellH;
+}
+int smallCellW() { return gCellWSmall ? gCellWSmall : gCellW; }
+int smallCellH() { return gCellHSmall ? gCellHSmall : gCellH; }
+
+void drawTextSmallPx(SDL_Renderer* r, int x, int y, const std::string& text, SDL_Color color) {
+    if (!gFontSmall) { drawTextPx(r, x, y, text, color, false); return; }
+    int cx = x;
+    for (size_t i = 0; i < text.size(); i++) {
+        unsigned char ch = (unsigned char)text[i];
+        if (ch < 32) continue;
+        Cell cell; cell.ch = (char32_t)ch; cell.fg = color; cell.bold = false;
+        SDL_Texture* tex = glyphTextureSmall(r, cell);
+        if (tex) {
+            int tw = 0, th = 0;
+            SDL_QueryTexture(tex, nullptr, nullptr, &tw, &th);
+            SDL_Rect dst{ cx, y, tw, th };
+            SDL_RenderCopy(r, tex, nullptr, &dst);
+        }
+        cx += gCellWSmall;
+    }
+}
 
 void setDisplayFont(TTF_Font* f, int cellW, int cellH) {
     for (auto& kv : gGlyphsDisp) if (kv.second) SDL_DestroyTexture(kv.second);

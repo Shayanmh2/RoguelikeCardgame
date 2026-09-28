@@ -44,57 +44,14 @@ namespace Stripe {
     constexpr int BOON    = 15;   // white  - the one-off run choices
 }
 
-// One short line for a card face; the full sentence lives in the details
-// panel. elemChance > 0 shows the live elemental chance, which Attunement
-// raises above the 10% the card's own text quotes.
-static std::string cardFaceLine(const Card& c, int shownValue, int elemChance = 0) {
-    std::string base;
-    switch (c.getType()) {
-        case CardType::ATTACK: base = std::to_string(shownValue) + " dmg";   break;
-        case CardType::DEFEND: base = "+" + std::to_string(shownValue) + " armor"; break;
-        default:               base = std::to_string(shownValue) + " stk";   break;
-    }
-    const char* extra = nullptr;
-    switch (c.getEffect()) {
-        case CardEffect::POISON:     extra = "poison";   break;
-        case CardEffect::BURN:       extra = "burn";     break;
-        case CardEffect::REND:       extra = "rend";     break;
-        case CardEffect::STUN:       extra = "stun";     break;
-        case CardEffect::WEAK:       extra = "weaken";   break;
-        case CardEffect::COUNTER:    extra = "counter";  break;
-        case CardEffect::PARRY:      extra = "riposte";  break;
-        case CardEffect::PIERCE:     extra = "pierce";   break;
-        case CardEffect::FORTIFY:    extra = "fortify";  break;
-        case CardEffect::STRENGTH:   extra = "strength"; break;
-        case CardEffect::DOUBLE_HIT: extra = "hits x2";  break;
-        case CardEffect::IMPAIR:     extra = "impair";   break;
-        case CardEffect::CHIP:       extra = "chip";     break;
-        case CardEffect::HEAL:       base  = "to " + std::to_string(shownValue) + "%"; break;
-        case CardEffect::WARD:       extra = "ward";     break;
-        case CardEffect::TAUNT:      extra = "taunt";    break;
-        case CardEffect::FEAR:       extra = "fear";     break;
-        // Six characters is what fits beside a three-digit damage figure;
-        // "unstoppable" was rendering as "unstop".
-        case CardEffect::TRUESTRIKE: extra = "true";    break;
-        case CardEffect::TRUE_DOUBLE: extra = "true x2"; break;
-        default: break;
-    }
-    if (extra) base += "  " + std::string(extra);
-    if (!extra && elemChance > 0 && c.getType() == CardType::ATTACK) {
-        const char* st = c.getElemType() == DamageType::FIRE   ? "burn"
-                       : c.getElemType() == DamageType::POISON ? "psn"
-                       : c.getElemType() == DamageType::WIND   ? "rend" : nullptr;
-        if (st) base += "  " + std::to_string(elemChance) + "% " + st;
-    }
-    return base;
-}
-
 // Card -> widget. Every screen that shows cards wants the same conversion, so
-// it lives here rather than being rebuilt per screen.
-static CardBar::Card toWidget(const Card& c, int shownValue, bool disabled = false) {
+// it lives here rather than being rebuilt per screen. elemChance is the live
+// chance an elemental attack lands its status, which Attunement raises above
+// the 10% the card's own text quotes.
+static CardBar::Card toWidget(const Card& c, int shownValue, int elemChance, bool disabled = false) {
     CardBar::Card w;
     w.name      = c.getName();
-    w.effect    = cardFaceLine(c, shownValue);
+    w.effect    = c.brief(shownValue, elemChance, false);
     w.elemTag   = c.getTypeTag();
     w.typeLabel = c.getTypeString();
     w.cost      = c.getCost();
@@ -113,21 +70,43 @@ static CardBar::Card toWidget(const Card& c, int shownValue, bool disabled = fal
     return w;
 }
 
-// What one upgrade would do to this card. Card::upgrade() adds 3 to the value
-// and takes 1 off the cost with a floor of 1, so both are predictable without
-// having to actually apply it.
-static int upgradedCost(const Card& c)  { return c.getCost() > c.minCost() ? c.getCost() - 1 : c.getCost(); }
-static int upgradedValue(const Card& c) { return c.getValue() + 3; }
+// What one upgrade would do to this card, read off a copy that has had it.
+// Card::upgrade() alone decides the step, which goes by rarity, and the cost,
+// which only the first upgrade trims; a guess kept here fell out of step.
+static Card upgradedCopy(const Card& c) { Card u = c; u.upgrade(); return u; }
+static int upgradedCost(const Card& c)  { return upgradedCopy(c).getCost(); }
+static int upgradedValue(const Card& c) { return upgradedCopy(c).getValue(); }
 
-// Compact "6 -> 9 dmg" for the card face, which clips at about fifteen
-// characters. Both numbers arrive already geared: the hand shows geared values,
-// so the forge has to as well.
-static std::string upgradeFaceLine(const Card& c, int v, int u) {
-    if (c.getEffect() == CardEffect::HEAL)
-        return "to " + std::to_string(v) + "% -> " + std::to_string(u) + "%";
-    const char* unit = (c.getType() == CardType::ATTACK) ? " dmg"
-                     : (c.getType() == CardType::DEFEND) ? " armor" : " stk";
-    return std::to_string(v) + " -> " + std::to_string(u) + unit;
+// The forge's face: the card's brief with every number the upgrade moves
+// written "6->8", so it says what the card does and what the forge changes.
+// Both briefs are the same sentence with different numbers, so their words
+// pair up; if they ever do not, the upgraded one stands alone.
+static std::string upgradeFaceLine(const std::string& now, const std::string& next) {
+    auto words = [](const std::string& t) {
+        std::vector<std::string> out;
+        std::istringstream in(t);
+        for (std::string w; in >> w; ) out.push_back(w);
+        return out;
+    };
+    const std::vector<std::string> a = words(now), b = words(next);
+    if (a.size() != b.size()) return next;
+    const char* digits = "0123456789";
+    std::string out;
+    for (size_t i = 0; i < a.size(); i++) {
+        std::string w = b[i];
+        if (a[i] != b[i]) {
+            // Only the digits may differ: "+5," and "+10," share the "+" and the ",".
+            const size_t s0 = a[i].find_first_of(digits), s1 = b[i].find_first_of(digits);
+            if (s0 == std::string::npos || s1 == std::string::npos) return next;
+            const size_t e0 = a[i].find_last_of(digits), e1 = b[i].find_last_of(digits);
+            if (a[i].substr(0, s0) != b[i].substr(0, s1) || a[i].substr(e0 + 1) != b[i].substr(e1 + 1))
+                return next;
+            w = b[i].substr(0, s1) + a[i].substr(s0, e0 - s0 + 1) + "->" + b[i].substr(s1);
+        }
+        if (!out.empty()) out += ' ';
+        out += w;
+    }
+    return out;
 }
 
 static std::string rarityWord(const Card& c) {
@@ -3404,7 +3383,7 @@ bool Game::selectCardToCarryOver(Card& outCard) {
     if (allCards.empty()) return false;
 
     std::vector<CardBar::Card> widgets;
-    for (const Card& c : allCards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
+    for (const Card& c : allCards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance()));
     std::vector<CardBar::Action> carryActs{ CardBar::Action{ "Leave them all behind", false } };
 
     int choice;
@@ -3658,7 +3637,7 @@ void Game::handleInput() {
 
             CardBar::Card w;
             w.name     = c.getName();
-            w.effect   = cardFaceLine(c, dispVal, attunementChance());
+            w.effect   = c.brief(dispVal, attunementChance(), true);
             w.typeLabel = c.getTypeString();
             w.elemTag   = c.getTypeTag();   // [Smash] / [Pierce][Wind] / ...
             w.cost     = effectiveCost(c);
@@ -4741,7 +4720,7 @@ void Game::offerBossReward() {
     options.push_back("Skip");
 
     std::vector<CardBar::Card> bossWidgets;
-    for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
+    for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance()));
     // The Bone Dice work here too: this is the reward a run turns on.
     bool canReroll = hasRelic(Relic::BONE_DICE);
 
@@ -4758,7 +4737,7 @@ void Game::offerBossReward() {
             if (!fresh.empty()) {
                 rewards = fresh;
                 bossWidgets.clear();
-                for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
+                for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance()));
                 Audio::playSFX("special");
             }
             continue;
@@ -5028,6 +5007,27 @@ namespace {
         "pieces are. He goes after them."
     };
 
+    // The ending on the peak, a line to each shot (tools/make_ending_scene.py).
+    // The last sits under the banner.
+    const Lines ENDING = {
+        "The false moon is put out. It goes back down into its long sleep, and it takes "
+        "nothing of him with it.",
+        "The knight stands on the peak wearing all of himself again: his strength, his wits, "
+        "his speed, his hands, his soul, and the shape nothing else is walking around in any "
+        "more.",
+        "Beyond the hills the sun comes up, and the long night is over.",
+        "Whole, and no longer only a legend."
+    };
+    // The hard road's: the same morning, at the end of its dream.
+    const Lines ENDING_HARD = {
+        "It is put out again, on a road that was never meant to be walked twice.",
+        "Fifty encounters on a road that hits like a hundred. You went back up knowing "
+        "exactly what was waiting, and it still was not enough. There is nothing on this "
+        "mountain that has not already lost to you.",
+        "Beyond the hills the sun comes up, and the dream lets go of him.",
+        ""
+    };
+
     void showStoryBeat(const Lines& lines) {
         UIHelper::clearScreen();
         Hud::setActive(false);       // no combat panel over a story beat
@@ -5285,10 +5285,10 @@ void Game::beginTrueForm() {
 }
 
 namespace {
-// Waits out one line of the opening. A key moves on, but while the shot is
+// Waits out one line of a cutscene. A key moves on, but while the shot is
 // still playing the first one only lets it finish, so reading fast never
 // costs the picture. False means Esc: skip the rest.
-bool waitIntroKey() {
+bool waitCutsceneKey() {
     // Keys pressed while the line typed out are spent, except Esc.
     for (Platform::KeyEvent k = Platform::pollKey(); k.key != Platform::Key::NONE; k = Platform::pollKey())
         if (k.key == Platform::Key::ESCAPE) return false;
@@ -5298,30 +5298,37 @@ bool waitIntroKey() {
         const Platform::KeyEvent k = Platform::pollKey();
         if (k.key == Platform::Key::ESCAPE) return false;
         if (k.key != Platform::Key::NONE || Platform::takeClick(cx, cy)) {
-            if (!EnemyArt::introShotPlaying()) return true;
-            EnemyArt::finishIntroShot();
+            if (!EnemyArt::cutsceneShotPlaying()) return true;
+            EnemyArt::finishCutsceneShot();
         }
         Platform::frame();
     }
+}
+
+// One shot of a cutscene with its line under the picture. False when the
+// player skips the rest with Esc.
+bool cutsceneBeat(EnemyArt::Cutscene scene, int shot, const std::string& line) {
+    UIHelper::clearScreen();
+    Hud::setActive(false);
+    EnemyArt::setCutsceneShot(scene, shot);
+    const int below = EnemyArt::cutsceneBottom() - Console::textRegion().y;
+    for (int r = 0, pad = below / Platform::cellH() + 2; r < pad; r++) std::cout << "\n";
+    if (!line.empty()) {
+        UIHelper::printCenteredWrapped(std::string(Color::DIM) + line + Color::RESET, 74, true);
+        std::cout << "\n";
+    }
+    UIHelper::printCentered(std::string(Color::DIM) + "(any key to go on, Esc to skip)" + Color::RESET);
+    return waitCutsceneKey();
 }
 } // namespace
 
 // The night at the pond, a line at a time under the picture. Without its art
 // it is the words alone, as it always was.
 void Game::showIntro() {
-    if (!EnemyArt::introSceneReady()) { showStoryBeat(INTRO); return; }
-    for (size_t i = 0; i < INTRO.size(); ++i) {
-        UIHelper::clearScreen();
-        Hud::setActive(false);
-        EnemyArt::setIntroShot((int)i);
-        const int below = EnemyArt::introSceneBottom() - Console::textRegion().y;
-        for (int r = 0, pad = below / Platform::cellH() + 2; r < pad; r++) std::cout << "\n";
-        UIHelper::printCenteredWrapped(std::string(Color::DIM) + INTRO[i] + Color::RESET, 74, true);
-        std::cout << "\n";
-        UIHelper::printCentered(std::string(Color::DIM) + "(any key to go on, Esc to skip)" + Color::RESET);
-        if (!waitIntroKey()) break;
-    }
-    EnemyArt::setIntroShot(-1);
+    if (!EnemyArt::cutsceneReady(EnemyArt::Cutscene::INTRO)) { showStoryBeat(INTRO); return; }
+    for (size_t i = 0; i < INTRO.size(); ++i)
+        if (!cutsceneBeat(EnemyArt::Cutscene::INTRO, (int)i, INTRO[i])) break;
+    EnemyArt::setCutsceneShot(EnemyArt::Cutscene::INTRO, -1);
 }
 
 // Beating it: one guaranteed Super Rare, then straight on to the fight it
@@ -5365,7 +5372,7 @@ void Game::handleSecretWin() {
     if (prize.empty())
         prize = rewardPool.generateSuperRareReward(playerDeck.getAllCardNames());
     if (!prize.empty()) {
-        std::vector<CardBar::Card> w{ toWidget(prize[0], gearedValue(prize[0], prize[0].getValue())) };
+        std::vector<CardBar::Card> w{ toWidget(prize[0], gearedValue(prize[0], prize[0].getValue()), attunementChance()) };
         std::vector<CardBar::Action> acts{ CardBar::Action{ "Take it", false } };
         while (true) {
             int ch = CardBar::pick("It was carrying this", w, acts, 1);
@@ -5653,11 +5660,14 @@ bool Game::forgeMenu(const std::string& baseTitle) {
             // Only ATTACK and DEFEND get the flat bonuses; specials use the
             // raw card value, so they show unmodified.
             const int nowVal  = gearedValue(c, c.getValue());
-            const int nextVal = gearedValue(c, upgradedValue(c));
-            CardBar::Card w = toWidget(c, nowVal, maxed);
-            // On the forge the useful number is what it becomes, not what
-            // it currently is - that is the decision being made here.
-            if (!maxed) w.effect = upgradeFaceLine(c, nowVal, nextVal);
+            CardBar::Card w = toWidget(c, nowVal, attunementChance(), maxed);
+            // On the forge the useful number is what it becomes, next to what
+            // it is now: that is the decision being made here.
+            if (!maxed) {
+                const Card next = upgradedCopy(c);
+                w.effect = upgradeFaceLine(w.effect, next.brief(gearedValue(next, next.getValue()),
+                                                                attunementChance(), false));
+            }
             if (groupCount[g] > 1) w.name += " x" + std::to_string(groupCount[g]);
             w.note = maxed ? "maxed"
                            : (std::to_string(upgradesLeft) + " upgrade"
@@ -5941,7 +5951,7 @@ void Game::viewDeckManage() {
         std::vector<CardBar::Card> widgets;
         for (int i = 0; i < count; i++) {
             const Card& c = *groupCard[first + i];
-            CardBar::Card w = toWidget(c, gearedValue(c, c.getValue()));
+            CardBar::Card w = toWidget(c, gearedValue(c, c.getValue()), attunementChance());
             if (groupCount[first + i] > 1) w.name += " x" + std::to_string(groupCount[first + i]);
             // This screen is a library, not the forge. The note says which it is
             // on every card, since the two screens are otherwise identical and
@@ -6310,33 +6320,46 @@ void Game::handleGameVictory() {
     // Normal and Random get the first ending; Hard gets its own.
     const bool firstTime = runMode == Mode::NORMAL || runMode == Mode::RANDOM;
     UIHelper::waitForKey();
-    UIHelper::clearScreen();
-    UIHelper::padToCenter(4);
-    UIHelper::printCenteredWrapped(std::string(Color::BOLD) + Color::MAGENTA
-        + (firstTime
-           ? "The false moon is put out. It goes back down into its long sleep, and it takes "
-             "nothing of him with it."
-           : "It is put out again, on a road that was never meant to be walked twice.")
-        + Color::RESET, 68, true);
-    std::cout << "\n";
-    UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
-    UIHelper::waitForKey("");
+    if (EnemyArt::cutsceneReady(EnemyArt::Cutscene::ENDING)) {
+        // The morning on the peak, a line to each shot. Esc skips straight to
+        // the last, so the banner is never missed.
+        const Lines& lines = firstTime ? ENDING : ENDING_HARD;
+        for (int i = 0; i < 3; i++)
+            if (!cutsceneBeat(EnemyArt::Cutscene::ENDING, i, lines[i])) break;
+        UIHelper::showHeadline("VICTORY ETERNAL", 240, 200, 60, 10);   // high in the sky, clear of him
+        cutsceneBeat(EnemyArt::Cutscene::ENDING, 3, lines[3]);
+        UIHelper::showHeadline("", 0, 0, 0);
+        EnemyArt::setCutsceneShot(EnemyArt::Cutscene::ENDING, -1);
+    } else {
+        // Without its art, the words alone, as it always was.
+        UIHelper::clearScreen();
+        UIHelper::padToCenter(4);
+        UIHelper::printCenteredWrapped(std::string(Color::BOLD) + Color::MAGENTA
+            + (firstTime
+               ? "The false moon is put out. It goes back down into its long sleep, and it takes "
+                 "nothing of him with it."
+               : "It is put out again, on a road that was never meant to be walked twice.")
+            + Color::RESET, 68, true);
+        std::cout << "\n";
+        UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
+        UIHelper::waitForKey("");
 
-    // The ending gets the display face, same as the victory banner.
-    UIHelper::clearScreen();
-    UIHelper::showHeadline("VICTORY ETERNAL", 240, 200, 60);
-    for (int i = 0, pad = Console::rows() * 44 / 100; i < pad; i++) std::cout << "\n";
-    UIHelper::printCenteredWrapped(firstTime
-        ? "The knight stands on the peak wearing all of himself again: his strength, his "
-          "wits, his speed, his hands, his soul, and the shape nothing else is walking around "
-          "in any more. Whole, and no longer only a legend."
-        : "Fifty encounters on a road that hits like a hundred. You went back up knowing "
-          "exactly what was waiting, and it still was not enough. There is nothing on this "
-          "mountain that has not already lost to you.", 64);
-    std::cout << "\n";
-    UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
-    UIHelper::waitForKey("");
-    UIHelper::showHeadline("", 0, 0, 0);
+        // The ending gets the display face, same as the victory banner.
+        UIHelper::clearScreen();
+        UIHelper::showHeadline("VICTORY ETERNAL", 240, 200, 60);
+        for (int i = 0, pad = Console::rows() * 44 / 100; i < pad; i++) std::cout << "\n";
+        UIHelper::printCenteredWrapped(firstTime
+            ? "The knight stands on the peak wearing all of himself again: his strength, his "
+              "wits, his speed, his hands, his soul, and the shape nothing else is walking around "
+              "in any more. Whole, and no longer only a legend."
+            : "Fifty encounters on a road that hits like a hundred. You went back up knowing "
+              "exactly what was waiting, and it still was not enough. There is nothing on this "
+              "mountain that has not already lost to you.", 64);
+        std::cout << "\n";
+        UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
+        UIHelper::waitForKey("");
+        UIHelper::showHeadline("", 0, 0, 0);
+    }
 
     std::vector<Card> legendaries = rewardPool.getUnownedLegendaries(playerDeck.getAllCardNames());
     if (!legendaries.empty()) {
@@ -6522,7 +6545,7 @@ void Game::presentCardChoice(const std::vector<Card>& offered,
                              std::function<std::vector<Card>()> reroll) {
     std::vector<Card> rewards = offered;
     std::vector<CardBar::Card> widgets;
-    for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
+    for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance()));
     // Bone Dice: one reroll per screen.
     bool canReroll = reroll && hasRelic(Relic::BONE_DICE);
 
@@ -6536,7 +6559,7 @@ void Game::presentCardChoice(const std::vector<Card>& offered,
             if (!fresh.empty()) {
                 rewards = fresh;
                 widgets.clear();
-                for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue())));
+                for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance()));
                 Audio::playSFX("special");
             }
             continue;

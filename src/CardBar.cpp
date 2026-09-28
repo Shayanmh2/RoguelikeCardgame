@@ -169,22 +169,18 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
         if (draw) Console::drawTextPx(r, q.x + pad, ty, clip(tag), tagCol, true);
         ty += Platform::cellH();
     }
-    // Wrapped on word boundaries down the card's free space, rather than cut
-    // at its width.
-    int lineY = ty + 2;
-    const int textBottom = cardTextBottom(q);
-    auto drawWrapped = [&](const std::string& text, SDL_Color col) {
-        if (text.empty()) return;
+    // The body, brief then note, wrapped on word boundaries down the card's
+    // free space rather than cut at its width.
+    auto wrap = [](const std::string& text, int fit) {
+        std::vector<std::string> lines;
         std::string line;
         size_t i3 = 0;
-        while (i3 <= text.size()) {
+        while (i3 < text.size()) {
             const size_t sp = text.find(' ', i3);
             const std::string word = text.substr(i3, sp == std::string::npos ? std::string::npos : sp - i3);
             const std::string cand = line.empty() ? word : line + " " + word;
-            if ((int)cand.size() > gridFit && !line.empty()) {
-                if (lineY > textBottom) return;
-                if (draw) Console::drawTextPx(r, q.x + pad, lineY, line, col, false);
-                lineY += Platform::cellH();
+            if ((int)cand.size() > fit && !line.empty()) {
+                lines.push_back(line);
                 line = word;
             } else {
                 line = cand;
@@ -192,13 +188,55 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
             if (sp == std::string::npos) break;
             i3 = sp + 1;
         }
-        if (!line.empty() && lineY <= textBottom) {
-            if (draw) Console::drawTextPx(r, q.x + pad, lineY, clip(line), col, false);
-            lineY += Platform::cellH();
+        if (!line.empty()) lines.push_back(line);
+        return lines;
+    };
+    const int top = ty + 2;
+    // Whole lines only. The last one used to start just above the bottom and
+    // run on over the cost badge; the few pixels allowed here are the gap
+    // between a line's glyphs and the bottom of its cell.
+    const int depth = cardTextBottom(q) + 4 - top;
+    struct Body { int fit = 1, cellH = 1, room = 0, briefRoom = 0; std::vector<std::string> brief, note; };
+    auto lay = [&](int cellW, int cellH) {
+        Body bd;
+        bd.fit = std::max(1, nameRoom / std::max(1, cellW));
+        bd.cellH = std::max(1, cellH);
+        bd.room = std::max(0, depth / bd.cellH);
+        bd.note = wrap(c.note, bd.fit);
+        bd.brief = wrap(c.effect, bd.fit);
+        bd.briefRoom = std::max(0, bd.room - (int)bd.note.size());
+        return bd;
+    };
+    // The grid size when it fits. The unusual cards have more to say, and in
+    // a small window their briefs shrink to the card face rather than lose
+    // their ends.
+    Body bd = lay(Platform::cellW(), Platform::cellH());
+    const bool small = (int)bd.brief.size() > bd.briefRoom && Console::smallCellW() < Platform::cellW();
+    if (small) bd = lay(Console::smallCellW(), Console::smallCellH());
+    // Too long even so, a brief gives up whole sentences from its end and
+    // says there is more, rather than stopping halfway through one. The
+    // details panel has all of it.
+    std::string kept = c.effect;
+    while ((int)bd.brief.size() > bd.briefRoom) {
+        const size_t cut = kept.rfind(". ");
+        if (cut == std::string::npos) break;
+        kept = kept.substr(0, cut + 1);
+        bd.brief = wrap(kept + " ...", bd.fit);
+    }
+    int lineY = top;
+    auto drawLines = [&](const std::vector<std::string>& lines, int most, SDL_Color col) {
+        for (int i = 0; i < (int)lines.size() && i < most; i++) {
+            std::string t = lines[i];
+            if ((int)t.size() > bd.fit) t = t.substr(0, bd.fit);
+            if (draw) {
+                if (small) Console::drawTextSmallPx(r, q.x + pad, lineY, t, col);
+                else       Console::drawTextPx(r, q.x + pad, lineY, t, col, false);
+            }
+            lineY += bd.cellH;
         }
     };
-    drawWrapped(c.effect, dim);
-    drawWrapped(c.note, c.disabled ? dim : c.noteColor);
+    drawLines(bd.brief, bd.briefRoom, dim);
+    drawLines(bd.note, bd.room, c.disabled ? dim : c.noteColor);
     return lineY;
 }
 
