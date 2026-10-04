@@ -8,21 +8,29 @@ namespace Achievements {
 
 enum Rank { BRONZE, SILVER, GOLD };
 
+// In the order they were added, which is the order progress.dat keeps them
+// in: never reorder or insert, only add on the end, or everything earned
+// after the change shifts. Each one's rank is in INFO, and the order the pages
+// list them in is DISPLAY_ORDER (Achievements.cpp).
 enum Id {
-    // bronze
     WIN_FIGHT, COLOSSUS, VIGIL, SIT, FORGE, RELIC, BOON, PARRY, STUN,
-    // silver
     WITCH, THUNDER, HYDRA, DRAGON, MOONSTRUCK, SEAR, BIG_HIT, THREAD, LEGEND,
-    // gold
     CLEAR, TRUE_FORM, HARD, ALL_FORMS, HUGE_HIT, TROPHY,
-    // Added later, so on the end: progress.dat keeps them by position, and a
-    // new one in the middle would shift everything earned after it.
-    HEAD_START, GEAR, TRAVEL_LIGHT, REST, MEET_MOON,                 // bronze
-    FIRST_TURN, BY_A_HAIR, EVERY_VIGIL, COLLECTOR, ONE_HEAD, LAST_FIRE, // silver
-    NO_LEGENDS, RANDOM_HARD,                                         // gold
-    HER_OWN, BACKDRAFT, UNSHAKEN, STORM_STOPS, SLOW_BURN, STONE_COLD, // silver
-    TWICE_STRUCK, FLEW_AWAY, COLD_FEET, SIDESTEP,                    // bronze
-    CLEAN_CUTS,                                                      // gold
+    HEAD_START, GEAR, TRAVEL_LIGHT, REST, MEET_MOON,
+    FIRST_TURN, BY_A_HAIR, EVERY_VIGIL, COLLECTOR, ONE_HEAD, LAST_FIRE,
+    NO_LEGENDS, RANDOM_HARD,
+    HER_OWN, BACKDRAFT, UNSHAKEN, STORM_STOPS, SLOW_BURN, STONE_COLD,
+    TWICE_STRUCK, FLEW_AWAY, COLD_FEET, SIDESTEP,
+    CLEAN_CUTS,
+    THOUSAND, NO_REST,
+    NO_DISCARD, EVERY_SIT, DOT_ONLY,
+    TUTORIAL_SLIME,
+    FULL_REST, WALK_IT_OFF, SCRAP_DEATH, HELD_SACRIFICE, OWN_BLOW,
+    JAB_FINISH, OVERKILL, LUCKY_CHARM, CURSED_RELIC, TICKLE,
+    DOWN_TO_ONE, SENTIMENTAL, BAD_DAY, BUYERS_REMORSE, WIDE_OPEN,
+    ONE_TRICK, MAGICIAN,
+    NECROMANCER, NO_BOONS, NO_RELICS,
+    SHORT_WAY,
     COUNT
 };
 
@@ -34,13 +42,19 @@ bool has(int id);
 bool earn(int id);
 
 // The progress.dat round trip. Loading is not earning: nothing is announced.
-unsigned long long mask();
-void setMask(unsigned long long m);
+// Two 64-bit words: the first is the ACH line, the second (ids 64 on) ACH2.
+unsigned long long mask(int word = 0);
+void setMask(unsigned long long m, int word = 0);
 // The Moonstruck shapes met in any run, a bit per area.
 int  formsSeen();
 void setFormsSeen(int m);
 // Records a shape met; true once all five have been.
 bool seeForm(int zone);
+// The Sit a while memories heard in any run, a bit each.
+unsigned long long sitsHeard();
+void setSitsHeard(unsigned long long m);
+// Records one heard; true once every one of `total` has been.
+bool hearSit(int index, int total);
 
 int earnedCount();
 int earnedCount(Rank r);

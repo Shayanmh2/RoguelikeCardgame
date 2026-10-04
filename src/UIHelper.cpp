@@ -248,6 +248,7 @@ int UIHelper::titleMenu(const std::vector<std::string>& options) {
     if (options.empty()) return -1;
     gTitleOpts = options;
     gTitleSel = 0;
+    int heard = 0;   // the highlight the last hover cue was for
     Platform::flushKeys();
     int lastMx = -1, lastMy = -1;
     Platform::mousePos(lastMx, lastMy);
@@ -270,17 +271,18 @@ int UIHelper::titleMenu(const std::vector<std::string>& options) {
             gTitleSel = (gTitleSel - 1 + n) % n;
         else if (k.key == Platform::Key::DOWN || k.key == Platform::Key::RIGHT)
             gTitleSel = (gTitleSel + 1) % n;
-        else if (k.key == Platform::Key::ENTER) return gTitleSel;
-        else if (k.key == Platform::Key::ESCAPE) return -1;
+        else if (k.key == Platform::Key::ENTER) { Audio::menuSelect(); return gTitleSel; }
+        else if (k.key == Platform::Key::ESCAPE) { Audio::menuSelect(true); return -1; }
 
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
             for (int i = 0; i < n; i++) {
                 const SDL_Rect& q = gTitleRects[i];
                 if (cx >= q.x - 8 && cx < q.x + q.w + 8 && cy >= q.y && cy < q.y + q.h)
-                    { gTitleSel = i; return i; }
+                    { gTitleSel = i; Audio::menuSelect(); return i; }
             }
         }
+        if (gTitleSel != heard) { heard = gTitleSel; Audio::menuHover(); }
         Platform::frame();
     }
 }

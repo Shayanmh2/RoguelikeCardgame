@@ -31,6 +31,7 @@ bool gQuit = false;
 
 std::function<void()> gSceneRenderer;
 std::function<void()> gOverlayRenderer;
+std::function<void()> gTipRenderer;
 std::function<void()> gHandRenderer;
 std::function<void()> gHudRenderer;
 std::function<void()> gModalRenderer;
@@ -460,6 +461,7 @@ void frame() {
     Console::render(gRenderer);
     if (gOverlayRenderer) gOverlayRenderer();
     if (gHandRenderer) gHandRenderer();
+    if (gTipRenderer) gTipRenderer();
     if (gModalRenderer) gModalRenderer();
     if (gToastRenderer) gToastRenderer();
 
@@ -514,6 +516,7 @@ void setGroundColor(SDL_Color c) { gGround = c; }
 void setSceneRenderer(const std::function<void()>& fn) { gSceneRenderer = fn; }
 void setOverlayRenderer(const std::function<void()>& fn) { gOverlayRenderer = fn; }
 void setHandRenderer(const std::function<void()>& fn) { gHandRenderer = fn; }
+void setTipRenderer(const std::function<void()>& fn) { gTipRenderer = fn; }
 void setHudRenderer(const std::function<void()>& fn) { gHudRenderer = fn; }
 void setModalRenderer(const std::function<void()>& fn) { gModalRenderer = fn; }
 void setToastRenderer(const std::function<void()>& fn) { gToastRenderer = fn; }

@@ -62,19 +62,30 @@ void StatusEffects::apply(StatusType type, int amount, double weakMultiplier, do
     }
 }
 
-void StatusEffects::extend(StatusType type, int extra) {
+int StatusEffects::remaining(StatusType type) const {
     switch (type) {
-        case StatusType::POISON:
-            if (poisonTurns > 0) poisonTurns = std::min(POISON_MAX_DURATION + extra, poisonTurns + extra);
-            break;
-        case StatusType::BURN:
-            if (burnTurns > 0) burnDmg += extra;
-            break;
-        case StatusType::REND:
-            if (rendCharges > 0) rendCharges = std::min(REND_MAX_CHARGES + extra, rendCharges + extra);
-            break;
-        default:
-            break;
+        case StatusType::POISON: return poisonTurns;
+        case StatusType::BURN:   return burnTurns;
+        case StatusType::REND:   return rendCharges;
+        default:                 return 0;
+    }
+}
+
+int StatusEffects::pending(StatusType type) const {
+    switch (type) {
+        case StatusType::POISON: return poisonTurns > 0 ? poisonDmg * poisonTurns : 0;
+        case StatusType::BURN:   return burnTurns   > 0 ? burnDmg   * burnTurns   : 0;
+        case StatusType::REND:   return rendCharges > 0 ? rendDmg   * rendCharges : 0;
+        default:                 return 0;
+    }
+}
+
+void StatusEffects::clear(StatusType type) {
+    switch (type) {
+        case StatusType::POISON: poisonDmg = poisonTurns = 0; break;
+        case StatusType::BURN:   burnDmg = burnTurns = 0;     break;
+        case StatusType::REND:   rendDmg = rendCharges = 0;   break;
+        default: break;
     }
 }
 

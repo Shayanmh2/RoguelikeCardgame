@@ -53,7 +53,17 @@ enum class CardEffect {
     BORROWED,    // SPECIAL: two turns now, one lost later
     PACTRUIN,    // ATTACK: every attack festers, and every card bleeds you
     SACRIFICE,   // SPECIAL: heal to full, the card leaves the fight
+
+    // Your own dead, and the payoffs for what you have set on the enemy.
+    RAISE,       // SPECIAL: the last undead you killed fights beside you
+    UNLEASH,     // SPECIAL: every tick of one ailment on the enemy lands at once
+    TURNABOUT,   // SPECIAL: the enemy's weakness and resistance swap, once a fight
+    FEINT,       // SPECIAL: its blows turn to a type your armor resists, once a fight
 };
+
+// What a payoff card (UNLEASH) puts on whoever plays it: 6 of the ailment it
+// set off.
+constexpr int UNLEASH_PRICE = 6;
 
 class Card {
 private:
@@ -119,8 +129,9 @@ public:
     // land (through gear, and in the hand through Weak and Strength),
     // `elemChance` the live chance an elemental attack lands its status, and
     // `live` says the hand is showing it, where All In and Last Stand can
-    // quote the armour they would throw or give.
-    std::string brief(int shown, int elemChance, bool live) const;
+    // quote the armour they would throw or give. `luck` is Fortune's points,
+    // which make Impair, Taunt and Fear surer.
+    std::string brief(int shown, int elemChance, bool live, int luck = 0) const;
 
     void upgrade();
 };
