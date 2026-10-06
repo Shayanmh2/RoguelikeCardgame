@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <cstdint>
+#include <cmath>
 #include <cstdlib>   // getenv, for the macOS save folder
 #include <cstdio>
 #include <cstdio>
@@ -150,6 +151,7 @@ void Audio::init() {
 
     if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) {
         audioReady = true;
+        Mix_ReserveChannels(1);   // channel 0 is the loop's: see startLoop()
         return;
     }
     std::cerr << "Audio: Mix_OpenAudio failed on the default driver ("
@@ -168,6 +170,7 @@ void Audio::init() {
         if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) continue;
         if (Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 1024) == 0) {
             audioReady = true;
+            Mix_ReserveChannels(1);
             std::cerr << "Audio: recovered on the " << drv << " driver.\n";
             return;
         }
@@ -190,9 +193,11 @@ void Audio::shutdown() {
     audioReady = false;
 }
 
+// The first of base.mp3, .ogg, .wav that exists: an mp3 put in by hand wins
+// over a generated OGG, and an OGG over a WAV left behind.
 static std::string resolveTrack(const std::string& base) {
-    if (std::filesystem::exists(base + ".mp3")) return base + ".mp3";
-    if (std::filesystem::exists(base + ".wav")) return base + ".wav";
+    for (const char* ext : {".mp3", ".ogg", ".wav"})
+        if (std::filesystem::exists(base + ext)) return base + ext;
     return "";
 }
 
@@ -205,12 +210,14 @@ static int gMusicVol = 100, gSfxVol = 100;
 
 void Audio::setMusicVolume(int pct) {
     gMusicVol = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
-    Mix_VolumeMusic(MIX_MAX_VOLUME * gMusicVol / 100);
+    if (audioReady) Mix_VolumeMusic(MIX_MAX_VOLUME * gMusicVol / 100);
 }
 
+// Mix_Volume(-1) averages over the open channels, dividing by their count:
+// with no audio device there are none, and it divided by zero.
 void Audio::setSfxVolume(int pct) {
     gSfxVol = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
-    Mix_Volume(-1, MIX_MAX_VOLUME * gSfxVol / 100);
+    if (audioReady) Mix_Volume(-1, MIX_MAX_VOLUME * gSfxVol / 100);
 }
 
 void Audio::playBGM(int segment) {
@@ -224,9 +231,12 @@ void Audio::playBGM(int segment) {
 }
 
 // A named track, for the fights that are not on the zone schedule.
-void Audio::playBGM(const std::string& baseName) {
-    if (!audioReady) return;
-    startTrack(resolveTrack(dataDir() + "sounds/" + baseName));
+bool Audio::playBGM(const std::string& baseName) {
+    if (!audioReady) return false;
+    const std::string path = resolveTrack(dataDir() + "sounds/" + baseName);
+    if (path.empty()) return false;
+    startTrack(path);
+    return true;
 }
 
 static void startTrack(const std::string& path) {
@@ -257,11 +267,8 @@ void Audio::stopBGM() {
 static Mix_Chunk* loadSFX(const std::string& name) {
     auto it = sfxCache.find(name);
     if (it != sfxCache.end()) return it->second;
-    std::string dir = Audio::dataDir() + "sounds/";
-    std::string path;
-    if (std::filesystem::exists(dir + name + ".mp3")) path = dir + name + ".mp3";
-    else if (std::filesystem::exists(dir + name + ".wav")) path = dir + name + ".wav";
-    else { sfxCache[name] = nullptr; return nullptr; } // remember "missing" so we don't stat the disk again
+    const std::string path = resolveTrack(Audio::dataDir() + "sounds/" + name);
+    if (path.empty()) { sfxCache[name] = nullptr; return nullptr; } // remember "missing" so we don't stat the disk again
     Mix_Chunk* chunk = Mix_LoadWAV(path.c_str()); // despite the name, Mix_LoadWAV decodes mp3/wav/ogg alike
     if (!chunk)
         std::cerr << "Audio: could not load " << path << ": " << Mix_GetError() << "\n";
@@ -277,7 +284,10 @@ void Audio::playSFX(const std::string& name) {
 
 // A pitched copy of a cue: SDL_mixer has no pitch control, and a second
 // recording of every sound is a lot of megabytes for one bit of information.
-// Nearest-sample resampling is enough for cues this short and this noisy.
+// Resampled with a Lanczos-3 window, its cutoff lowered when pitching up so
+// nothing folds back, which is about what a browser does with playbackRate:
+// nearest-sample picking left pitched cues gritty. Made once per cue and
+// pitch, then cached, so the cost is paid on the first play only.
 void Audio::playSFXPitched(const std::string& name, float ratio) {
     if (!audioReady) return;
     if (ratio <= 0.05f || ratio > 4.0f) ratio = 1.0f;
@@ -305,11 +315,32 @@ void Audio::playSFXPitched(const std::string& name, float ratio) {
     if (!buf) { sfxCache[key] = nullptr; return; }
     const Sint16* in = (const Sint16*)base->abuf;
     Sint16* out = (Sint16*)buf;
+    const int LOBES = 3;
+    const double scale = ratio > 1.0f ? 1.0 / ratio : 1.0;   // the cutoff, against the source's
+    const long reach = (long)std::ceil(LOBES / scale);
+    const double PI = 3.14159265358979323846;
+    auto lanczos = [&](double x) {
+        if (x == 0.0) return 1.0;
+        if (std::fabs(x) >= LOBES) return 0.0;
+        const double px = PI * x;
+        return LOBES * std::sin(px) * std::sin(px / LOBES) / (px * px);
+    };
+    const int chans = channels < 8 ? channels : 8;
     for (Uint32 f = 0; f < outFrames; f++) {
-        Uint32 src = (Uint32)(f * ratio);
-        if (src >= inFrames) src = inFrames - 1;
-        for (int c = 0; c < channels; c++)
-            out[f * channels + c] = in[src * channels + c];
+        const double x = f * (double)ratio;
+        const long centre = (long)std::floor(x);
+        double acc[8] = { 0 }, weight = 0.0;
+        for (long i = centre - reach + 1; i <= centre + reach; i++) {
+            if (i < 0 || i >= (long)inFrames) continue;
+            const double w = lanczos((x - (double)i) * scale);
+            if (w == 0.0) continue;
+            weight += w;
+            for (int c = 0; c < chans; c++) acc[c] += w * in[i * channels + c];
+        }
+        for (int c = 0; c < channels; c++) {
+            const double v = (c < chans && weight != 0.0) ? acc[c] / weight : 0.0;
+            out[f * channels + c] = (Sint16)(v > 32767.0 ? 32767 : v < -32768.0 ? -32768 : std::lround(v));
+        }
     }
     Mix_Chunk* pitched = (Mix_Chunk*)SDL_malloc(sizeof(Mix_Chunk));
     if (!pitched) { SDL_free(buf); sfxCache[key] = nullptr; return; }
@@ -319,4 +350,59 @@ void Audio::playSFXPitched(const std::string& name, float ratio) {
     pitched->volume = base->volume;
     sfxCache[key] = pitched;
     Mix_PlayChannel(-1, pitched, 0);
+}
+
+// The loop plays on channel 0, which Mix_ReserveChannels(1) keeps out of the
+// pool the one-shots draw from, so a burst of cues can never take it.
+static const int LOOP_CHANNEL = 0;
+static std::string gLoopName;
+
+void Audio::startLoop(const std::string& name) {
+    if (!audioReady) return;
+    if (gLoopName == name && Mix_Playing(LOOP_CHANNEL)) return;
+    Mix_Chunk* chunk = loadSFX(name);
+    if (!chunk) return;
+    Mix_HaltChannel(LOOP_CHANNEL);
+    Mix_PlayChannel(LOOP_CHANNEL, chunk, -1);
+    gLoopName = name;
+}
+
+// A fade the mixer will not start is a cut instead: it refuses one on a
+// channel at volume 0 (the effects slider at nothing), and a loop left
+// running there would be heard again the moment the slider came back up.
+void Audio::stopLoop(int fadeMs) {
+    if (!audioReady || gLoopName.empty()) return;
+    if (fadeMs <= 0 || Mix_FadeOutChannel(LOOP_CHANNEL, fadeMs) == 0)
+        Mix_HaltChannel(LOOP_CHANNEL);
+    gLoopName.clear();
+}
+
+// Forgotten as the track playing, so the same one can be started again
+// later; startTrack() frees it when the next one begins.
+void Audio::fadeOutBGM(int ms) {
+    if (!audioReady) return;
+    Mix_FadeOutMusic(ms);
+    currentBgmPath.clear();
+}
+
+// Menu cues (2026-10-04): soft and short, and only while the player keeps
+// them on. A hover is held to one every 45 ms, so a sweep across a row of
+// buttons ticks rather than rattles.
+static bool gMenuSounds = true;
+static Uint32 gLastHover = 0;
+
+void Audio::setMenuSounds(bool on) { gMenuSounds = on; }
+
+void Audio::menuHover() {
+    if (!audioReady || !gMenuSounds) return;
+    const Uint32 now = SDL_GetTicks();
+    if (now - gLastHover < 45) return;
+    gLastHover = now;
+    playSFX("ui_hover");
+}
+
+void Audio::menuSelect(bool back) {
+    if (!audioReady || !gMenuSounds) return;
+    if (back) playSFXPitched("ui_select", 0.8f);
+    else      playSFX("ui_select");
 }

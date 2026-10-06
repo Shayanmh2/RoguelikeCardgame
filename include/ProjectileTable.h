@@ -37,23 +37,25 @@ static const Entry kByName[] = {
     { "Vampire",      19, 14, 33 },   // wisp  rgb(206, 46, 52)
     { "Vile Witch",   20, 20, 27 },   // orb   rgb(150,225,110)
     { "Dragon",       21,  8, 42 },   // breath rgb(226,236,246)
+    { "Moonstruck Weaver",22,  8, 52 },   // web   rgb(222,222,216)
+    { "Moonstruck Beguiler",23,  5, 42 },   // orb   rgb(221, 58, 41)
 };
-static const int kByNameCount = 22;
+static const int kByNameCount = 24;
 
 // Fallbacks for an enemy with no entry above, then the knight's spell orbs.
-static const int GEN_MELEE = 22;   // blade from melee_goblin
-static const int GEN_RANGED = 23;   // arrow from ranged_archer
-static const int GEN_CASTER = 24;   // orb   from caster_wizard
-static const int GEN_BEAST = 25;   // fang  from beast
-static const int GEN_UNDEAD = 26;   // wisp  from undead_skeleton
-static const int PC_POISON = 27;   // orb   from player
-static const int PC_BURN = 28;   // orb   from player
-static const int PC_STUN = 29;   // orb   from player
-static const int PC_WEAK = 30;   // orb   from player
-static const int PC_REND = 31;   // orb   from player
-static const int FX_PILLAR = 32;   // splice:4:9:13 from caster_archon
-static const int FX_WIND = 33;   // wind  from player
-static const int FX_BEAM = 34;   // splice:4:0:10:10:15 from ranged_omneye
+static const int GEN_MELEE = 24;   // blade from melee_goblin
+static const int GEN_RANGED = 25;   // arrow from ranged_archer
+static const int GEN_CASTER = 26;   // orb   from caster_wizard
+static const int GEN_BEAST = 27;   // fang  from beast
+static const int GEN_UNDEAD = 28;   // wisp  from undead_skeleton
+static const int PC_POISON = 29;   // orb   from player
+static const int PC_BURN = 30;   // orb   from player
+static const int PC_STUN = 31;   // orb   from player
+static const int PC_WEAK = 32;   // orb   from player
+static const int PC_REND = 33;   // orb   from player
+static const int FX_PILLAR = 34;   // splice:4:9:13 from caster_archon
+static const int FX_WIND = 35;   // wind  from player
+static const int FX_BEAM = 36;   // splice:4:0:10:10:15 from ranged_omneye
 
 
 // NONE lives in EnemyArt::Proj, not here: one definition, and the art layer

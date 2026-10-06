@@ -9,8 +9,9 @@ public:
     static void shutdown();
 
     static void playBGM(int segment = 0);
-    // By file stem, for tracks outside the zone rotation (the ??? encounter).
-    static void playBGM(const std::string& baseName);
+    // By file stem, for tracks outside the zone rotation (the ??? encounter,
+    // the bosses). False if there is no such file, and the music is left as it was.
+    static bool playBGM(const std::string& baseName);
     static void stopBGM();
     // Volumes as percentages of full, 0 being silence. Kept apart because
     // music under a long run and a combat cue want different levels.
@@ -21,6 +22,18 @@ public:
     // answer the player with a recognisably darker version of their own sound.
     // ratio < 1 plays it slower and lower. Cached per (name, ratio).
     static void playSFXPitched(const std::string& name, float ratio);
+    // A cue looped on a channel of its own until stopped: the heartbeat at
+    // low health, the wind on the peak. Starting the one already playing
+    // does nothing, and a missing file plays nothing.
+    static void startLoop(const std::string& name);
+    static void stopLoop(int fadeMs = 300);
+    // Lets the music die away over ms rather than cutting it.
+    static void fadeOutBGM(int ms);
+    // Menu cues: a soft tap as the highlight moves, two as something is
+    // chosen, lower for going back. Silent while Menu sounds is off.
+    static void setMenuSounds(bool on);
+    static void menuHover();
+    static void menuSelect(bool back = false);
 
     static std::string exeDir();
     // Where assets, config and sounds are read from: the exe's folder, or

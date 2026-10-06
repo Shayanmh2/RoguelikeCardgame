@@ -22,7 +22,7 @@ int main(int, char**) {
     EnemyArt::preload();
 
     Audio::init();
-    Audio::playBGM(); // looks for bgm.wav / bgm.mp3 next to the exe
+    Audio::playBGM(); // looks for bgm.mp3 / .ogg / .wav in sounds/ next to the exe
 
     Game game;
     game.run();
