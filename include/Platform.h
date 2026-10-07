@@ -75,6 +75,9 @@ void setSceneRenderer(const std::function<void()>& fn);
 void setHudRenderer(const std::function<void()>& fn);
 void setOverlayRenderer(const std::function<void()>& fn);
 void setHandRenderer(const std::function<void()>& fn);
+// Drawn after the hand and before the pop-ups: a tooltip has to sit over the
+// log and the cards, but never over a choice that is waiting for an answer.
+void setTipRenderer(const std::function<void()>& fn);
 void setModalRenderer(const std::function<void()>& fn);
 void setToastRenderer(const std::function<void()>& fn);
 

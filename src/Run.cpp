@@ -152,6 +152,16 @@ int Run::getRegularIndex() const {
     return pos - 1 - bossesBefore; // 0..43 within the cycle
 }
 
+// Regular fights left in this area, this one included, up to the last one
+// before its boss: the mountain's is the 48th, since the Dragon is its 49th.
+// For the Moonlit Locket, which is never on the quick road.
+int Run::regularFightsLeftInArea() const {
+    const int pos = cyclePos(currentEncounter);
+    int last = ((pos - 1) / 10) * 10 + 10;
+    while (last > pos && bossSlot(last) >= 0) --last;
+    return std::max(1, last - pos + 1);
+}
+
 int Run::areaBossesCleared() const {
     // The five that carry a piece of him: the peak's own boss is not one of
     // them. Counted off the encounter rather than stored, so a loaded save is
