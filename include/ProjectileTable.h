@@ -37,8 +37,8 @@ static const Entry kByName[] = {
     { "Vampire",      19, 14, 33 },   // wisp  rgb(206, 46, 52)
     { "Vile Witch",   20, 20, 27 },   // orb   rgb(150,225,110)
     { "Dragon",       21,  8, 42 },   // breath rgb(226,236,246)
-    { "Moonstruck Weaver",22,  8, 52 },   // web   rgb(222,222,216)
-    { "Moonstruck Beguiler",23,  5, 42 },   // orb   rgb(221, 58, 41)
+    { "Moon Shade Weaver",22,  8, 52 },   // web   rgb(222,222,216)
+    { "Moon Shade Beguiler",23,  5, 42 },   // orb   rgb(221, 58, 41)
 };
 static const int kByNameCount = 24;
 

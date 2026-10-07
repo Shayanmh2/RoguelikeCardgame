@@ -2,11 +2,12 @@
 #define ACHIEVEMENTS_H
 
 // Things done across every run, kept with the cleared roads in progress.dat.
-// Three ranks, each with its medal. Earning one slides a notice in at the top
+// Three ranks, each with its medal, and a fourth, crimson, for the one that
+// means everything is done (its page shows only once it is earned). Earning one slides a notice in at the top
 // right, over everything, the full-screen pickers included.
 namespace Achievements {
 
-enum Rank { BRONZE, SILVER, GOLD };
+enum Rank { BRONZE, SILVER, GOLD, CRIMSON };
 
 // In the order they were added, which is the order progress.dat keeps them
 // in: never reorder or insert, only add on the end, or everything earned
@@ -32,6 +33,7 @@ enum Id {
     NECROMANCER, NO_BOONS, NO_RELICS,
     SHORT_WAY,
     GRAVE_MISTAKE,
+    FALSE_MOON,
     COUNT
 };
 
@@ -51,6 +53,20 @@ int  formsSeen();
 void setFormsSeen(int m);
 // Records a shape met; true once all five have been.
 bool seeForm(int zone);
+// The shapes beaten in any run, a bit per area: all five open the way to the
+// ruined church.
+int  formsBeaten();
+void setFormsBeaten(int m);
+bool beatForm(int zone);
+// The crimson one has two halves (the user, 2026-10-07): the False Moon put
+// out in some run, kept in progress.dat, and every other achievement earned.
+// It comes the moment both are done, in either order.
+bool falseMoonBeaten();
+void setFalseMoonBeaten(bool on);
+bool crimsonDue();
+// The frame in medals.png for a rank: crimson is the fifth, after the dark
+// one for locked.
+int  medalFrame(int rank);
 // The Sit a while memories heard in any run, a bit each.
 unsigned long long sitsHeard();
 void setSitsHeard(unsigned long long m);
@@ -60,6 +76,10 @@ bool hearSit(int index, int total);
 int earnedCount();
 int earnedCount(Rank r);
 int totalCount(Rank r);
+// How many there are, as far as the player knows: the crimson one is a
+// secret, and nothing counts it, names it or shows its rank until the False
+// Moon is beaten and it is earned.
+int knownCount();
 
 // Puts the notice layer in with Platform. Once, at start-up.
 void install();

@@ -31,9 +31,10 @@ int Card::minCost() const {
 }
 
 // Legendary first: Bloodlust is both superRare and legendary and takes the
-// legendary number. Rare and Super Rare share 2.0 on purpose.
+// legendary number. Rare and Super Rare share 2.0 on purpose. Bloodlust was
+// x4 until 2026-10-07; at x4 it killed everything, so it is x3.
 double Card::strengthMultiplier() const {
-    if (legendary) return 4.0;
+    if (legendary) return 3.0;
     if (superRare) return 2.0;
     if (rare)      return 2.0;
     return 1.2;
@@ -77,6 +78,10 @@ CardEffect Card::effectFromString(const std::string& s) {
     if (s == "BORROWED")       return CardEffect::BORROWED;
     if (s == "PACTRUIN")       return CardEffect::PACTRUIN;
     if (s == "SACRIFICE")      return CardEffect::SACRIFICE;
+    if (s == "RAISE")          return CardEffect::RAISE;
+    if (s == "UNLEASH")        return CardEffect::UNLEASH;
+    if (s == "TURNABOUT")      return CardEffect::TURNABOUT;
+    if (s == "FEINT")          return CardEffect::FEINT;
     return CardEffect::NONE;
 }
 
@@ -157,6 +162,8 @@ bool Card::hasDrawback() const {
         case CardEffect::UNSTABLEWARD: case CardEffect::ALLIN:
         case CardEffect::LASTSTAND:    case CardEffect::BORROWED:
         case CardEffect::PACTRUIN:     case CardEffect::SACRIFICE:
+        case CardEffect::UNLEASH:      // the payoffs put their ailment on you
+        case CardEffect::RAISE:        // Raise Undead takes RAISE_PRICE of your HP
         case CardEffect::COUNTER:      // Dodge Reversal lets a quarter through
             return true;
         default:
@@ -217,22 +224,30 @@ int Card::getMaxUpgrades() const {
     if (effect == CardEffect::BLOODPRICE || effect == CardEffect::ADRENALINE   // value is energy
         || effect == CardEffect::BLOODPACT || effect == CardEffect::BERSERK    // fixed multiplier
         || effect == CardEffect::BORROWED  || effect == CardEffect::ALLIN      // value unused
-        || effect == CardEffect::SACRIFICE)                                    // already a full heal
+        || effect == CardEffect::SACRIFICE                                     // already a full heal
+        || effect == CardEffect::TURNABOUT || effect == CardEffect::FEINT       // no number to raise
+        || effect == CardEffect::UNLEASH)                                      // sets off what is there
         return 0;
     // Starters do not upgrade: the forge is for the cards you chose. Uncommon
-    // and Rare take 2 upgrades, Super Rare and Legendary 3; more let one forged
-    // legendary carry a run on top of weapon passives and relics.
+    // takes 1 upgrade, Rare 2, Super Rare and Legendary 3: the rarer the card,
+    // the further the forge can take it.
     if (isStarter()) return 0;
     if (legendary)   return 3;
     if (superRare)   return 3;
-    return 2;
+    if (isRare())    return 2;
+    return 1;
 }
 
 // Most fit a card face in four or five lines; CardBar shrinks the few that do
 // not. The numbers follow the same formulas upgrade() writes into the
 // description below, so the face and the details panel never disagree.
-std::string Card::brief(int shown, int elemChance, bool live) const {
+std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
     const std::string v = std::to_string(shown);
+    // Taunt and Fear miss one time in five, less with Fortune.
+    const int miss = std::max(0, 20 - luck);
+    const std::string fails = luck <= 0 ? std::string("Fails 1 time in 5.")
+                            : miss == 0 ? std::string("It always takes.")
+                                        : "Fails " + std::to_string(miss) + "% of the time.";
     auto times = [](double m) { std::ostringstream o; o << m; return o.str(); };
     std::string s;
     switch (effect) {
@@ -257,7 +272,10 @@ std::string Card::brief(int shown, int elemChance, bool live) const {
 
         // Defends
         case CardEffect::FORTIFY:      s = "Gain " + v + " armor that lasts 3 turns."; break;
-        case CardEffect::IMPAIR:       s = "Gain " + v + " armor. 50% chance to Weaken the enemy."; break;
+        case CardEffect::IMPAIR:
+            s = "Gain " + v + " armor. " + std::to_string(std::min(100, 50 + luck))
+              + "% chance to Weaken the enemy.";
+            break;
         case CardEffect::CHIP:         s = "Gain " + v + " armor and deal 3 damage."; break;
         case CardEffect::WARD:         s = "Gain " + v + " armor. Block ailments for 2 turns."; break;
         case CardEffect::SCRAP:        s = "Gain " + v + " armor. You take 1 damage."; break;
@@ -267,9 +285,9 @@ std::string Card::brief(int shown, int elemChance, bool live) const {
             s = "Gain " + v + " armor. Block ailments for 5 turns. Draw two fewer next turn.";
             break;
         case CardEffect::LASTSTAND:
-            s = live ? "Gain " + v + " armor, your missing HP +" + std::to_string(value)
+            s = live ? "Once a fight: gain " + v + " armor, your missing HP +" + std::to_string(value)
                        + ", for 3 turns. No more healing this fight."
-                     : "Gain your missing HP +" + std::to_string(value)
+                     : "Once a fight: gain your missing HP +" + std::to_string(value)
                        + " as armor for 3 turns. No more healing this fight.";
             break;
 
@@ -290,8 +308,8 @@ std::string Card::brief(int shown, int elemChance, bool live) const {
         case CardEffect::HEAL:
             s = "Heal to " + v + "% of your max HP, or " + std::to_string(shown * 2 / 5) + "% if already above that.";
             break;
-        case CardEffect::TAUNT:      s = "The enemy mostly attacks for 2 turns. Fails 1 time in 5."; break;
-        case CardEffect::FEAR:       s = "The enemy mostly braces for 2 turns. Fails 1 time in 5."; break;
+        case CardEffect::TAUNT:      s = "The enemy mostly attacks for 2 turns. " + fails; break;
+        case CardEffect::FEAR:       s = "The enemy mostly braces for 2 turns. " + fails; break;
         case CardEffect::BLOODPRICE: s = "Gain " + v + " energy. Lose 6 HP."; break;
         case CardEffect::ADRENALINE: s = "Gain " + v + " energy now. Start next turn with 2 less."; break;
         case CardEffect::BERSERK:    s = "Your attacks deal x1.5 next turn. You take x1.5 damage until then."; break;
@@ -300,6 +318,33 @@ std::string Card::brief(int shown, int elemChance, bool live) const {
             s = "Take another turn now. Then lose a turn, and your max HP drops to 60% this fight.";
             break;
         case CardEffect::SACRIFICE:  s = "Heal to full. This card is gone for the rest of the fight."; break;
+
+        // The hand's face names which of the dead would answer (Game::raiseFace());
+        // this one is for rewards and the forge, where the strike is the number.
+        case CardEffect::RAISE:
+            s = "Raise the last undead you killed. It takes their attacks for you and strikes for "
+              + v + "+ each turn. Lose " + std::to_string(RAISE_PRICE) + " HP.";
+            break;
+        // The payoffs: every tick of one ailment at once, half again as hard,
+        // and the same ailment on you, once a fight. In the hand `shown` is
+        // what it would take off the enemy right now.
+        case CardEffect::UNLEASH: {
+            const bool rend = elemType == DamageType::WIND;
+            const std::string st = elemType == DamageType::FIRE ? "Burn" : rend ? "Rend" : "Poison";
+            s = "Their " + st + (rend ? " tears" : " lands") + " all at once, x1.5";
+            if (live && shown <= 0) { s += ". They have no " + st + " on them."; break; }
+            if (live) s += ": " + v + " damage";
+            s += ". You take " + st + " " + std::to_string(UNLEASH_PRICE) + ". Once a fight.";
+            break;
+        }
+
+        // In the hand, Game::typesFace() names the types for this enemy.
+        case CardEffect::TURNABOUT:
+            s = "Swap the enemy's weakness and resistance for the rest of the fight. Once a fight.";
+            break;
+        case CardEffect::FEINT:
+            s = "Their blows turn to a type your armor resists for the rest of the fight. Once a fight.";
+            break;
 
         // Strength is an attack on Bloodlust and a card of its own on Strengthen.
         case CardEffect::STRENGTH:
@@ -407,7 +452,8 @@ void Card::upgrade() {
                           "ailment. You draw two fewer cards next turn.";
         else if (effect == CardEffect::LASTSTAND)
             description = "Gain armor equal to the health you are missing, plus " + std::to_string(value)
-                        + ", and it persists. You cannot heal for the rest of the encounter.";
+                        + ", and it persists. You cannot heal for the rest of the encounter."
+                          " This card leaves your deck for the rest of the fight.";
         else
             description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {
@@ -450,6 +496,13 @@ void Card::upgrade() {
             buffStr << buff;
             description = "Gain x" + buffStr.str() + " damage for 2 turns.";
         }
+        else if (effect == CardEffect::RAISE)
+            description = "Raise the last undead you killed to fight beside you. It takes the enemy's "
+                          "attacks for you until it falls, and strikes them for " + std::to_string(value)
+                        + " at the end of each of your turns, through your weapon and past their "
+                          "defense. The further up the road it fell, the stronger it rises. Play this "
+                          "again to raise it back to full health. You lose " + std::to_string(RAISE_PRICE)
+                        + " HP each time you play it. It crumbles when the fight ends.";
         // STUN is left as-is: its duration does not scale with value, only the
         // cost drops.
     }

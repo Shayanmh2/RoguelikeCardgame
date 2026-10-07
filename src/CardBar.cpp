@@ -1,4 +1,5 @@
 #include "CardBar.h"
+#include "Audio.h"
 #include "Console.h"
 #include "Platform.h"
 #include "UIHelper.h"
@@ -40,6 +41,7 @@ Layout gLayout;
 std::vector<SDL_Rect> gCardRects;
 std::function<void(SDL_Renderer*, int, const SDL_Rect&)> gIconRenderer;
 bool gGridVeil = true;         // setNextGridStyle(): one pick only
+int  gNextHandRows = 0;        // setNextHandRows(): one select only
 int  gCardlessTopPct = -1;
 std::vector<SDL_Rect> gPlusRects;
 std::vector<SDL_Rect> gActionRects;
@@ -95,10 +97,27 @@ void buildRects() {
                                        L.y0 + L.ch - L.plusR*2 - 8,
                                        L.plusR*2, L.plusR*2 });
     }
-    if (!gActions.empty()) {
+    if (!gActions.empty() && gCards.empty()) {
+        // No hand beside them (View Player, View Enemy): the band is theirs, so
+        // they sit in a row across its middle at the size the full-screen
+        // choices are, rather than a line of text each in the corner a hand
+        // would leave free.
+        const int cw = std::max(1, Platform::cellW()), lh = std::max(1, Platform::cellH());
+        int nameCells = 0;
+        for (const Action& a : gActions) nameCells = std::max(nameCells, (int)a.label.size());
+        const int n = (int)gActions.size(), gapX = 16;
+        int bw = std::max((nameCells + 10) * cw, 26 * cw);
+        bw = std::min(bw, (L.band.w - 32 - (n - 1) * gapX) / std::max(1, n));
+        const int bh = std::min(L.band.h - 8, lh + 14 + lh / 2);
+        const int bx = L.band.x + (L.band.w - (n * bw + (n - 1) * gapX)) / 2;
+        const int by = L.band.y + (L.band.h - bh) / 2;
+        for (int i = 0; i < n; i++)
+            gActionRects.push_back(SDL_Rect{ bx + i * (bw + gapX), by, bw, bh });
+    } else if (!gActions.empty()) {
         int aw = 14 * std::max(1, Platform::cellW());
         int ax = L.band.x + L.band.w - aw - 16;
-        int ah = std::max(22, L.ch / 5);
+        // Never shorter than a line of text, which a slim band would make them.
+        int ah = std::max(std::max(22, Platform::cellH() + 10), L.ch / 5);
         int ay = L.y0 + (L.ch - ah * (int)gActions.size()) / 2;
         for (size_t i = 0; i < gActions.size(); i++)
             gActionRects.push_back(SDL_Rect{ ax, ay + (int)i * ah, aw, ah - 4 });
@@ -261,14 +280,35 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     // one has room for. Sized card by card, a two-line name left one medal
     // half the size of its neighbours.
     const size_t nDraw = std::min(cards.size(), rects.size());
-    int iconSz = 24 * 6;
+    int iconSz = 24 * 6, iconLow = 24 * 6;
     for (size_t i = 0; i < nDraw; i++) {
         if (cards[i].icon < 0) continue;
         const SDL_Rect& q = rects[i];
-        const int room = cardTextBottom(q) - cardText(r, cards[i], q, false);
-        iconSz = std::min(iconSz, std::min(q.w - 2 * std::max(11, q.w / 12), room));
+        const int end = cardText(r, cards[i], q, false);
+        const int wide = q.w - 2 * std::max(11, q.w / 12);
+        const int room = cardTextBottom(q) - end;
+        iconSz = std::min(iconSz, std::min(wide, room));
+        // An item has no cost badge, so its picture may also come down into
+        // the bottom row, to the card's inner edge, as wide as stays clear of
+        // the "+" in its corner.
+        int low = room;
+        if (cards[i].item) {
+            const int clear = i < plus.size() ? 2 * (q.x + q.w - plus[i].x) + 8 : 0;
+            low = std::max(room, std::min(q.y + q.h - 8 - end, q.w - clear));
+        }
+        iconLow = std::min(iconLow, std::min(wide, low));
     }
     iconSz = iconSz / 24 * 24;
+    // A card with too much to say for even one whole 24px picture under its
+    // words left the whole page without them (a rank's second page of
+    // achievements had no medals), and then a small one in the corner looked
+    // lost beside the other pages' (the user, 2026-10-07: "should be centered
+    // a bigger like the previous page"). So a crowded page lets its pictures
+    // come down beside the "+", still centred and one size for the page.
+    const bool lowIcons = iconSz < 24 && iconLow / 24 * 24 >= 24;
+    if (lowIcons) iconSz = iconLow / 24 * 24;
+    const bool cornerIcons = iconSz < 24;
+    if (cornerIcons) iconSz = std::max(24, (std::max(18, Platform::cellH() + 4) + 12) / 24 * 24);
 
     // Two passes, so the selected card and its glow are painted over its neighbours.
     for (size_t pass = 0; pass < 2; pass++)
@@ -292,17 +332,22 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
 
         // The item's own picture, centred in what the text left free, at the
         // grid's one size and a whole multiple of the 24px art so it never blurs.
-        if (c.icon >= 0 && gIconRenderer && iconSz >= 24) {
+        // (In the corner only on an item: a card's corner is its cost badge.)
+        if (c.icon >= 0 && gIconRenderer && iconSz >= 24 && (!cornerIcons || c.item)) {
             SDL_Rect d{ q.x + (q.w - iconSz) / 2, lineY + (textBottom - lineY - iconSz) / 2 + 4, iconSz, iconSz };
+            // Too little room under the words: centred lower, in the bottom row as well.
+            if (lowIcons && c.item && textBottom - lineY < iconSz)
+                d.y = lineY + (q.y + q.h - 8 - lineY - iconSz) / 2;
+            if (cornerIcons) d = SDL_Rect{ q.x + 8, q.y + q.h - iconSz - 8, iconSz, iconSz };
             gIconRenderer(r, c.icon, d);
         }
 
         const int cellW = std::max(1, Platform::cellW());
         int bh = std::max(18, Platform::cellH() + 4);
         int room = q.w - (plus.size() > i ? plus[i].w : 0) - 26;
-        const bool longForm = room >= 6*cellW + 12;
         if (!c.item) {
-        const std::string num = std::to_string(c.cost);
+        const std::string num = c.costMax ? std::string("MAX") : std::to_string(c.cost);
+        const bool longForm = room >= (5 + (int)num.size()) * cellW + 12;
         int bw = (longForm ? (5 + (int)num.size()) : (int)num.size()) * cellW + 12;
         SDL_Rect badge{ q.x + 7, q.y + q.h - bh - 8, std::min(room, bw), bh };
         // A card you cannot pay for says so on its cost badge. Hand only: energy
@@ -314,7 +359,7 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         int tx = badge.x + 6;
         if (longForm) { Console::drawTextPx(r, tx, badge.y + 2, "cost:", dim, false); tx += 5*cellW; }
         Console::drawTextPx(r, tx, badge.y + 2, num,
-                            tooDear ? SDL_Color{ 238, 116, 106, 255 } : energy, true);
+                            tooDear ? SDL_Color{ 238, 116, 106, 255 } : c.costMax ? gold : energy, true);
         }   // !c.item
 
         if (i < plus.size()) {
@@ -346,6 +391,16 @@ SDL_Rect sliderTrack(const SDL_Rect& row) {
                      SLIDER_CELLS * cw, h };
 }
 
+// A picker row's span: its value between two arrows, over the bar's place
+// and the reading's, so the longest choice fits between them.
+static const int PICKER_CELLS = SLIDER_CELLS + 10;
+SDL_Rect pickerSpan(const SDL_Rect& row) {
+    const SDL_Rect t = sliderTrack(row);
+    const int cw = std::max(1, Platform::cellW());
+    const int ch = std::max(1, Platform::cellH());
+    return SDL_Rect{ t.x, row.y + (row.h - ch) / 2, PICKER_CELLS * cw, ch };
+}
+
 // Set from a pointer position: the level lands where the mouse is, snapped
 // to the row's own step so a drag still stops on round numbers.
 void sliderSetFromX(Action& a, const SDL_Rect& track, int mx) {
@@ -365,6 +420,20 @@ void sliderSetFromX(Action& a, const SDL_Rect& track, int mx) {
 void drawSlider(SDL_Renderer* r, const Action& a, const SDL_Rect& row, int ty, bool sel,
                 const SDL_Color& accent, const SDL_Color& dim) {
     const int cw = std::max(1, Platform::cellW());
+    if (a.picker) {
+        // The choice between its arrows; an arrow goes dark where there is
+        // nothing further that way.
+        const SDL_Rect span = pickerSpan(row);
+        const int v = a.value ? std::max(a.lo, std::min(a.hi, *a.value)) : a.lo;
+        const SDL_Color live = sel ? accent : dim, spent = tone(70);
+        Console::drawTextPx(r, span.x, ty, "<", v > a.lo ? live : spent, true);
+        Console::drawTextPx(r, span.x + span.w - cw, ty, ">", v < a.hi ? live : spent, true);
+        if (a.readout) {
+            const std::string text = a.readout(v);
+            Console::drawTextPx(r, span.x + (span.w - (int)text.size() * cw) / 2, ty, text, live, sel);
+        }
+        return;
+    }
     // The same rect the mouse hits, so the handle is always under the pointer
     // that put it there.
     const SDL_Rect track = sliderTrack(row);
@@ -395,11 +464,13 @@ void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexO
     const SDL_Color lime{ 166,226,46,255 }, ink{ 228,228,238,255 }, dim{ 150,150,168,255 };
     // The longest name sets the description column, so descriptions line
     // up down the list however long each name is.
-    int nameCells = 0;
-    bool anyDesc = false;
+    int nameCells = 0, descCells = 0;
+    bool anyDesc = false, anySlider = false;
     for (const Action& a : gActions) {
         nameCells = std::max(nameCells, (int)a.label.size());
+        descCells = std::max(descCells, (int)a.desc.size());
         if (!a.desc.empty()) anyDesc = true;
+        if (a.value) anySlider = true;
     }
     for (size_t i = 0; i < rects.size() && i < gActions.size(); i++) {
         const Action& a = gActions[i];
@@ -413,9 +484,14 @@ void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexO
         const SDL_Color nameCol = a.disabled ? dim : (sel ? lime : ink);
         if (anyDesc || a.value) {
             // Name bold on the left, description (or the bar) in its column.
+            // The two columns as one block, centred in the button the way a
+            // plain label is, so the descriptions still line up down the list.
+            // A slider row keeps the edge its bar is measured from.
             const int pad = std::max(14, cellW * 2);
-            Console::drawTextPx(r, q.x + pad, ty, a.label, nameCol, true);
-            const int colX = q.x + pad + (nameCells + 3) * cellW;
+            const int blockW = (nameCells + 3 + descCells) * cellW;
+            const int x = anySlider ? q.x + pad : q.x + std::max(pad, (q.w - blockW) / 2);
+            Console::drawTextPx(r, x, ty, a.label, nameCol, true);
+            const int colX = x + (nameCells + 3) * cellW;
             if (a.value)            drawSlider(r, a, q, ty, sel, lime, dim);
             else if (!a.desc.empty())
                 Console::drawTextPx(r, colX, ty, a.desc, dim, false);
@@ -465,8 +541,9 @@ void drawEnergy(const Layout& L) {
 void drawHand() {
     // No reserved band means some other screen owns the display now. clear()
     // drops the band, so this covers every full-screen view without each of
-    // them having to remember to hide the hand.
-    if (!gActive || gCards.empty() || Console::handRows() <= 0) return;
+    // them having to remember to hide the hand. Buttons with no cards still
+    // draw: View Player's were there to press but never shown.
+    if (!gActive || (gCards.empty() && gActions.empty()) || Console::handRows() <= 0) return;
     SDL_Renderer* r = Platform::renderer();
     drawEnergy(gLayout);
     drawCards(r, gCards, gCardRects, gPlusRects, 10);
@@ -489,7 +566,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     const int n = (int)cards.size() + (int)actions.size();
     if (n == 0) return -1;
 
-    Console::setHandRows(handRowsFor(Console::totalRows()));
+    Console::setHandRows(gNextHandRows > 0 ? gNextHandRows : handRowsFor(Console::totalRows()));
+    gNextHandRows = 0;
     gCards = cards; gActions = actions; gActive = true; gPicking = true;
 
     auto usable = [&](int i) {
@@ -506,6 +584,7 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
         if (h != lastHover) { lastHover = h; if (gOnHover) gOnHover(h); }
     };
     tellHover();
+    int heard = gCurrent;   // the highlight the last hover cue was for
 
     Platform::setHandRenderer(&drawHand);
     Platform::flushKeys();
@@ -569,6 +648,7 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
             if (handled) break;
         }
 
+        if (gCurrent != heard) { heard = gCurrent; Audio::menuHover(); }
         tellHover();
 
         if (onIdleTick && idleTickMs > 0 && SDL_GetTicks() - lastTick >= (Uint32)idleTickMs) {
@@ -582,6 +662,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     // with the hand still visible rather than the board going empty.
     gPicking = false;
     if (gOnHover) { gOnHover(-1); gOnHover = nullptr; }  // no stale ghost on the bar
+    // A card played has its own sound; the buttons, a + and Escape click.
+    if (result < 0 || result >= (int)cards.size()) Audio::menuSelect(result == -1);
     return result;
 }
 
@@ -682,6 +764,8 @@ void setIconRenderer(std::function<void(SDL_Renderer*, int, const SDL_Rect&)> fn
     gIconRenderer = std::move(fn);
 }
 
+void setNextHandRows(int rows) { gNextHandRows = rows; }
+
 void setNextGridStyle(bool veil, int cardlessTopPct) {
     gGridVeil = veil;
     gCardlessTopPct = cardlessTopPct;
@@ -713,6 +797,7 @@ int pick(const std::string& title, const std::vector<Card>& cards,
     int lastMx = -1, lastMy = -1;
     Platform::mousePos(lastMx, lastMy);
     int result = -1;
+    int heard = gCurrent;   // the highlight the last hover cue was for
 
     auto step = [&](int d) {
         int i = gCurrent;
@@ -794,6 +879,15 @@ int pick(const std::string& title, const std::vector<Card>& cards,
                 Action* a = actionAt(i);
                 if (!a || !a->value || !inside(rectFor(i), cx, cy)) continue;
                 gCurrent = i;
+                if (a->picker) {
+                    // Either side of its middle steps that way: nothing to drag.
+                    const SDL_Rect span = pickerSpan(rectFor(i));
+                    const int v = *a->value + (cx < span.x + span.w / 2 ? -1 : 1) * std::max(1, a->step);
+                    *a->value = v < a->lo ? a->lo : (v > a->hi ? a->hi : v);
+                    if (a->onChange) a->onChange();
+                    done = true;
+                    continue;
+                }
                 const SDL_Rect track = sliderTrack(rectFor(i));
                 // Anywhere on the row starts a drag, and a press on the bar
                 // jumps the level there first: a bar you have to hit exactly
@@ -815,12 +909,14 @@ int pick(const std::string& title, const std::vector<Card>& cards,
                 }
             if (chose) break;
         }
+        if (gCurrent != heard) { heard = gCurrent; Audio::menuHover(); }
         Platform::frame();
     }
 
     gGridActive = false;
     gPicking = false;
     Platform::setModalRenderer(nullptr);
+    Audio::menuSelect(result == -1);
     return result;
 }
 
@@ -852,7 +948,13 @@ void showDetail(const Card& c, const std::string& description,
     // Wide enough for that row and for the name beside its cost badge, as far
     // as the window allows.
     const int badgeW = c.item ? 0 : (5 + (int)std::to_string(c.cost).size()) * cw + 12 + cw * 2;
-    const int needW  = std::max(tagCols * cw, (int)c.name.size() * Console::bigCellW() + badgeW) + cw * 4;
+    // The card's own picture, top right where a cost badge sits on a card that
+    // has one: an achievement's medal, a relic's or a piece of gear's art.
+    const bool hasPic = c.icon >= 0 && gIconRenderer;
+    const int picSz = hasPic ? std::max(48, (Console::bigCellH() + ch + 10) / 24 * 24) : 0;
+    const int picW = hasPic ? picSz + cw * 2 : 0;
+    const int needW  = std::max(tagCols * cw + picW, (int)c.name.size() * Console::bigCellW() + badgeW + picW)
+                     + cw * 4;
     const int panelW = std::min(std::max({ 320, std::min(560, Platform::screenW() / 3), needW }),
                                 Platform::screenW() - cw * 4);
 
@@ -911,6 +1013,9 @@ void showDetail(const Card& c, const std::string& description,
         int x = panel.x + cw * 2;
         int y = panel.y + ch;
         Console::drawTextBigPx(r, x, y, c.name, c.nameColor, true);
+
+        if (hasPic)
+            gIconRenderer(r, c.icon, SDL_Rect{ panel.x + panel.w - picSz - cw * 2, y, picSz, picSz });
 
         // cost badge, top right, same wording as the card face. Not on an
         // item: there is nothing to pay for a relic or a piece of gear.

@@ -11,6 +11,12 @@ void Deck::addCard(const Card& card) {
     cards.push_back(card);
 }
 
+void Deck::shuffleIn(const Card& card) {
+    static thread_local std::mt19937 gen(std::random_device{}());
+    const size_t at = std::uniform_int_distribution<size_t>(0, cards.size())(gen);
+    cards.insert(cards.begin() + (std::vector<Card>::difference_type)at, card);
+}
+
 void Deck::shuffle() {
     auto rng = std::default_random_engine(std::random_device{}());
     std::shuffle(cards.begin(), cards.end(), rng);

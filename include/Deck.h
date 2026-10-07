@@ -15,6 +15,8 @@ public:
     Deck();
 
     void addCard(const Card& card);
+    // Into the draw pile at a random place: the Sexton's Grave Dirt.
+    void shuffleIn(const Card& card);
     void shuffle();
     Card drawCard();
     void resetDeck();

@@ -30,6 +30,9 @@ struct Card {
     // Gear, relics and the like: nothing to pay, so no cost badge. A "cost: 0"
     // on a relic read as if it were a card you could play.
     bool        item = false;
+    // The forge: an upgrade will not lower this card's cost any further, so
+    // the badge says MAX where the number would be.
+    bool        costMax = false;
     // The note's colour. Cyan says "this is what it is"; red says "choosing
     // this destroys something", which the deck screen needs and the forge,
     // one screen over and identical in shape, must not borrow.
@@ -52,6 +55,10 @@ struct Action {
     // For a value where bigger means less, like the combat pace (a longer beat
     // is a slower game): the bar fills as the number falls.
     bool invert = false;
+    // A few named settings rather than a range (Confirmations): drawn as
+    // "<  value  >" in place of the bar, stepped by left and right or a click
+    // on either side, and never dragged.
+    bool picker = false;
     // What to print beside the bar, given the current value.
     std::function<std::string(int)> readout;
     // Called after every nudge, so a volume can be heard while it is set.
@@ -89,6 +96,10 @@ void setIconRenderer(std::function<void(SDL_Renderer*, int, const SDL_Rect&)> fn
 // For the next pick() only: veil=false skips the dim, and cardlessTopPct sets
 // how far down a card-less screen's buttons sit. The seal screen uses both.
 void setNextGridStyle(bool veil, int cardlessTopPct);
+// For the next select() only: the band at the bottom takes this many rows
+// rather than a hand's worth. A screen with two buttons and no cards wants
+// its text to have the room.
+void setNextHandRows(int rows);
 
 // Full-screen picker: a centred grid of cards, prompt above, actions below.
 // `columns` caps the row width (0 fits the window). Returns as select() does,
