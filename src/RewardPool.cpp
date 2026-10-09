@@ -16,7 +16,7 @@ void RewardPool::initializeCardPool() {
 
     if (!std::filesystem::exists(configPath)) {
         std::cout << Color::YELLOW << "Warning: " << configPath << " not found - no card rewards will be available. "
-                   << "Reinstall or verify config/ sits next to the exe." << Color::RESET << "\n";
+                   << "Reinstall the game, or check that the config folder sits next to the exe." << Color::RESET << "\n";
         return;
     }
 
@@ -50,8 +50,6 @@ void RewardPool::initializeCardPool() {
                                   toPhysType(data.physType2), data.legendary));
     }
 
-    // (No "loaded N cards" line - it was terminal-startup noise that just sat
-    // on top of the title screen with nothing useful to say.)
 }
 
 

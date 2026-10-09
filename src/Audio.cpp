@@ -385,9 +385,9 @@ void Audio::fadeOutBGM(int ms) {
     currentBgmPath.clear();
 }
 
-// Menu cues (2026-10-04): soft and short, and only while the player keeps
-// them on. A hover is held to one every 45 ms, so a sweep across a row of
-// buttons ticks rather than rattles.
+// Menu cues: soft and short, and only while the player keeps them on. A
+// hover is held to one every 45 ms, so a sweep across a row of buttons
+// ticks rather than rattles.
 static bool gMenuSounds = true;
 static Uint32 gLastHover = 0;
 

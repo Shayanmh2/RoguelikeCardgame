@@ -104,7 +104,7 @@ const Info INFO[COUNT] = {
     { "Left Where They Lie", "Clear all 50 encounters without taking a relic.",      SILVER },
     { "The Short Way",       "Clear the quick road.",                                SILVER },
     { "Grave Mistake",       "Die to your own Raise Undead.",                        BRONZE },
-    { "Moonstruck",          "Put out the false moon, with every other achievement earned.", CRIMSON },
+    { "Moonstruck",          "Put out the False Moon, with every other achievement earned.", CRIMSON },
 };
 
 // The order each rank's page lists them in: grouped by what they are rather
@@ -261,7 +261,8 @@ bool earn(int id) {
     gMask[id / 64] |= 1ULL << (id % 64);
     gQueue.push_back(id);
     // The reward sound, pitched above every reward (they run 0.8 to 1.15), so
-    // an achievement is its own thing. The legendary cue read as a hit landing.
+    // an achievement is its own thing. The legendary cue would read as a hit
+    // landing.
     Audio::playSFXPitched("upgrade", 1.3f);
     return true;
 }

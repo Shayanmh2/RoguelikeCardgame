@@ -45,8 +45,8 @@ FetchContent_MakeAvailable(SDL2_mixer)
 
 add_executable(cardgame_sdl2 WIN32
     src/main.cpp
-    # Platform layer: the SDL2 replacements for the terminal I/O the game
-    # was originally written against.
+    # Platform layer: the SDL2 side of the terminal-style I/O the game
+    # code is written against.
     src/Platform.cpp
     src/Console.cpp
     src/UIHelper.cpp
@@ -55,8 +55,12 @@ add_executable(cardgame_sdl2 WIN32
     src/Hud.cpp
     src/Audio.cpp
     src/Achievements.cpp
-    # Game logic, unchanged from the terminal build.
+    # Game logic: the Game class is spread over the Game*.cpp files.
     src/Game.cpp
+    src/GameEnemy.cpp
+    src/GameMirror.cpp
+    src/GameChurch.cpp
+    src/GameSave.cpp
     src/Card.cpp
     src/Deck.cpp
     src/Enemy.cpp

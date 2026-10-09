@@ -12,7 +12,7 @@
 #include <cctype>
 #include <algorithm>
 
-// Sleeping now pumps the SDL event/render loop instead of blocking the thread,
+// Sleeping pumps the SDL event/render loop rather than blocking the thread,
 // so the window keeps drawing (and stays closable) during every game pause.
 static void platSleep(int ms) { Platform::delay(ms); }
 static void flushInputBuffer() { Platform::flushKeys(); }
@@ -347,7 +347,7 @@ int UIHelper::visibleLen(const std::string& s) {
 
 void UIHelper::waitForKey(const std::string& prompt) {
     // The default footer is centred, because every screen that takes it is
-    // centred now. A caller passing its own prompt is placing it itself: the
+    // centred. A caller passing its own prompt is placing it itself: the
     // combat log wants its prompt inline with the log text, not in the middle.
     if (prompt == "  (press any key to continue)")
         printCentered(std::string("\033[2m") + "(press any key to continue)" + "\033[0m");

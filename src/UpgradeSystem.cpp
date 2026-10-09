@@ -11,7 +11,7 @@ void UpgradeSystem::initializeUpgrades() {
     allUpgrades.push_back(Upgrade("Health Boost",   "Gain +20 max health",                       UpgradeType::HEALTH_BOOST,    2));
     allUpgrades.push_back(Upgrade("Sharp Blades",   "All attacks deal +2 damage",                UpgradeType::DAMAGE_UP,       3));
     allUpgrades.push_back(Upgrade("Iron Resolve",   "All defends grant +2 armor",                UpgradeType::ARMOR_UP,        3));
-    allUpgrades.push_back(Upgrade("Keen Sense",     "Draw 1 extra card at start",                UpgradeType::CARD_DRAW,       6));
+    allUpgrades.push_back(Upgrade("Keen Sense",     "Draw 1 extra card every turn",              UpgradeType::CARD_DRAW,       6));
     allUpgrades.push_back(Upgrade("Fortunate Soul", "Higher chance of rare reward cards",        UpgradeType::RARITY_BOOST,    8));
     unlockedUpgrades.resize(allUpgrades.size(), false);
     activeUpgrades.resize(allUpgrades.size(), false);
