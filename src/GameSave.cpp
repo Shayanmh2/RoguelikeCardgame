@@ -426,13 +426,17 @@ void Game::writeSaveTo(std::ostream& out) const {
     for (int i = 0; i < 5; i++)
         out << "UPGRADE " << i << " " << (upgrades.isUnlocked(i) ? 1 : 0) << " " << (upgrades.isActive(i) ? 1 : 0) << "\n";
 
-    for (const Card& c : playerDeck.getAllCardsOrdered()) {
-        out << "CARD|" << c.getName() << "|" << c.getDescription() << "|" << cardTypeToStr(c.getType())
+    auto cardLine = [&](const char* tag, const Card& c) {
+        out << tag << c.getName() << "|" << c.getDescription() << "|" << cardTypeToStr(c.getType())
             << "|" << c.getCost() << "|" << c.getValue() << "|" << effectToStr(c.getEffect())
             << "|" << (c.isRare() ? 1 : 0) << "|" << (c.isSuperRare() ? 1 : 0) << "|" << (c.isLegendary() ? 1 : 0)
             << "|" << dmgToStr(c.getPhysType()) << "|" << dmgToStr(c.getPhysType2()) << "|" << dmgToStr(c.getElemType())
             << "|" << c.getUpgradeCount() << "\n";
-    }
+    };
+    for (const Card& c : playerDeck.getAllCardsOrdered()) cardLine("CARD|", c);
+    // The upgraded cards thrown out this run, after the deck: a reward of the
+    // same card still brings them back as they were after a reload.
+    for (const Card& c : discardedCards) cardLine("GONE|", c);
 }
 
 void Game::deleteSave(int slot) const {
@@ -476,12 +480,13 @@ bool Game::loadSaveFrom(std::istream& in) {
     unsigned savedSeed = 0;
     int savedRoadBonus = 0, savedRoadGear = 0;
     std::vector<bool> unlockedFlags(5, false), activeFlags(5, false);
-    std::vector<Card> loadedCards;
+    std::vector<Card> loadedCards, loadedGone;
 
     while (std::getline(in, line)) {
         if (line.empty()) continue;
 
-        if (line.rfind("CARD|", 0) == 0) {
+        const bool gone = line.rfind("GONE|", 0) == 0;
+        if (line.rfind("CARD|", 0) == 0 || gone) {
             std::vector<std::string> f;
             size_t pos = 5;
             while (pos <= line.size()) {
@@ -492,7 +497,7 @@ bool Game::loadSaveFrom(std::istream& in) {
             }
             if (f.size() != 13) continue; // corrupted line - skip rather than abort the whole load
             try {
-                loadedCards.push_back(Card(
+                (gone ? loadedGone : loadedCards).push_back(Card(
                     f[0], f[1], strToCardType(f[2]), std::stoi(f[3]), std::stoi(f[4]),
                     strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), strToDmg(f[11]),
                     f[7] == "1", strToDmg(f[10]), f[8] == "1", std::stoi(f[12])));
@@ -567,6 +572,7 @@ bool Game::loadSaveFrom(std::istream& in) {
     satCount          = std::max(0, savedSat);
     restedThisRun     = savedRested != 0;
     discardedThisRun  = savedDiscarded != 0;
+    discardedCards    = loadedGone;
     playedNonDot      = savedNonDot != 0;
     lastUndead        = raisedDead(savedLastDead) ? savedLastDead : std::string();
     runMode           = (savedMode >= 0 && savedMode <= (int)Mode::QUICK) ? (Mode)savedMode : Mode::NORMAL;

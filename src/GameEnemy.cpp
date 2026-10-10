@@ -213,9 +213,9 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
 void Game::triggerAssassinAmbush() {
     if (!assassinAmbushArmed) return;
     if (!enemy.isAlive() || playerHealth <= 0) return;
-    // ~45% per card played, so it usually lands once a turn without hitting every card.
+    // A chance per card played, so a long turn is likelier to be caught.
     std::random_device rd; std::mt19937 gen(rd());
-    if (std::uniform_int_distribution<>(0, 99)(gen) >= 45) return;
+    if (std::uniform_int_distribution<>(0, 99)(gen) >= ASSASSIN_AMBUSH_PCT) return;
     assassinAmbushArmed = false;
     UIHelper::typeWrite(std::string("\n") + Color::BOLD + Color::RED + "The Assassin strikes from the shadows!" + Color::RESET + "\n");
     UIHelper::pause(200);
@@ -1529,7 +1529,9 @@ void Game::bossAction() {
             if (roll < 30) {
                 UIHelper::typeWrite(std::string(Color::MAGENTA) + "The Vile Witch attacks!" + Color::RESET + "\n");
                 UIHelper::pause(200);
-                doAttack(atk, false);
+                // Her staff, up close: a blow Parry answers, so she comes in to
+                // land it. Her spells still fly from where she stands.
+                doAttack(atk, false, /*closeIn*/true);
             } else if (roll < 70) {
                 // Thrown from the staff head she holds high on the left.
                 bossCast(EnemyArt::CastGlow::POISON, enemyProjectile());
@@ -1629,6 +1631,21 @@ void Game::bossAction() {
                 UIHelper::pause(250);
             } else if (roll < 50) {
                 // Fangs, not a spell: it closes, bites, and the venom follows.
+                // Your raised dead stand in front, so the fangs find them
+                // first, as any blow does, and the venom has nothing living
+                // to work on.
+                if (raisedAlive && !counterAttackActive && !parryActive) {
+                    UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "The Hydra sinks its fangs in with a VENOMOUS BITE!" + Color::RESET + "\n");
+                    EnemyArt::setBlowsAtAlly(true);
+                    EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
+                                                /*ranged*/false);
+                    EnemyArt::setBlowsAtAlly(false);
+                    raisedTakes(std::max(1, atk / 2));
+                    std::cout << "  " << Color::DIM << "The venom has nothing living to work on."
+                              << Color::RESET << "\n";
+                    UIHelper::pause(250);
+                    break;
+                }
                 bossTouch(EnemyArt::CastGlow::POISON);
                 Audio::playSFX("poison");
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "The Hydra sinks its fangs in with a VENOMOUS BITE!" + Color::RESET + "\n");

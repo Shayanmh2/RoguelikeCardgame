@@ -109,6 +109,9 @@ inline int howlHeal(int maxHp) { return std::max(1, (maxHp * 6 + 50) / 100); }
 // the fight is.
 static const char* const GRAVE_DIRT = "Grave Dirt";
 static const int GRAVE_DIRT_MAX = 3;
+// The Assassin's ambush: the chance per card you play, once a turn. 45 had it
+// strike nearly every turn (the user, 2026-10-10: 10).
+static const int ASSASSIN_AMBUSH_PCT = 10;
 inline bool isGraveDirt(const Card& c) { return c.getName() == GRAVE_DIRT; }
 
 // The False Moon's Moonstruck: ten turns, and every two it takes back one of

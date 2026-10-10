@@ -285,10 +285,10 @@ std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
             s = "Gain " + v + " armor. Block ailments for 5 turns. Draw two fewer next turn.";
             break;
         case CardEffect::LASTSTAND:
-            s = live ? "Once a fight: gain " + v + " armor, your missing HP +" + std::to_string(value)
-                       + ", for 3 turns. No more healing this fight."
+            s = live ? "Once a fight: gain " + v + " armor (your missing HP +" + std::to_string(value)
+                       + ") for 3 turns. No healing for the rest of the fight."
                      : "Once a fight: gain your missing HP +" + std::to_string(value)
-                       + " as armor for 3 turns. No more healing this fight.";
+                       + " as armor for 3 turns. No healing for the rest of the fight.";
             break;
 
         // Specials. The poison and burn ticks mirror StatusEffects::apply().
@@ -452,8 +452,8 @@ void Card::upgrade() {
                           "ailment. You draw two fewer cards next turn.";
         else if (effect == CardEffect::LASTSTAND)
             description = "Gain armor equal to the health you are missing, plus " + std::to_string(value)
-                        + ", and it persists. You cannot heal for the rest of the encounter."
-                          " This card leaves your deck for the rest of the fight.";
+                        + ". The armor holds for 3 turns. You cannot heal for the rest of the fight,"
+                          " and this card leaves your deck until the fight ends.";
         else
             description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {

@@ -564,7 +564,7 @@
     },
     {
       "name": "Last Stand",
-      "description": "Gain armor equal to the health you are missing, plus 5, and it persists. You cannot heal for the rest of the encounter. This card leaves your deck for the rest of the fight.",
+      "description": "Gain armor equal to the health you are missing, plus 5. The armor holds for 3 turns. You cannot heal for the rest of the fight, and this card leaves your deck until the fight ends.",
       "type": "DEFEND",
       "effect": "LASTSTAND",
       "cost": 2,

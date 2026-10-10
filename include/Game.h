@@ -133,6 +133,12 @@ private:
     // Sleepless and Kept Them All are for a clear that did neither.
     bool restedThisRun = false;
     bool discardedThisRun = false;
+    // Upgraded cards thrown out at a rest site this run: when the same card
+    // turns up as a reward, it comes back the way you left it.
+    std::vector<Card> discardedCards;
+    void rememberDiscard(const Card& c);
+    void showDiscardUpgrades(std::vector<Card>& offer) const;
+    Card takeBackDiscard(const Card& c);
     // A card other than poison, burn or rend played from encounter 10 on:
     // Magician is for a clear that never did.
     bool playedNonDot = false;

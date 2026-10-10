@@ -667,7 +667,7 @@ void Game::displayEnemyInfo() const {
                 break;
             case BossType::VILE_WITCH:
                 std::cout << "  " << Color::CARD_SPECIAL << "Plague" << Color::RESET << " (40%, Poison 4 + Burn 2) - both at once\n";
-                std::cout << "  " << Color::RED << "Strike" << Color::RESET << " (30%, " << atk << " dmg) - a direct attack\n";
+                std::cout << "  " << Color::RED << "Strike" << Color::RESET << " (30%, " << atk << " dmg) - she comes in and strikes with her staff\n";
                 std::cout << "  " << Color::HEAL << "Life Siphon" << Color::RESET << " (15%, heals 20) - drains your health into herself\n";
                 std::cout << "  " << Color::CARD_SPECIAL << "Toxic Eruption" << Color::RESET << " (15%, Poison 6) - the ground itself festers\n";
                 break;
@@ -851,7 +851,8 @@ void Game::displayEnemyInfo() const {
         else if (nameHas("Assassin")) {
             // Not a turn move: it fires during YOUR turn, so its turns use the
             // generic ranged moves listed with it.
-            line(Color::RED, "Ambush", "45% per card you play, " + dmg(atk), "once per turn, strikes from the shadows.");
+            line(Color::RED, "Ambush", std::to_string(ASSASSIN_AMBUSH_PCT) + "% per card you play, " + dmg(atk),
+                 "once per turn, strikes from the shadows.");
             named = false;
         }
         else if (nameHas("Falcon"))    line(Color::CYAN, "Gouge", tag(all, dmg(atk + 1)), "a wind-borne dive that rakes past half your armor.");
@@ -2763,14 +2764,11 @@ void Game::endPlayerTurn() {
     bool exposedByBerserk = vulnerableTurns > 0;
     cardSoftenPct = 0;        // Heavy Guard only softens the turn it was played
 
-    // Borrowed Time: another turn before the enemy gets one, and only then the
-    // stun, so the free turn the enemy gets comes after the borrowed one.
+    // Borrowed Time: another turn before the enemy gets one, a whole one. Its
+    // stun waits for that turn to end: put on at its start, the check after
+    // each card spent it there, and the borrowed turn ended after one card.
     if (extraTurnsPending > 0) {
         extraTurnsPending--;
-        if (borrowedStunsPending > 0) {
-            borrowedStunsPending--;
-            playerStatus.apply(StatusType::STUN, 1);
-        }
         cardsPlayedThisTurn = 0; attacksPlayedThisTurn = 0; mythrilSpent = false;
         cardLimitThisTurn = 0;
         resetEnergy();
@@ -2784,6 +2782,12 @@ void Game::endPlayerTurn() {
         confessorNames();   // a new hand, so a new confession
         UIHelper::pause(250);
         return;
+    }
+    // The borrowed turn is over, and now it is paid for: stunned, you lose the
+    // turn after the enemy's, so the enemy gets the next one free.
+    if (borrowedStunsPending > 0) {
+        borrowedStunsPending--;
+        playerStatus.apply(StatusType::STUN, 1);
     }
 
     // Per-turn enemy debuffs/stances on the player expire as the turn they hit ends.
@@ -3580,6 +3584,7 @@ void Game::offerBossReward() {
     // a "choose one" screen with nothing on it but Skip. The rare pool runs dry
     // before the roster runs out of rare cards, so it is reachable in play.
     if (rewards.empty()) { offerExhaustedReward(); return; }
+    showDiscardUpgrades(rewards);
 
     std::vector<std::string> leftLines;
     std::vector<int>         optionIndices;
@@ -3630,6 +3635,7 @@ void Game::offerBossReward() {
             canReroll = false;
             if (!fresh.empty()) {
                 rewards = fresh;
+                showDiscardUpgrades(rewards);
                 bossWidgets.clear();
                 for (const Card& c : rewards) bossWidgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance(), false, luckBonus()));
                 Audio::playSFX("special");
@@ -3655,7 +3661,7 @@ void Game::offerBossReward() {
         const std::string confirmPrompt = "Add " + rewards[choice].getName() + " to your deck?";
         if (!confirm(confirmPrompt)) continue; // declined - back to the choices
 
-        playerDeck.addCard(rewards[choice]);
+        playerDeck.addCard(takeBackDiscard(rewards[choice]));
         runStats.addCardToRun();
         notice("Added " + rewards[choice].getName() + " to your deck.");
         return;
@@ -4382,6 +4388,7 @@ void Game::handleSecretWin() {
             }
             break;
         }
+        prize[0] = takeBackDiscard(prize[0]);
         playerDeck.addCard(prize[0]);
         runStats.addCardToRun();
         Audio::playSFX("upgrade");
@@ -4615,6 +4622,9 @@ void Game::startEncounter() {
     turnNumber = 1;
     playerTurnActive = true;
     playerArmor = 0;
+    // and Fortify's hold with it: one played on a fight's last turn kept
+    // counting into the next, holding that fight's first armor for turns.
+    playerArmorPersistTurns = 0;
     playerEnergy = maxEnergy;
     playerStatus.reset();
     // Don't let an armed-but-unconsumed Status Guard carry into a new fight.
@@ -5102,7 +5112,9 @@ void Game::viewDeckManage() {
         const std::string confirmPrompt = "Discard one " + name + "?";
         if (!confirm(confirmPrompt)) continue;
 
+        const Card gone = *groupCard[first + choice];   // before the deck lets go of it
         if (playerDeck.removeCardByName(name)) {
+            rememberDiscard(gone);
             discardedThisRun = true;
             earn(Achievements::TRAVEL_LIGHT);
             if (playerDeck.totalCards() == 1) earn(Achievements::DOWN_TO_ONE);
@@ -5110,6 +5122,43 @@ void Game::viewDeckManage() {
             // stay here: browsing and discarding never cost the rest site visit
         }
     }
+}
+
+// A card thrown out at a rest site with forge work on it is remembered, so
+// when the same card turns up as a reward it comes back as it was, not fresh.
+void Game::rememberDiscard(const Card& c) {
+    if (c.getUpgradeCount() > 0) discardedCards.push_back(c);
+}
+
+// An offer shows each card the way you left it: the most worked copy of it you
+// threw out, each copy on one card only.
+void Game::showDiscardUpgrades(std::vector<Card>& offer) const {
+    std::vector<bool> used(discardedCards.size(), false);
+    for (Card& o : offer) {
+        int best = -1;
+        for (size_t i = 0; i < discardedCards.size(); ++i)
+            if (!used[i] && discardedCards[i].getBaseName() == o.getBaseName()
+                && (best < 0 || discardedCards[i].getUpgradeCount() > discardedCards[best].getUpgradeCount()))
+                best = (int)i;
+        if (best >= 0 && discardedCards[best].getUpgradeCount() > o.getUpgradeCount()) {
+            o = discardedCards[best];
+            used[best] = true;
+        }
+    }
+}
+
+// Taken back: the remembered copy, forgotten so it comes back once. A card
+// handed out with no choice (a legendary) comes back as it was too.
+Card Game::takeBackDiscard(const Card& c) {
+    int best = -1;
+    for (size_t i = 0; i < discardedCards.size(); ++i)
+        if (discardedCards[i].getBaseName() == c.getBaseName()
+            && (best < 0 || discardedCards[i].getUpgradeCount() > discardedCards[best].getUpgradeCount()))
+            best = (int)i;
+    if (best < 0 || discardedCards[best].getUpgradeCount() < c.getUpgradeCount()) return c;
+    const Card back = discardedCards[best];
+    discardedCards.erase(discardedCards.begin() + best);
+    return back;
 }
 
 void Game::handleEncounterWin() {
@@ -5370,6 +5419,7 @@ void Game::startRunInMode(Mode m, bool carryWinningRun) {
     // run it was carried out of did.
     restedThisRun = false;
     discardedThisRun = false;
+    discardedCards.clear();
     playedNonDot = false;
     lastUndead.clear();       // nothing has fallen on this road yet
     currentRun.startRun();
@@ -5574,7 +5624,7 @@ void Game::handleGameVictory() {
         // out the first in pool order meant the same card every run.
         static thread_local std::mt19937 lg2(std::random_device{}());
         std::uniform_int_distribution<> lpick(0, (int)legendaries.size() - 1);
-        const Card& leg = legendaries[lpick(lg2)];
+        const Card leg = takeBackDiscard(legendaries[lpick(lg2)]);
         playerDeck.addCard(leg);
         checkDeckAchievements();
         runStats.addCardToRun();
@@ -5883,6 +5933,7 @@ void Game::presentCardChoice(const std::vector<Card>& offered,
                              const std::string& title, const std::string& skipPrompt,
                              std::function<std::vector<Card>()> reroll) {
     std::vector<Card> rewards = offered;
+    showDiscardUpgrades(rewards);
     std::vector<CardBar::Card> widgets;
     for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance(), false, luckBonus()));
     // Bone Dice: one reroll per screen.
@@ -5897,6 +5948,7 @@ void Game::presentCardChoice(const std::vector<Card>& offered,
             canReroll = false;
             if (!fresh.empty()) {
                 rewards = fresh;
+                showDiscardUpgrades(rewards);
                 widgets.clear();
                 for (const Card& c : rewards) widgets.push_back(toWidget(c, gearedValue(c, c.getValue()), attunementChance(), false, luckBonus()));
                 Audio::playSFX("special");
@@ -5926,7 +5978,7 @@ void Game::presentCardChoice(const std::vector<Card>& offered,
         const std::string takePrompt = "Add " + rewards[choice].getName() + " to your deck?";
         if (!confirm(takePrompt)) continue;   // declined - back to the three
 
-        playerDeck.addCard(rewards[choice]);
+        playerDeck.addCard(takeBackDiscard(rewards[choice]));
         runStats.addCardToRun();
         notice("Added " + rewards[choice].getName() + " to your deck.");
         return;
