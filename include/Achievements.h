@@ -58,8 +58,8 @@ bool seeForm(int zone);
 int  formsBeaten();
 void setFormsBeaten(int m);
 bool beatForm(int zone);
-// The crimson one has two halves (the user, 2026-10-07): the False Moon put
-// out in some run, kept in progress.dat, and every other achievement earned.
+// The crimson one has two halves: the False Moon put out in some run, kept
+// in progress.dat, and every other achievement earned.
 // It comes the moment both are done, in either order.
 bool falseMoonBeaten();
 void setFalseMoonBeaten(bool on);

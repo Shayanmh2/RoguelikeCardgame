@@ -26,6 +26,10 @@ namespace EnemyArt {
     void print(const Art& art, int indent = 6);
     // The knight alone, in the gear he is wearing: View Player's portrait.
     void printPlayerPortrait();
+    // View Player and View Enemy lay their screen out to their text: the
+    // portrait's band is capped to `rows`, the figure scaled down to fit it,
+    // and 0 leaves the portrait out. -1 lifts the cap.
+    void setPortraitRows(int rows);
 
     // --- battle scene: knight on the left, enemy on the right ---
 
@@ -95,6 +99,11 @@ namespace EnemyArt {
     enum class SelfGlow { STRENGTH, HEAL };
     void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow);
 
+    // The False Moon casting Moonstruck: it flares crimson twice, a crimson
+    // wisp crosses to the knight, and the moon's red takes him, to a sound
+    // of its own (sounds/moonstruck).
+    void printBattleMoonstruck(EnemyType type, BossType boss);
+
     struct AuraFlags {
         bool strength = false;
         bool weak     = false;
@@ -102,6 +111,7 @@ namespace EnemyArt {
         bool burn     = false;
         bool rend     = false;
         bool stun     = false;
+        bool moonstruck = false;   // the False Moon's clock is running on him
     };
 
     // Glows that last as long as a status does (red under Strength, blue while
@@ -116,6 +126,8 @@ namespace EnemyArt {
     // Ghost/Illusion: render the enemy faded and spectral (Mystic, Specter,
     // Wraith while invulnerable). Set before drawing the scene, cleared after.
     void setEnemyGhost(bool on);
+    // The Gargoyle's stone turns: the sprite goes a cold, dull grey.
+    void setEnemyStone(bool on);
 
     // Build the sprite library up front so the first fight does not pay for it.
     void preload();
@@ -132,6 +144,9 @@ namespace EnemyArt {
     // the opening at the pond and the ending on the peak
     // (tools/make_intro_scene.py, tools/make_ending_scene.py).
     enum class Cutscene { INTRO, ENDING };
+    // The ending without its moon, for the run that put the False Moon out in
+    // the church (ending_scene_moonless.png, when it is there).
+    void setEndingMoonless(bool on);
     // Puts a shot up; -1 takes the cutscene down.
     void setCutsceneShot(Cutscene scene, int shot);
     // False when its art is missing, so the words can stand on their own.
@@ -160,6 +175,8 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     void popNumber(int amount, bool onEnemy, PopKind kind = PopKind::DAMAGE);
     // Over the summoned add, which has its own health bar to track.
     void popNumberAdd(int amount, PopKind kind);
+    // And over your own raised dead.
+    void popNumberAlly(int amount, PopKind kind);
     void popSparks(bool onEnemy);
 
     // Picks the backdrop for this encounter (a new environment every 10
@@ -188,9 +205,35 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     // The add takes its own turn: it steps out at the knight and back.
     void printCompanionAttack(EnemyType type, BossType boss = BossType::NONE);
 
+    // Your own raised dead (Raise Undead): drawn just in front of the knight,
+    // one scale step down and turned round to face the enemy. Empty key clears
+    // it. It rises, takes its turn (connected: the blow landed; onCompanion:
+    // on the Lich's add rather than its master), takes a blow, and falls.
+    void setAlly(const std::string& spriteKey);
+    void printAllyRise(EnemyType type, BossType boss = BossType::NONE);
+    void printAllyAttack(EnemyType type, BossType boss, bool connected, bool onCompanion);
+    void printAllyHit(EnemyType type, BossType boss = BossType::NONE);
+    void printAllyFall(EnemyType type, BossType boss = BossType::NONE);
+    // Set while a blow is on its way to your raised dead rather than to you:
+    // a shot, a beam or the Archon's flames end on them.
+    void setBlowsAtAlly(bool on);
+
     void printBattleDeath(EnemyType type, BossType boss = BossType::NONE);
+    // The true form running from the peak in the church's run: it reels, then
+    // draws back into the dark and fades out instead of dying.
+    void printBattleFlee(EnemyType type, BossType boss);
+    // The False Moon out of the eclipse: prepareArrival as the backdrop goes
+    // up (true when it will come, the church under its plain moon and the
+    // False Moon hidden), then printBattleArrival once the fight is on
+    // screen, starting `track` as it takes shape.
+    bool prepareArrival(BossType boss);
+    void printBattleArrival(EnemyType type, BossType boss, const char* track);
 
     void printBattleKnightHit(EnemyType type, BossType boss = BossType::NONE);
 
     void printBattleKnightDeath(EnemyType type, BossType boss = BossType::NONE);
+    // The False Moon takes him for its vessel: the last piece of him rises, it
+    // comes apart and crosses to him, the dark spreads through him and he
+    // stands as it wears him; the eclipse ends. In place of his death there.
+    void printBattleVessel(EnemyType type, BossType boss);
 }

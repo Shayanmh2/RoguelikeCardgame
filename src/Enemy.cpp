@@ -34,17 +34,34 @@ int Enemy::getArmor() const {
 }
 
 void Enemy::takeDamage(int damage) {
+    const int before = health;
     int actualDamage = damage - armor;
     if (actualDamage < 0) actualDamage = 0;
     armor -= damage;
     if (armor < 0) armor = 0;
     health -= actualDamage;
     if (health < 0) health = 0;
+    hitDamage += before - health;
 }
 
 void Enemy::takeDamageRaw(int damage) {
+    const int before = health;
     health -= damage;
     if (health < 0) health = 0;
+    hitDamage += before - health;
+}
+
+void Enemy::takeDamageOverTime(int damage, bool throughArmor) {
+    const int hits = hitDamage;
+    if (throughArmor) takeDamage(damage);
+    else              takeDamageRaw(damage);
+    hitDamage = hits;
+}
+
+void Enemy::payHealth(int amount) {
+    const int hits = hitDamage;
+    takeDamageRaw(amount);
+    hitDamage = hits;
 }
 
 void Enemy::heal(int amount) {
@@ -89,11 +106,11 @@ bool Enemy::hasWeak()   const { return statusEffects.hasWeak(); }
 void Enemy::displayStatusEffects(const std::string& prefix) const { statusEffects.display(prefix); }
 std::string Enemy::statusSummary() const { return statusEffects.summary(); }
 
-bool Enemy::tryApplyStun() {
+bool Enemy::tryApplyStun(int luck) {
     if (isBoss()) {
         static thread_local std::mt19937 gen(std::random_device{}());
         std::uniform_int_distribution<> dist(0, 99);
-        if (dist(gen) < 50) return false; // resisted
+        if (dist(gen) < 50 - luck) return false; // resisted
     }
     statusEffects.apply(StatusType::STUN, 1);
     return true;
@@ -104,6 +121,14 @@ bool Enemy::isAlive() const {
 }
 
 DamageType Enemy::getWeakness() const {
+    return typesReversed ? baseResistance() : baseWeakness();
+}
+
+DamageType Enemy::getResistance() const {
+    return typesReversed ? baseWeakness() : baseResistance();
+}
+
+DamageType Enemy::baseWeakness() const {
     // Fixed per archetype (bosses reuse their base EnemyType, so this covers them too)
     switch (type) {
         case EnemyType::MELEE:  return DamageType::PIERCE;
@@ -120,9 +145,9 @@ std::string Enemy::getWeaknessLabel() const {
     return damageTypeName(getWeakness());
 }
 
-DamageType Enemy::getResistance() const {
-    // Every archetype has one now. BEAST was falling through to NONE, which made
-    // it the only type with no downside to attack into.
+DamageType Enemy::baseResistance() const {
+    // Every archetype has one, BEAST included, so no type is free to attack
+    // into.
     switch (type) {
         case EnemyType::MELEE:  return DamageType::WIND;
         case EnemyType::TANK:   return DamageType::PIERCE;

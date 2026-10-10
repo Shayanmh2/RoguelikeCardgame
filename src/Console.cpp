@@ -83,9 +83,40 @@ void ensureRow(int row) {
     }
 }
 
+// The columns the text has room for: the window less the log panel's frame.
+int textCols() { return std::max(20, (gViewport.w - 2 * gTextInset) / gCellW); }
+
+// A line that would run past the window's edge goes on in a new row from its
+// last space, indented under where the line's words began, instead of
+// running off the side. Lines with no space to break at are left as they
+// are (a rule drawn the width of the window). The new row is inserted, so
+// anything already drawn below it moves down rather than being written over.
+bool wrapAt(char32_t ch) {
+    if (gCursorRow >= (int)gLines.size()) return false;
+    auto& line = gLines[gCursorRow];
+    int indent = 0;
+    while (indent < (int)line.size() && line[indent].ch == U' ') ++indent;
+    int sp = -1;
+    for (int i = std::min(gCursorCol, (int)line.size()) - 1; i > indent; --i)
+        if (line[i].ch == U' ') { sp = i; break; }
+    if (ch != U' ' && sp < 0) return false;
+    std::vector<Cell> tail;
+    if (ch != U' ') tail.assign(line.begin() + sp + 1, line.begin() + std::min(gCursorCol, (int)line.size()));
+    line.resize(ch == U' ' ? std::min(gCursorCol, (int)line.size()) : sp);
+    while (!line.empty() && line.back().ch == U' ') line.pop_back();
+    std::vector<Cell> next((size_t)std::min(indent + 2, textCols() / 2), Cell{});
+    next.insert(next.end(), tail.begin(), tail.end());
+    gLines.insert(gLines.begin() + gCursorRow + 1, next);
+    gCursorRow++;
+    gCursorCol = (int)next.size();
+    return true;
+}
+
 void putChar(char32_t ch) {
     if (gCursorRow < 0) gCursorRow = 0;
     ensureRow(gCursorRow);
+    // At the edge: carry the word over, and a space there is the break itself.
+    if (gCursorCol >= textCols() && wrapAt(ch) && ch == U' ') return;
     auto& line = gLines[gCursorRow];
     while ((int)line.size() <= gCursorCol) line.push_back(Cell{});
     line[gCursorCol] = Cell{ ch, gCurFg, gCurBold };

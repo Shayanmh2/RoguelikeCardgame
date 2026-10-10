@@ -211,9 +211,9 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
         return lines;
     };
     const int top = ty + 2;
-    // Whole lines only. The last one used to start just above the bottom and
-    // run on over the cost badge; the few pixels allowed here are the gap
-    // between a line's glyphs and the bottom of its cell.
+    // Whole lines only, so the last one never runs on over the cost badge.
+    // The few pixels allowed here are the gap between a line's glyphs and
+    // the bottom of its cell.
     const int depth = cardTextBottom(q) + 4 - top;
     struct Body { int fit = 1, cellH = 1, room = 0, briefRoom = 0; std::vector<std::string> brief, note; };
     auto lay = [&](int cellW, int cellH) {
@@ -300,11 +300,10 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     }
     iconSz = iconSz / 24 * 24;
     // A card with too much to say for even one whole 24px picture under its
-    // words left the whole page without them (a rank's second page of
-    // achievements had no medals), and then a small one in the corner looked
-    // lost beside the other pages' (the user, 2026-10-07: "should be centered
-    // a bigger like the previous page"). So a crowded page lets its pictures
-    // come down beside the "+", still centred and one size for the page.
+    // words would leave the page with no pictures, and a small one in the
+    // corner looks lost beside the other pages'. So a crowded page lets its
+    // pictures come down beside the "+", still centred and one size for the
+    // page.
     const bool lowIcons = iconSz < 24 && iconLow / 24 * 24 >= 24;
     if (lowIcons) iconSz = iconLow / 24 * 24;
     const bool cornerIcons = iconSz < 24;

@@ -2952,7 +2952,11 @@ bool Game::checkGameOver() {
 void Game::displayGameOver() {
     UIHelper::clearScreen();
     if (playerHealth <= 0) {
-        EnemyArt::printBattleKnightDeath(enemy.getType(), enemy.getBossType());
+        // In the False Moon's fight he does not fall: it takes him for its vessel.
+        if (enemy.isBoss() && enemy.getBossType() == BossType::FALSE_MOON)
+            EnemyArt::printBattleVessel(enemy.getType(), enemy.getBossType());
+        else
+            EnemyArt::printBattleKnightDeath(enemy.getType(), enemy.getBossType());
         Audio::playSFX("lose");
         UIHelper::pause(300);
         UIHelper::printGameOverScreen(false, currentRun.getEncountersWon(), runStats.getTotalCardsCollected());
@@ -3696,90 +3700,91 @@ namespace {
     struct ZoneStory { Lines enter, approach, outro; };
     const ZoneStory ZONE_STORY[5] = {
         { // The Dungeon -> Stone Colossus
-          { "The knight passes through a rusted iron gate into a dungeon of wet stone, his "
-            "footsteps the only sound in corridors that swallow torchlight before it can catch.",
-            "He knows exactly what is missing, which helps less than it sounds. The gap "
-            "behind his ribs sits there like a held breath.",
-            "There is standing water in places. He stops looking down at it after the second "
-            "time, and grips a wooden sword he is not sure he ever learned to use." },
-          { "The passage finally opens into a vast chamber, and the ground itself seems to wake.",
-            "A stone colossus rises from the rubble, older than the dungeon around it, and "
-            "plants itself squarely in the only way forward." },
-          { "Among the rubble, a small point of light rests in the dust: a piece of what was "
-            "torn off him, picked up by the first thing that found it.",
+          { "The knight passes through a rusted iron gate into a dungeon of wet stone. His "
+            "footsteps are the only sound, and the torches barely light the walls.",
+            "He knows exactly what is missing. It does not help. The gap behind his ribs sits "
+            "there like a held breath.",
+            "There is standing water in places, and after the second time he stops looking down "
+            "into it. He keeps a tight grip on the wooden sword, though he is not sure he ever "
+            "learned to use one." },
+          { "The passage opens into a vast chamber, and the ground starts to move.",
+            "A stone colossus pulls itself up out of the rubble, older than the dungeon around "
+            "it, and plants itself in the only way forward." },
+          { "In the rubble, a small point of light lies in the dust. It is a piece of him, "
+            "picked up by the first thing that found it.",
             "It goes back into the hollow behind his ribs. His strength, or the start of it. "
             "The armor stops feeling like someone else's." } },
         { // The Dark Dungeon -> Vile Witch
-          { "Past the gate the stone turns darker and colder. Someone has carved runes into "
-            "the floor here, and a green light flickers with nothing to cast it.",
+          { "Past the gate the stone turns darker and colder. Someone has carved runes into the "
+            "floor, and a green light flickers with nothing to cast it.",
             "Somewhere ahead, voices are whispering. Every time he turns toward them, they "
             "stop." },
           { "The corridor opens on a chamber ringed with shattered cauldrons.",
             "A vile witch waits at its heart, with the patience of something that has already "
             "decided how this ends." },
-          { "The cauldrons lie in pieces, and the wrongness in the air finally lifts.",
+          { "The witch falls among her broken cauldrons, and the wrongness goes out of the air.",
             "The second piece was on her altar, being studied. She had no idea what she had.",
-            "It goes back in quietly, and takes with it a fog he had stopped noticing." } },
+            "It goes back in quietly, and a fog he had stopped noticing clears from his head." } },
         { // The Wicked Forest -> Thunder Beast
-          { "Trees older than the dungeon close overhead, branches woven so tight no moonlight "
-            "reaches the forest floor.",
-            "The air itself feels charged, hair lifting on his arms with every step, thunder "
-            "answering thunder in a storm that never quite arrives." },
-          { "The storm finally breaks over a clearing at the heart of the wood.",
-            "A thunder beast commands the canopy there, lightning coiled and ready." },
-          { "When the last peal fades and the ozone smell clears, the forest seems to exhale "
-            "with him.",
+          { "The trees close in overhead, their branches woven so tight that no moonlight "
+            "reaches the ground.",
+            "The air is charged, and the hair on his neck stands up with every step. Thunder "
+            "answers thunder above the canopy, in a storm that never quite arrives." },
+          { "The storm breaks at last over a clearing at the heart of the wood.",
+            "A thunder beast waits there, with lightning crawling along its back." },
+          { "The last thunder rolls away, and the forest breathes out with him.",
             "The third piece lies scorched into the earth where the beast fell. It had been "
             "carrying his speed around in its chest since the moon struck him.",
             "His legs remember. He had forgotten they had forgotten." } },
         { // The Dark Lake -> Hydra
-          { "The shoreline is black glass under a fog that swallows sound as readily as light.",
+          { "The shore is black glass, under a fog that swallows sound as easily as light.",
             "The lake gives back no stars. Only him, and a half second late.",
             "He pushes a rotting raft out into the mist and does not look over the side." },
-          { "Out past the fog line the water answers with ripples that have nothing to do "
-            "with the wind.",
-            "The hydra wakes beneath the surface, unwilling to let anything cross unchallenged." },
-          { "The lake stills once the last head falls silent, and the fourth piece drifts to "
-            "him on the tide, unhurried, as if it had been waiting.",
-            "The way he moves stops being effort and starts being current again." } },
+          { "Out past the fog, ripples start across the water, and there is no wind to make "
+            "them.",
+            "The hydra comes up from below, and it lets nothing cross." },
+          { "When the last head sinks, the lake goes still. The fourth piece drifts to him "
+            "across the water, slowly, as if it had been waiting.",
+            "Moving stops being work. His hands know the sword again, and his feet know where "
+            "to go without being told." } },
         { // The Mountain -> Undead Dragon
-          { "Past the treeline the world turns to wind and ice, a narrow ledge of slate the "
-            "only path between him and the drop.",
-            "Frost climbs his plate faster than his own breath can melt it. Where the ice is "
-            "clear he can see himself in it, holding the sword the way he used to." },
-          { "The ledge ends at a cave mouth colder than the wind outside.",
+          { "Past the treeline the world is wind and ice. A narrow ledge of slate is the only "
+            "path, with the drop always at his side.",
+            "Frost creeps over his plate as he climbs. Where the ice is clear he can see "
+            "himself in it, holding the sword the way he used to." },
+          { "The ledge ends at a cave mouth, colder than the wind outside.",
             "Something waits within: a dragon that died once and never quite left." },
           { "The dragon's frozen breath goes still.",
-            "The last piece is in its chest, and it is warm. It is his soul, or the part of "
-            "it that was torn loose, and it has been keeping something dead on its feet.",
-            "He has all five pieces back, and still no shadow under him. The last of him is "
-            "at the top, worn by something else." } },
+            "The last piece is in its chest, and it is warm. It is his soul, or the part of it "
+            "that was torn loose, and it has been keeping something dead on its feet.",
+            "He has all five pieces back, and still no shadow under him. The last of him is at "
+            "the top, worn by something else." } },
     };
     // The Peak: plays once, right before the Shadow Knight (encounter 50). No
     // matching outro - handleGameVictory() already covers that beat.
     const Lines PEAK_APPROACH = {
-        "Above the clouds the sky turns a bruised purple, and the moon hangs so low and so "
-        "dark it seems to be waiting too.",
-        "At the summit's edge stands a knight in his own armor, carrying his own sword, both "
-        "of them taken from him at the pond. It is the thing from the reflection, wearing the "
-        "only shape it ever wanted, and it has had the whole climb to practice."
+        "Near the summit the cloud closes in, and the snow comes sideways on the wind. He "
+        "cannot see the moon through it, but he can feel how close it is.",
+        "At the edge of the summit stands a knight in his armor, holding his sword, both "
+        "taken from him at the pond. It is the thing from the reflection, wearing the one "
+        "shape it ever wanted. It has had the whole climb to practice."
     };
     // When the Shadow Knight falls with the true form earned: it drops his
     // shape and fights to escape the sleep.
     const Lines TRUE_FORM = {
-        "Its vigils are broken, every one. The long slumber is coming, and nothing it stole "
-        "can keep it awake now.",
-        "It stops pretending to be the knight. His face, his shadow, none of it matters any "
-        "more. It only needs to escape what is coming, and it tears free of him to try."
+        "Every one of its vigils is out. The long sleep is coming for it, and nothing it "
+        "stole can keep it awake now.",
+        "It stops pretending to be him. His face and his shadow are no use to it any more, "
+        "so it tears free of them and fights to stay awake."
     };
     // The true form beaten with the church open (every shape it wore beaten
     // in some run, every vigil out in this one): it has nowhere to sleep and
     // nothing to hide in, so it runs, and something down the mountain is
     // still keeping it awake.
     const Lines TRUE_FORM_RUNS = {
-        "It should go down into the long slumber now. Every vigil is out. It does not go down.",
-        "There is no shape left for it to hide in, so it runs: off the far side of the peak "
-        "and down toward the valley, toward a ruin with candles still burning in it.",
+        "It should go down into the long sleep now. It does not.",
+        "With no shape left to hide in, it runs. It goes off the far side of the peak and "
+        "down into the valley, toward a ruin where candles are still burning.",
         "Something down there is keeping it awake. He follows it down."
     };
     // The ruined church: on the way in, before the False Moon, and the
@@ -3807,127 +3812,157 @@ namespace {
     };
     // "Sit a while" at the rest site. Stage is how many pieces of him are back,
     // which is also where he is: 0 the dungeon, 4 the mountain, 5 the night
-    // before the peak. Read in order, once each.
+    // before the peak, and 6 the ruined church after it. Read in order, once
+    // each.
     struct SitPassage { int stage; Lines lines; };
     const SitPassage SIT[] = {
         { 0, { "He gets the fire going on the third try. His hands know what they are for. They "
                "just keep arriving late.",
                "He tries to picture his own face and gets the helmet instead. That is probably "
                "fair. He wore it more.",
-               "One of the pieces that was taken from him is down here, somewhere further in. He "
-               "cannot say how he knows, but he is sure of it." } },
-        { 0, { "Water drips somewhere behind him, steady as a clock. He shifts until the puddle "
-               "is at his back.",
+               "The wooden sword lies across his knees. He found it in the reeds by the pond, some "
+               "child's, left behind from a game of knights. He means to give it back." } },
+        { 0, { "Water drips somewhere behind him, steady as a clock. He shifts until the puddle is "
+               "at his back.",
                "He remembers how it started, or the edge of it. A red moon over a still pond, and "
                "a moon in the water that was brighter than the one in the sky.",
                "He looked at it too long. That was all it needed from him." } },
-        { 0, { "The first morning after the moon struck him, he found out the sun would not "
-               "have him.",
-               "When the light reached him his legs gave out, and when he looked down there was "
-               "no shadow under him. He woke at dusk, where he fell.",
+        { 0, { "The first morning after the moon struck him, he found out the sun would not have "
+               "him.",
+               "When the light reached him his legs gave out, and when he looked down there was no "
+               "shadow under him. He woke at dusk, where he fell.",
                "It has been nights ever since, and it will stay that way until he is whole. "
                "Everything he has fought, he has fought in the dark." } },
 
-        { 1, { "His arms are his own again. He keeps closing his hand around a stick of "
-               "firewood just to feel the grip hold.",
-               "The colossus never knew what it had. It just got stronger one day and never "
-               "asked why.",
-               "He wonders how many things out here are like that. A little too strong, a "
-               "little too awake, and no idea who they have to thank for it." } },
+        { 1, { "His arms are his own again. He keeps closing his hand around a stick of firewood "
+               "just to feel the grip hold.",
+               "The colossus never knew what it had. It just got stronger one day and never asked "
+               "why.",
+               "He wonders how many things out here are like that, a little too strong and a "
+               "little too awake, all because of him." } },
         { 1, { "The green light has got into the fire too. He feeds it until it burns orange "
                "again.",
-               "The colossus had a small cold flame in its chest that had nothing to do with "
-               "him. It was a vigil, lit there by the moon, and he can feel three more further "
-               "on, each one in something worse.",
+               "The colossus had a small cold flame in its chest that had nothing to do with him. "
+               "It was a vigil, lit there by the moon, and he can feel three more further on, each "
+               "one in something worse.",
                "While any of them burns, the moon never has to sleep. Put them all out, and it "
                "will have to." } },
         { 1, { "Not all of him comes back in great pieces. The small things out here carry the "
                "rest: a step, a guard, the way he used to turn his wrist.",
-               "Something he cut down tonight had one of his feints in it. It came back the "
-               "moment the thing hit the ground, as if it had never left.",
-               "He has stopped counting the fights. Each one is something of his to take "
-               "back." } },
+               "Something he cut down tonight had one of his feints in it. It came back the moment "
+               "the thing hit the ground, as if it had never left.",
+               "He has stopped counting the fights. Each one is something of his to take back." } },
 
-        { 2, { "With his wits back, he can finally think about the thing in the moon, and why "
-               "it came for him.",
-               "It has never had a shape of its own. It did not take him to be a knight. It "
-               "took him to be someone, and out of everyone it watched, he was the one worth "
-               "being.",
-               "That is why it kept his face for itself. Without it, it would be nothing "
-               "again." } },
+        { 2, { "With his wits back, he can think properly about the thing in the moon, and one "
+               "question keeps coming back. Why would something that lives in a reflection want a "
+               "body at all?",
+               "A reflection only lasts while something is looking at it. Look away and it is "
+               "gone. That is all the thing has ever been, something that lasts only as long as it "
+               "is watched.",
+               "A body would last on its own. That is what it wanted from him, and why it kept his "
+               "face." } },
         { 2, { "Some nights he can feel something else out in the dark with the moon's light in "
                "it, the way he feels his own pieces.",
-               "He is fairly sure they are others it struck before him, people and beasts it "
+               "He is fairly sure they are the others it struck before him, people and beasts it "
                "tried on and let go. It can still put on their shapes whenever it likes.",
                "He wonders whether any of them are still in there." } },
-        { 2, { "Something moves out past the firelight and stops when he looks. Not an animal. "
-               "An animal would have run.",
-               "It is pacing him. Not following, exactly. Walking alongside, a long way off, "
-               "the way you copy someone's walk to learn it.",
-               "He does not get up. Let it watch. It learned him from the outside once "
-               "already, and it got him wrong." } },
+        { 2, { "Something moves out past the firelight and stops when he looks. Not an animal. An "
+               "animal would have run.",
+               "It is pacing him. Not following, exactly. Walking alongside, a long way off, the "
+               "way you copy someone's walk to learn it.",
+               "He does not get up. Let it watch. He is getting himself back faster than it can "
+               "learn him." } },
 
         { 3, { "No dry wood by the lake. He sits in the dark and lets his eyes adjust.",
-               "He keeps his back to the water out of habit, but nothing is looking at him from "
-               "it any more.",
+               "He keeps his back to the water out of habit, but nothing is looking at him from it "
+               "any more.",
                "This is where it lived, in the moon on the water. It has gone somewhere else now, "
                "further up, and wherever it went, he can feel its hold getting stronger." } },
-        { 3, { "He is fast again. He catches a spark out of the air without thinking, then "
-               "sits staring at his hand.",
-               "He remembers the night now, most of it. The moon in the pond going dark. "
-               "Something climbing out of the water to meet him. The sound of his own armor "
-               "hitting the ground with nobody in it.",
+        { 3, { "He is fast again. He catches a spark out of the air without thinking, then sits "
+               "staring at his hand.",
+               "He remembers the night now, most of it. The moon in the pond going dark. Something "
+               "climbing out of the water to meet him. The sound of his own armor hitting the "
+               "ground with nobody in it.",
                "He is fairly sure he was not afraid. He would like to be sure." } },
         { 3, { "The moon sits lower every night. He does not think that is the season.",
                "Whatever is up there is running out of time, and it knows exactly who is coming "
                "for it.",
                "For the first time since the moon struck him, he is not the one being hunted." } },
 
-        { 4, { "The wind keeps trying to take the fire. He builds a wall of stones around it, "
-               "and it holds.",
+        { 4, { "The wind keeps trying to take the fire. He builds a wall of stones around it, and "
+               "it holds.",
                "He has almost all of himself back. He expected that to feel like something. It "
                "feels like carrying a full pack instead of an empty one. Heavier, and better.",
                "When the cloud thins he can see the peak. Something up there is standing very "
                "still, in a shape he knows." } },
-        { 4, { "He sits down without thinking about how. That came back on the lake, and he "
-               "keeps noticing it: all the small things a body does on its own.",
+        { 4, { "He sits down without thinking about how. That came back on the lake, and he keeps "
+               "noticing it: all the small things a body does on its own.",
                "The thing at the top has been copying those small things since it struck him, and "
                "never got one of them right. It makes a very good knight, standing still.",
                "The moment it has to move, it has to guess." } },
-        { 4, { "The cloud thins for a moment, and the stars are close up here. He picks out the "
-               "ones he knows, and finds he knows most of them again.",
-               "It never meant to break him. It wanted all of him, and it held on too hard.",
-               "Almost everything it let fall, he has picked back up. He would like it to know "
-               "that." } },
+        { 4, { "Where the ledge bends around the mountain, he can see down into a valley on the "
+               "far side, one he has never been to.",
+               "There are lights down there, too few and too still for a town. Candles, a great "
+               "many of them, all in one place, at an hour when nobody should be awake.",
+               "Someone down there is keeping a vigil. He does not like to think who it is for." } },
 
-        { 5, { "The last fire. He knows it the way he knows most things now, without being "
-               "told.",
-               "His soul sits where it should, warm, and the hollow behind his ribs is gone. "
-               "All he is missing is his shadow, his face, and his name in someone's mouth, and "
-               "the thing at the top has all three.",
+        { 5, { "The last fire. He knows it the way he knows most things now, without being told.",
+               "Before morning he will climb the rest of the way and take back what is left of "
+               "him: his shadow, his face, and his name in someone's mouth.",
                "He puts the fire out himself. He wants to be the one who does it." } },
+
+        { 6, { "He breaks up a pew for the fire. There are names cut into the wood, whole families "
+               "of them, generation after generation in the same seats.",
+               "The valley emptied into this church a long time ago. Everyone who was left came in "
+               "here to wait for the moon to choose them.",
+               "It never chose anyone. They kept waiting, and their children waited after them." } },
+        { 6, { "The candles along the walls have never been let go out. Each new one was lit from "
+               "the last, by someone sitting up with it through the night.",
+               "It is a vigil, like the flames the moon set in the colossus and the others, except "
+               "these were lit by people who wanted it to stay awake.",
+               "That is what kept it awake after he put out the last of its own. While anyone in "
+               "here is still praying to it, it cannot sleep." } },
+        { 6, { "They wanted to be chosen more than anything. They gave it their nights, their "
+               "sleep, and in the end their whole lives.",
+               "He thinks he knows why it never took one of them. They had given so much of "
+               "themselves away that there was no one left in them to be.",
+               "He never asked it for anything. He was only himself, standing by a pond, and that "
+               "was what it wanted." } },
+        { 6, { "Out on the road it was a reflection, a borrowed shape, a suit of his armor. In "
+               "here it was a god, with a house of its own and a whole valley looking up at it "
+               "every night.",
+               "Every prayer said in this place went to it, and nowhere is it stronger. At the "
+               "pond it could only break him.",
+               "In here, it could take him whole." } },
     };
     const int SIT_COUNT = (int)(sizeof(SIT) / sizeof(SIT[0]));
+    // The road's memories, the ones Nothing Forgotten asks for. The church's
+    // come after them, a bonus for whoever gets that far.
+    int sitRoadCount() {
+        int n = 0;
+        for (int i = 0; i < SIT_COUNT; i++) n += SIT[i].stage <= 5 ? 1 : 0;
+        return n;
+    }
 
     // Plays once, at the start of every new run, before the first fight: one
     // line to each shot of the pond (tools/make_intro_scene.py).
     const Lines INTRO = {
         "Once in a long while the moon comes up crimson. On one of those nights, a knight "
         "stood by a still pond and watched it.",
-        "There is something that lives in the moon's reflection. It has no shape of its own "
-        "and has always wanted one. It had been watching him for some time.",
-        "None of the others it had struck were worth keeping, but this knight was "
-        "worthy to be its vessel. It came up out of the water to take over his life, and "
-        "it broke off far more of him than it meant to.",
+        "Something lives in the moon's reflection. It has no shape of its own, and it has "
+        "always wanted one. It had been watching him for some time.",
+        "It had struck others before him, and none of them were worth keeping. This knight "
+        "was worthy to be its vessel. It came up out of the water to take over his life, "
+        "and it broke off far more of him than it meant to.",
         "Five great pieces tore loose: his strength, his wits, his speed, the sure way his "
         "hands knew a blade, and under all of it, his soul. Every move he had ever learned "
         "went with them in smaller pieces, out into the dark between here and the peak.",
         "There is an old word for someone the moon has been at. " + std::string(Color::BOLD)
         + Color::WHITE + "Moonstruck" + Color::RESET + Color::DIM + ". Nobody ever meant it "
         "like this.",
-        "What is left of him stands up anyway, and picks up a wooden sword. Every piece of "
-        "him is in something's keeping now, and a soul in pieces can still feel where its "
-        "pieces are. He goes after them."
+        "What is left of him stands up anyway and picks up a wooden sword. Every piece of "
+        "him is in something else's keeping now, and he can still feel where each one is. "
+        "He goes after them."
     };
 
     // The ending on the peak, a line to each shot (tools/make_ending_scene.py).
@@ -3944,9 +3979,9 @@ namespace {
     // The hard road's: the same morning, at the end of its dream.
     const Lines ENDING_HARD = {
         "It is put out again, on a road that was never meant to be walked twice.",
-        "Fifty encounters on a road that hits like a hundred. You went back up knowing "
-        "exactly what was waiting, and it still could not stop you. There is nothing on this "
-        "mountain that has not already lost to you.",
+        "Fifty encounters on a road that hits like a hundred. He went back up knowing "
+        "exactly what was waiting, and it still could not stop him. Everything on this "
+        "mountain has lost to him twice now.",
         "Beyond the hills the sun comes up, and the dream lets go of him.",
         ""
     };
@@ -4830,7 +4865,7 @@ void Game::restSite() {
     // after a boss already counts that boss's piece. First time through only.
     int sitNext = -1;
     if (currentRun.getCycle() == 0) {
-        const int stage = currentRun.inChurch() ? 6   // none written for the church yet
+        const int stage = currentRun.inChurch() ? 6   // the church's own
             : std::max(0, std::min(5, currentRun.areaBossesCleared() + (currentRun.isBossEncounter() ? 1 : 0)));
         int i = satCount;
         while (i < SIT_COUNT && SIT[i].stage < stage) i++;
@@ -4848,9 +4883,9 @@ void Game::restSite() {
         // Free, and the rest site is still there afterwards.
         satCount = sitNext + 1;
         earn(Achievements::SIT);
-        if (sitNext == SIT_COUNT - 1) earn(Achievements::LAST_FIRE);
+        if (SIT[sitNext].stage == 5) earn(Achievements::LAST_FIRE);   // the night before the peak
         // Heard in any run counts, so they are kept with the achievements.
-        const bool heardAll = Achievements::hearSit(sitNext, SIT_COUNT);
+        const bool heardAll = Achievements::hearSit(sitNext, sitRoadCount());
         saveProgress();
         if (heardAll) earn(Achievements::EVERY_SIT);
         showSitBeat(SIT[sitNext].lines, wornArmor);
@@ -5517,9 +5552,9 @@ void Game::handleGameVictory() {
             ? "The knight stands on the peak wearing all of himself again: his strength, his "
               "wits, his speed, his hands, his soul, and a shadow nothing else is wearing any "
               "more. Whole, and no longer a shadow of himself."
-            : "Fifty encounters on a road that hits like a hundred. You went back up knowing "
-              "exactly what was waiting, and it still could not stop you. There is nothing on this "
-              "mountain that has not already lost to you.", 64);
+            : "Fifty encounters on a road that hits like a hundred. He went back up knowing "
+              "exactly what was waiting, and it still could not stop him. Everything on this "
+              "mountain has lost to him twice now.", 64);
         std::cout << "\n";
         UIHelper::printCentered(std::string(Color::DIM) + "(press any key)" + Color::RESET);
         UIHelper::waitForKey("");

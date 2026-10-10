@@ -33,10 +33,12 @@ public:
     // for STRENGTH, and ignored for WEAK (always WEAK_DURATION) and STUN (1 turn).
     // Reapplying Weak or Strength keeps the stronger multiplier.
     void apply(StatusType type, int amount, double weakMultiplier = 1.5, double strengthMultiplier = 1.2);
-    // Deepens what is already applied, past the usual caps: Poison lasts
-    // `extra` more turns, Burn ticks `extra` harder, Rend gains `extra`
-    // charges. The relics that strengthen your ailments use this.
-    void extend(StatusType type, int extra);
+    // Turns of Poison or Burn left, or charges of Rend: Rupture tears each.
+    int  remaining(StatusType type) const;
+    // Everything one ailment still has to give, every tick or charge of it,
+    // and clearing it: the payoff cards set an ailment off all at once.
+    int  pending(StatusType type) const;
+    void clear(StatusType type);
     bool hasAny() const;
     bool hasPoison() const;
     bool hasBurn() const;

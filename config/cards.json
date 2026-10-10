@@ -40,7 +40,7 @@
     },
     {
       "name": "Weaken",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 1.5x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
+      "description": "Weaken the enemy for 3 turns: their attacks deal 33% less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 1,
@@ -268,7 +268,7 @@
     },
     {
       "name": "Retaliate",
-      "description": "Gain 7 armor. 50% chance to Weaken the enemy for 3 turns, making their attacks land for 1.5x less damage.",
+      "description": "Gain 7 armor. 50% chance to Weaken the enemy for 3 turns, so their attacks deal 33% less damage.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "cost": 1,
@@ -276,7 +276,7 @@
     },
     {
       "name": "Status Guard",
-      "description": "Gain 10 armor and ward yourself for 2 turns. Every ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked while it holds.",
+      "description": "Gain 10 armor and ward yourself for 2 turns. Every ailment the enemy would inflict (Poison, Burn, Rend, Weak or Stun) is blocked while it holds.",
       "type": "DEFEND",
       "effect": "WARD",
       "cost": 2,
@@ -300,7 +300,7 @@
     },
     {
       "name": "Shatter",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 1.75x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
+      "description": "Weaken the enemy for 3 turns: their attacks deal 43% less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "cost": 2,
@@ -343,7 +343,7 @@
     },
     {
       "name": "Iron Skin",
-      "description": "Gain 24 armor. 50% chance to Weaken the enemy for 3 turns, making their attacks land for 1.5x less damage.",
+      "description": "Gain 24 armor. 50% chance to Weaken the enemy for 3 turns, so their attacks deal 33% less damage.",
       "type": "DEFEND",
       "effect": "IMPAIR",
       "superRare": true,
@@ -371,7 +371,7 @@
     },
     {
       "name": "Bloodlust",
-      "description": "Deal 13 damage, then gain x4 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier. When the fury fades you are Weakened for a turn.",
+      "description": "Deal 13 damage, then gain x3 damage for 2 turns. Multiplies every attack you play, including riposte and counter damage. Stacks in duration, not power - a second cast adds turns and keeps the stronger multiplier. When the fury fades you are Weakened for a turn.",
       "type": "ATTACK",
       "effect": "STRENGTH",
       "superRare": true,
@@ -409,7 +409,7 @@
     },
     {
       "name": "Sunder",
-      "description": "Weaken the enemy for 3 turns: their attacks land for 2x less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
+      "description": "Weaken the enemy for 3 turns: their attacks deal 50% less damage. Does not stack - reapplying keeps whichever effect is stronger and resets the 3 turns.",
       "type": "SPECIAL",
       "effect": "WEAK",
       "superRare": true,
@@ -564,7 +564,7 @@
     },
     {
       "name": "Last Stand",
-      "description": "Gain armor equal to the health you are missing, plus 5, and it persists. You cannot heal for the rest of the encounter.",
+      "description": "Gain armor equal to the health you are missing, plus 5, and it persists. You cannot heal for the rest of the encounter. This card leaves your deck for the rest of the fight.",
       "type": "DEFEND",
       "effect": "LASTSTAND",
       "cost": 2,
@@ -597,6 +597,58 @@
       "cost": 0,
       "value": 100,
       "legendary": true
+    },
+    {
+      "name": "Raise Undead",
+      "description": "Raise the last undead you killed to fight beside you. It takes the enemy's attacks for you until it falls, and strikes them for 8 at the end of each of your turns, through your weapon and past their defense. The further up the road it fell, the stronger it rises. Play this again to raise it back to full health. You lose 20 HP each time you play it. It crumbles when the fight ends.",
+      "type": "SPECIAL",
+      "effect": "RAISE",
+      "cost": 3,
+      "value": 8,
+      "superRare": true
+    },
+    {
+      "name": "Combust",
+      "description": "Every tick of Burn left on the enemy lands at once, half again as hard, and the Burn is spent. You catch Burn 6 yourself, and this card leaves your deck for the rest of the fight. It can only be played while the enemy is burning.",
+      "type": "SPECIAL",
+      "effect": "UNLEASH",
+      "cost": 1,
+      "value": 1,
+      "elemType": "FIRE"
+    },
+    {
+      "name": "Toxic Shock",
+      "description": "Every tick of Poison left on the enemy lands at once, half again as hard, and the Poison is spent. You take Poison 6 yourself, and this card leaves your deck for the rest of the fight. It can only be played while the enemy is poisoned.",
+      "type": "SPECIAL",
+      "effect": "UNLEASH",
+      "cost": 1,
+      "value": 1,
+      "elemType": "POISON"
+    },
+    {
+      "name": "Rupture",
+      "description": "Every charge of Rend left on the enemy tears at once, half again as hard, without waiting for it to attack, and the Rend is spent. You take Rend 6 yourself, and this card leaves your deck for the rest of the fight. It can only be played while the enemy carries Rend.",
+      "type": "SPECIAL",
+      "effect": "UNLEASH",
+      "cost": 1,
+      "value": 1,
+      "elemType": "WIND"
+    },
+    {
+      "name": "Turnabout",
+      "description": "For the rest of the fight the enemy is weak to what it resisted and resists what it was weak to. Poison and Burn on it follow the swap too. This card leaves your deck for the rest of the fight.",
+      "type": "SPECIAL",
+      "effect": "TURNABOUT",
+      "cost": 1,
+      "value": 1
+    },
+    {
+      "name": "Feint",
+      "description": "You draw the enemy into a different kind of attack: for the rest of the fight its blows are a type your armor resists, so they land 25% softer. It can only be played while your armor does not already resist them. This card leaves your deck for the rest of the fight.",
+      "type": "SPECIAL",
+      "effect": "FEINT",
+      "cost": 1,
+      "value": 1
     }
   ]
 }

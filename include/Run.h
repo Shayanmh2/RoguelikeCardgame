@@ -25,8 +25,15 @@ public:
     void setQuick(bool on);
     bool isQuick() const;
     int  getLength() const;           // 50, or 25 on Quick
-    int  getRoadPosition() const;     // 1..50
-    int  getAreaIndex() const;        // 0..4: Dungeon, Dark Dungeon, Forest, Lake, Mountain
+    int  getRoadPosition() const;     // 1..50, then 51..60 in the church
+    int  getAreaIndex() const;        // 0..4: Dungeon, Dark Dungeon, Forest, Lake, Mountain; 5 the church
+    // Past the peak, in the ruined church: encounters 51-60, on the full road
+    // only. A save at one of them is a save in the church, so nothing more
+    // needs writing down.
+    bool inChurch() const;
+    // The encounter as the screens show it: the church's count down from -9
+    // to the False Moon at 0.
+    int  shownEncounter() const;
     bool isAreaStart() const;         // the first regular fight of an area
     
     int getCurrentEncounter() const;
@@ -37,15 +44,15 @@ public:
     int getEnemyAttack() const;
     int getEnemyDefense() const;
     
-    bool isBossEncounter() const;   // bosses at 10/20/30/40, then the Dragon at 49 and Shadow Knight at 50
-    int  getBossIndex() const;      // 0..5 within the cycle: colossus, witch, thunder beast, hydra, dragon, shadow knight
+    bool isBossEncounter() const;   // bosses at 10/20/30/40, the Dragon at 49, the Shadow Knight at 50, the False Moon at 60
+    int  getBossIndex() const;      // 0..5 within the cycle: colossus, witch, thunder beast, hydra, dragon, shadow knight; 6 the False Moon
     int  getCycle() const;          // the difficulty tier, for naming and story gating
     // Difficulty. Every run is encounters 1-50; Hard shifts the scaling as if
     // fifty fights had already come before.
     void setDifficulty(int tier);
     int  getDifficulty() const;
     int  getBossNumber() const;     // 1-based count of bosses up to and including this one, across cycles
-    int  getRegularIndex() const;     // which regular fight of the run: 0..43, or 0..18 on Quick
+    int  getRegularIndex() const;     // which regular fight of the run: 0..43 (44..52 the church's), or 0..18 on Quick
     // Area bosses already behind this run, 0 to 5. The knight gets a piece of
     // himself back off each one, so this is also how whole he is.
     int  areaBossesCleared() const;

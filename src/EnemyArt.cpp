@@ -55,6 +55,8 @@ const Tint AURA_STUN    { 1.00f, 1.00f, 0.80f, 55, 48,  0 };
 // Wind: green and blue held, red drained. Colour-mod can only pull channels
 // down, so the cyan has to come from taking red away rather than adding cyan.
 const Tint AURA_REND    { 0.82f, 1.00f, 1.00f,  0, 45, 55 };
+// Moonstruck: a deeper, darker red than Strength's, the moon's own.
+const Tint AURA_MOONSTRUCK{ 0.92f, 0.62f, 0.66f, 58,  0,  8 };
 
 Tint statusTint(CastGlow glow) {
     switch (glow) {
@@ -221,6 +223,19 @@ enum : int { F_CRACK1 = 7, F_CRACK2 = 8, F_CRACK3 = 9, F_BURST = 10 };
 // And three more after those, played at the top of the white when the knight
 // turns into it: the knight bending, the shape between, the new one forming.
 enum : int { F_MORPH1 = 11, F_MORPH2 = 12, F_MORPH3 = 13 };
+// And its escape, in the run the church opens: the hit pose with the sword
+// let go, the sword left standing alone, and the body turned away to run.
+enum : int { F_LETGO = 14, F_LEFT_SWORD = 15, F_TURNED = 16 };
+// The False Moon's own twelfth frame: its hands held up with the moon's fire
+// in them, shown while it casts.
+enum : int { F_SPELL = 11 };
+// The true form going as the armour goes in the intro (a sheet with them
+// gets this escape): the dark over it, all dark, sunk partway, sunk to the
+// shoulders, a pool, and the pool running off. And the False Moon's arrival:
+// the moon's eye where it will stand, shut into a dark moon, the ring, and
+// it climbing out.
+enum : int { F_SINK1 = 17, F_POOL = 21, F_POOL_SMALL = 22 };
+enum : int { F_ARRIVE1 = 12, F_RISING = 18, F_ARRIVE8 = 19 };
 
 // The true form's frame: 56x36, with the standard box 16 in from the left
 // and 4 down. tools/make_trueform.py draws to these numbers.
@@ -251,6 +266,9 @@ struct Library {
     ArtSet MELEE, RANGED, TANK, CASTER, BEAST, UNDEAD;
     ArtSet COLOSSUS, WITCH, WARLORD, HYDRA, DRAGON, SHADOWKNIGHT;
     ArtSet TRUEKNIGHT;   // the Shadow Knight's true form: the moon itself
+    // The False Moon, the church's boss, drawn in the true form's frame. If
+    // its sheet is missing, the true form stands in for it.
+    ArtSet FALSEMOON;
     ArtSet named[45];
     Sheet player, slashFx, castFx;
     // The knight's gear, one row of his frames per tier: the armour he wears
@@ -260,6 +278,13 @@ struct Library {
     // was standing in for all of them, so an archer's shot read as a spell.
     Sheet projFx;   // see include/ProjectileTable.h for what each frame is
     Sheet bg[5], tutorialBg, titleBg, bloodMoonBg;
+    // The ruined church past the peak, the same ruin under the eclipsed moon
+    // for the False Moon's fight, and the ruin with the moon gone, which the
+    // eclipse fades into when the False Moon dies.
+    Sheet churchBg, churchEclipseBg, churchGoneBg;
+    // The church's moon waking before the False Moon's fight: its eye opens,
+    // looks down at the knight and shuts into the eclipse, a frame a step.
+    Sheet churchWakeBg;
     // One crimson sky per area for the Moonstruck, the forest's being the
     // original blood moon. Item icons for the gear screens, and the seal.
     Sheet crimsonBg[5], items, seal;
@@ -279,6 +304,8 @@ struct Library {
         DRAGON       = loadSet("assets/sprites/boss_dragon.png");
         SHADOWKNIGHT = loadSet("assets/sprites/boss_shadowknight.png");
         TRUEKNIGHT   = loadSet("assets/sprites/moon_shadowknight.png",
+                               TRUE_FORM_FRAME_W, TRUE_FORM_BOX_X, TRUE_FORM_BOX_Y);
+        FALSEMOON    = loadSet("assets/sprites/boss_false_moon.png",
                                TRUE_FORM_FRAME_W, TRUE_FORM_BOX_X, TRUE_FORM_BOX_Y);
 
         player  = loadSheet(basePath() + "assets/sprites/player.png", 30);
@@ -303,6 +330,10 @@ struct Library {
         tutorialBg = loadSheet(basePath() + "assets/sprites/bg_forest_day.png", 256);
         titleBg    = loadSheet(basePath() + "assets/sprites/bg_title.png", 256);
         bloodMoonBg = loadSheet(basePath() + "assets/sprites/bg_forest_bloodmoon.png", 256);
+        churchBg        = loadSheet(basePath() + "assets/sprites/bg_church.png", 256);
+        churchEclipseBg = loadSheet(basePath() + "assets/sprites/bg_church_eclipse.png", 256);
+        churchGoneBg    = loadSheet(basePath() + "assets/sprites/bg_church_moonless.png", 256);
+        churchWakeBg    = loadSheet(basePath() + "assets/sprites/bg_church_wake.png", 256);
         const char* crimsonFiles[5] = {
             "assets/sprites/bg_dungeon_crimson.png",
             "assets/sprites/bg_dungeon_purple_crimson.png",
@@ -322,18 +353,20 @@ Library& lib() {
 }
 
 // Per-name sheets, matched against the enemy's name at encounter start. A
-// name whose PNG is missing falls through to its type's generic sprite.
-struct NamedEntry { const char* key; const char* file; };
+// name whose PNG is missing falls through to its type's generic sprite. A
+// sheet drawn bigger than the standard 30x32 says its frame width and where
+// the standard box sits in it, as the true form's does (loadNamed).
+struct NamedEntry { const char* key; const char* file; int frameW = 30, boxX = 0, boxY = 0; };
 const NamedEntry NAMED_TABLE[] = {
     {"Bandit","melee_bandit"}, {"Warrior","melee_warrior"}, {"Raider","melee_raider"},
     {"Knight","melee_knight"}, {"Berserker","melee_berserker"}, {"Gladiator","melee_gladiator"},
     {"Enforcer","melee_enforcer"},
     {"Wolf","beast_wolf"}, {"Spider","beast_spider"}, {"Serpent","beast_serpent"},
     {"Wyvern","beast_wyvern"}, {"Basilisk","beast_basilisk"}, {"Manticore","beast_manticore"},
-    {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass"},
-    {"Moonstruck Weaver","moon_weaver"}, {"Moonstruck Beguiler","moon_beguiler"},
-    {"Moonstruck Gorgon","moon_gorgon"}, {"Moonstruck Templar","moon_templar"},
-    {"Moonstruck","moon_werewolf"},
+    {"Cockatrice","beast_cockatrice"}, {"Fleshmass","beast_fleshmass", 46, 8, 4},
+    {"Moon Shade Weaver","moon_weaver"}, {"Moon Shade Beguiler","moon_beguiler"},
+    {"Moon Shade Gorgon","moon_gorgon"}, {"Moon Shade Templar","moon_templar"},
+    {"Moon Shade","moon_werewolf"},
     {"Skeleton","undead_skeleton"}, {"Ghoul","undead_ghoul"}, {"Wraith","undead_wraith"},
     {"Specter","undead_specter"}, {"Banshee","undead_banshee"}, {"Revenant","undead_revenant"},
     {"Lich","undead_lich"},
@@ -345,19 +378,65 @@ const NamedEntry NAMED_TABLE[] = {
     {"Spellmaster","caster_spellmaster"},
     {"Falcon","ranged_falcon"}, {"Assassin","ranged_assassin"}, {"Omneye","ranged_omneye"},
     {"Deadeye","ranged_deadeye"},
+    // The ruined church's nine (tools/church_art).
+    {"Exhumed Saint","undead_saint"}, {"Sexton","melee_sexton"}, {"Mirror Nun","caster_mirror_nun"},
+    {"Gargoyle","beast_gargoyle"}, {"Bellringer","tank_bellringer"}, {"Inquisitor","ranged_inquisitor"},
+    {"Confessor","caster_confessor"}, {"Glass Templar","tank_glass_templar"}, {"Unchosen","melee_unchosen"},
 };
 const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
+
+// The sheets a summon is drawn from, the Lich's add or your own raised dead,
+// cached by key so a repeated summon never reloads the PNG.
+// A named sheet, in its own frame size; one still the standard 32 tall loads
+// the standard way, so an old sheet keeps working until its bigger one is in.
+ArtSet loadNamed(const NamedEntry& e) {
+    const std::string path = std::string("assets/sprites/") + e.file + ".png";
+    ArtSet s = loadSet(path.c_str(), e.frameW, e.boxX, e.boxY);
+    if (e.frameW != 30 && s.loaded && s.sheet.frameH == 32) s = loadSet(path.c_str());
+    return s;
+}
+
+const ArtSet* summonSheet(const std::string& key) {
+    // The Dragon is a boss, drawn from the library like the others.
+    if (key == "Dragon") return lib().DRAGON.loaded ? &lib().DRAGON : nullptr;
+    static ArtSet cache[NAMED_COUNT];
+    static bool tried[NAMED_COUNT] = { false };
+    for (int i = 0; i < NAMED_COUNT; i++) {
+        if (key != NAMED_TABLE[i].key) continue;
+        if (!tried[i]) {
+            cache[i] = loadNamed(NAMED_TABLE[i]);
+            tried[i] = true;
+        }
+        return cache[i].loaded ? &cache[i] : nullptr;
+    }
+    return nullptr;
+}
 
 const ArtSet* gNamedVariant = nullptr;
 // Set by name, like the named variants: bosses do not go through the name
 // table (the plain Shadow Knight would match the regular Knight).
 bool gTrueForm = false;
+// The fights where a raised undead can stand on each side - the Lich's, and
+// the Shadow Knight's in both its phases - stand the fighters further apart
+// for the whole fight, so nothing jumps when a summon arrives.
+bool gWideField = false;
 // The summoned add, if the fight has one standing.
 const ArtSet* gCompanion = nullptr;
 // The add swings and flinches on its own, rather than its master reacting for it.
 int  gCompanionNudge = 0;
 int  gCompanionFrame = -1;
 Tint gCompanionTint;
+// Your own raised dead, the add's mirror on the knight's side.
+const ArtSet* gAlly = nullptr;
+bool gBlowsAtAlly = false;   // the blow in flight is theirs to take
+int  gAllyNudge = 0;
+int  gAllyFrame = -1;
+Tint gAllyTint;
+
+// Whether this enemy has a frame of its own for casting.
+static bool castsWithHands(const ArtSet& s, BossType boss) {
+    return boss == BossType::FALSE_MOON && s.sheet.count > F_SPELL;
+}
 
 const ArtSet& artSet(EnemyType type, BossType boss) {
     Library& L = lib();
@@ -368,6 +447,8 @@ const ArtSet& artSet(EnemyType type, BossType boss) {
         case BossType::HYDRA:          return L.HYDRA;
         case BossType::DRAGON:         return L.DRAGON;
         case BossType::SHADOW_KNIGHT:  return (gTrueForm && L.TRUEKNIGHT.loaded) ? L.TRUEKNIGHT : L.SHADOWKNIGHT;
+        case BossType::FALSE_MOON:
+            return L.FALSEMOON.loaded ? L.FALSEMOON : L.TRUEKNIGHT.loaded ? L.TRUEKNIGHT : L.SHADOWKNIGHT;
         default: break;
     }
     if (gNamedVariant && gNamedVariant->loaded) return *gNamedVariant;
@@ -404,6 +485,14 @@ int spriteScale() {
 // smaller so they sit in the environment rather than filling it. They're
 // bottom-aligned to the backdrop's floor line, same as the terminal scene.
 int charScale() { return std::max(3, spriteScale() - 1); }
+// The raised dead, on either side: two thirds of the fighters, rounded, so
+// they read as followers at every window size. One step down would be 14
+// against 15 in a full window, as tall as the knight. Whole steps only, like
+// the rest.
+int summonScale() { return std::max(2, (charScale() * 2 + 1) / 3); }
+// How much further a summon steps to land a blow than it did at one step
+// down: its body is narrower, so its front edge starts further back.
+int summonReachExtra() { return std::max(0, 30 * (charScale() - 1 - summonScale())); }
 
 int spriteW() { return 30 * charScale(); }
 int spriteH() { return 32 * charScale(); }
@@ -411,7 +500,9 @@ int backdropW() { return 94 * spriteScale(); } // same bg:sprite ratio the termi
 int backdropH() { return 32 * spriteScale(); }
 // Clear space between the two fighters at rest, from drawScene()'s layout
 // (about 1.5 sprite widths). Lunges are fractions of this, not of a sprite.
-int restingGap() { return std::max(0, backdropW() - 2 * spriteW() + 4 * spriteScale()); }
+// How much further apart each fighter stands on a wide field.
+int fieldExtra() { return gWideField ? spriteScale() * 8 : 0; }
+int restingGap() { return std::max(0, backdropW() - 2 * spriteW() + 4 * spriteScale() + 2 * fieldExtra()); }
 
 EnemyType gType = EnemyType::MELEE;
 BossType  gBoss = BossType::NONE;
@@ -420,6 +511,8 @@ int  gEnemyFrame = F_IDLE_A;
 int  gPlayerFrame = F_IDLE_A;
 Tint gEnemyTint, gPlayerTint;
 int  gEnemyNudge = 0;   // lunge toward the player
+int  gEnemyAlpha = 255; // the enemy fading out of the scene (the true form running)
+int  gEnemyLeft = -1;   // a frame of its own left standing where it was (the true form's sword)
 int  gPlayerNudge = 0;  // and the knight stepping in to meet them
 // A bolt in flight between the two sprites. gProjT runs 0 (at the caster) to
 // 1 (at the target); -1 on the frame means nothing is in the air.
@@ -446,6 +539,7 @@ float gFlameT = 0.0f;
 int  gSlashFrame = -1;  // sword-trail overlay on the player, -1 = none
 int  gCastFrame = -1;   // cast-orb overlay on the player
 bool gGhost = false;
+bool gStone = false;   // the Gargoyle, turned to stone for your turn
 // How many weapon / armour drops the knight has taken. Picks which tier
 // frame of the gear sheets he is drawn wearing.
 int gWeaponTiers = 0, gArmorTiers = 0;
@@ -454,12 +548,19 @@ int gWeaponTiers = 0, gArmorTiers = 0;
 int gShadeTier = 0;
 bool gPortraitOnly = false;
 bool gPortraitKnight = false;   // portrait mode, but of the player
+int  gPortraitCap = -1;         // setPortraitRows(): -1 for the scene's own height
 Sheet* gBgSheet = nullptr;
 // The backdrop being crossfaded out, and how far through that is. Only the
 // transformation uses these: every other backdrop change is a cut, because
 // every other one happens on a screen nobody is looking at.
 Sheet* gBgPrev = nullptr;
 float  gBgFade = 1.0f;
+// A backdrop frame held still instead of the shimmer (-1: shimmer), for
+// each of the two: the church's moon waking is played a frame a step.
+int gBgFrame = -1, gBgPrevFrame = -1;
+// The False Moon is not there yet: it comes out of the eclipse once the
+// fight is on screen (prepareArrival), so the first draw must not show it.
+bool gArrivalPending = false;
 
 // Rescale the backdrop's own dark tone to a chosen brightness, keeping its hue.
 // Sampling alone gives something so near black the tint is invisible, which
@@ -483,13 +584,18 @@ int sceneRowsNeeded() {
     return cell > 0 ? (backdropH() + cell - 1) / cell + 1 : 18;
 }
 
-void showScene() { Console::setSceneRows(sceneRowsNeeded()); }
+void showScene() {
+    int rows = sceneRowsNeeded();
+    if (gPortraitOnly && gPortraitCap >= 0) rows = std::min(rows, gPortraitCap);
+    Console::setSceneRows(rows);
+}
 
 // Cycles through whichever auras are active, one every 2 seconds, so a side
 // carrying several statuses shows each in turn instead of blending to mud.
 bool pickAura(const AuraFlags& f, Tint& out) {
-    Tint active[6];
+    Tint active[7];
     int n = 0;
+    if (f.moonstruck) active[n++] = AURA_MOONSTRUCK;
     if (f.strength) active[n++] = AURA_STRENGTH;
     if (f.weak)     active[n++] = AURA_WEAK;
     if (f.poison)   active[n++] = AURA_POISON;
@@ -521,6 +627,24 @@ void blitFlipped(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, bool
 }
 
 void blit(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint, Uint8 alpha = 255);
+
+// blit() turned to face the other way, hit flash and all: your raised dead are
+// the enemies' own sprites, turned round to face what they fight.
+void blitMirrored(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint) {
+    if (!s.ok() || frame < 0 || frame >= s.count) return;
+    SDL_Renderer* r = Platform::renderer();
+    SDL_Rect src{ frame * s.frameW, 0, s.frameW, s.frameH };
+    SDL_SetTextureColorMod(s.tex, (Uint8)std::min(255, (int)(tint.mulR * 255.0f + 0.5f)),
+                                  (Uint8)std::min(255, (int)(tint.mulG * 255.0f + 0.5f)),
+                                  (Uint8)std::min(255, (int)(tint.mulB * 255.0f + 0.5f)));
+    SDL_RenderCopyEx(r, s.tex, &src, &dst, 0.0, nullptr, SDL_FLIP_HORIZONTAL);
+    SDL_SetTextureColorMod(s.tex, 255, 255, 255);
+    if (s.silhouette && (tint.addR || tint.addG || tint.addB)) {
+        SDL_SetTextureColorMod(s.silhouette, (Uint8)tint.addR, (Uint8)tint.addG, (Uint8)tint.addB);
+        SDL_RenderCopyEx(r, s.silhouette, &src, &dst, 0.0, nullptr, SDL_FLIP_HORIZONTAL);
+        SDL_SetTextureColorMod(s.silhouette, 255, 255, 255);
+    }
+}
 
 // An enemy frame, given the box it stands in. Most sheets are exactly the box.
 // A bigger frame is laid out around it and reaches out of it, and whatever
@@ -598,10 +722,42 @@ struct Spark {
 std::vector<Popup> gPopups;
 std::vector<Spark> gSparks;
 
+// The moon's new vessel (printBattleVessel): the knight's frames as it takes
+// him, made then from whatever he is wearing; while gVesselShown is set they
+// are drawn in place of him (its last two are him standing as the vessel,
+// breathing). gVesselMote is the last piece of him on its way up into the
+// moon, 0 to 1, and gVesselPulse the moon's ring flaring as it takes it; -1
+// when there is none. gVesselChestX/Y: where in his frame the dark comes in
+// (% of the frame), which is where the piece leaves and the wisp arrives.
+std::vector<SDL_Texture*> gVesselTex;
+int   gVesselShown = -1;
+float gVesselMote = -1.0f;
+float gVesselPulse = -1.0f;
+float gVesselChestX = 50.0f, gVesselChestY = 45.0f;
+
+// The church's moon on screen: the eclipse's disc in bg_church_eclipse.png,
+// where bg_church.png has its moon too (centre measured in backdrop pixels),
+// placed the way drawScene places the backdrop, a centred crop at the
+// scene's scale.
+SDL_Point churchMoonOnScreen() {
+    const float MOON_X = 141.5f, MOON_Y = 7.0f;
+    const int sc = spriteScale(), screenW = Platform::screenW();
+    const int frameW = lib().churchBg.ok() ? lib().churchBg.frameW : 256;
+    float x;
+    if (frameW * sc >= screenW) {
+        const int cols = (screenW + sc - 1) / sc;
+        x = (float)((screenW - cols * sc) / 2) + (MOON_X - (float)((frameW - cols) / 2)) * sc;
+    } else {
+        x = MOON_X * screenW / frameW;
+    }
+    return SDL_Point{ (int)(x + 0.5f), Console::sceneOriginY() + (int)(MOON_Y * sc + 0.5f) };
+}
+
 // Where the two fighters were drawn this frame. The overlay needs them and
 // runs outside drawScene(), so drawScene records them on the way past.
 SDL_Rect gPlayerRect{ 0,0,0,0 };
 SDL_Rect gCompanionRect{ 0,0,0,0 };
+SDL_Rect gAllyRect{ 0,0,0,0 };
 SDL_Rect gEnemyRect { 0,0,0,0 };
 
 void drawGlyphColumnText(SDL_Renderer* r, const std::string& t, int x, int y,
@@ -664,6 +820,11 @@ const SceneDef SCENES[] = {
 int gScene = 0, gSceneShot = -1;
 Uint32 gSceneStart = 0;
 int gSceneSounded = -1;
+// The church's run ends with no moon in the sky: the False Moon went out in
+// the nave, so the morning has nothing to watch go down. The same frames,
+// numbered as ending_scene.png's, so EndingTable serves both.
+const char* ENDING_MOONLESS = "assets/sprites/ending_scene_moonless.png";
+bool gEndingMoonless = false;
 
 // A whole image as one texture, loaded on first use and kept: each is only
 // wanted at the start or the end of a run. Null when the file is missing.
@@ -686,6 +847,13 @@ SDL_Texture* wholeTexture(const std::string& rel) {
 }
 
 const SceneDef& sceneDef() { return SCENES[gScene]; }
+
+// The sheet a scene is drawn from: the ending's moonless one when the run
+// came through the church and the file is there, else its own.
+const char* sceneFile() {
+    if (gScene == 1 && gEndingMoonless && wholeTexture(ENDING_MOONLESS)) return ENDING_MOONLESS;
+    return sceneDef().file;
+}
 const CutsceneShot& shotDef() { return sceneDef().shots[gSceneShot]; }
 
 int shotIntroMs() {
@@ -746,7 +914,7 @@ void drawEndingKnight(const SDL_Rect& scene, int knight, int scale) {
 
 void drawCutscene(Uint32 now) {
     const SceneDef& d = sceneDef();
-    SDL_Texture* tex = wholeTexture(d.file);
+    SDL_Texture* tex = wholeTexture(sceneFile());
     if (!tex) return;
     const int step = sceneStepAt(now - gSceneStart);
     // Sounds belong to the steps that play once; each is heard as its step
@@ -816,6 +984,62 @@ void drawOverlay() {
             }
         }
         blit(lib().seal, std::min(gSealFrame, lib().seal.count - 1), d, Tint{});
+    }
+
+    // The last piece of him going up into the moon: a white point with a soft
+    // cross of glow, out of his chest and over into the eclipse, the points it
+    // has just left fading behind it, slow to leave him and slow to go in,
+    // smaller as it nears and gone into its dark. Then the moon's ring flares
+    // once, a pixel ring of its red going out from the disc and fading.
+    if ((gVesselMote >= 0.0f || gVesselPulse >= 0.0f) && gPlayerRect.w > 0) {
+        const int sz = std::max(1, charScale());
+        const SDL_Point moon = churchMoonOnScreen();
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        auto dot = [&](float px, float py, int w, int h, Uint8 cr, Uint8 cg, Uint8 cb, Uint8 ca) {
+            SDL_SetRenderDrawColor(r, cr, cg, cb, ca);
+            SDL_Rect q{ (int)px - w / 2, (int)py - h / 2, w, h };
+            SDL_RenderFillRect(r, &q);
+        };
+        if (gVesselMote >= 0.0f) {
+            const float x0 = gPlayerRect.x + gPlayerRect.w * gVesselChestX / 100.0f;
+            const float y0 = gPlayerRect.y + gPlayerRect.h * gVesselChestY / 100.0f;
+            // over the top: the curve's middle point above both ends, nearer him
+            const float cx = x0 + (moon.x - x0) * 0.3f;
+            const float cy = std::min(y0, (float)moon.y) - sz * 9;
+            auto at = [&](float u, float& px, float& py) {
+                const float e = u * u * (3.0f - 2.0f * u);
+                const float a = 1.0f - e;
+                px = a * a * x0 + 2 * a * e * cx + e * e * moon.x;
+                py = a * a * y0 + 2 * a * e * cy + e * e * moon.y;
+            };
+            const float t = gVesselMote;
+            const float near = t < 0.7f ? 1.0f : std::max(0.0f, (1.0f - t) / 0.3f);
+            const float fade = t < 0.9f ? 1.0f : std::max(0.0f, (1.0f - t) / 0.1f);
+            const int core = sz + (int)(sz * near + 0.5f);          // two pixels across, one by the moon
+            for (int k = 4; k >= 1; --k) {                          // where it has just been
+                float px, py;
+                at(std::max(0.0f, t - k * 0.03f), px, py);
+                dot(px, py, sz, sz, 150, 160, 220, (Uint8)(255 * fade * (0.5f - k * 0.1f)));
+            }
+            float px, py;
+            at(t, px, py);
+            dot(px, py, core + sz * 2, core, 150, 160, 220, (Uint8)(130 * fade));
+            dot(px, py, core, core + sz * 2, 150, 160, 220, (Uint8)(130 * fade));
+            dot(px, py, core, core, 238, 242, 255, (Uint8)(255 * fade));
+        }
+        if (gVesselPulse >= 0.0f) {
+            const float p = gVesselPulse;
+            const int sp = spriteScale();
+            const float R = 4.5f + 2.5f * p;
+            SDL_SetRenderDrawColor(r, 214, 46, 44, (Uint8)(190 * (1.0f - p)));
+            const int n = (int)R + 2;
+            for (int dy = -n; dy <= n; ++dy)
+                for (int dx = -n; dx <= n; ++dx) {
+                    if (std::fabs(std::hypot((float)dx, (float)dy) - R) >= 0.5f) continue;
+                    SDL_Rect q{ moon.x + dx * sp - sp / 2, moon.y + dy * sp - sp / 2, sp, sp };
+                    SDL_RenderFillRect(r, &q);
+                }
+        }
     }
 
     for (size_t i = 0; i < gSparks.size();) {
@@ -915,12 +1139,23 @@ void drawScene() {
     const int originY = Console::sceneOriginY() + shY;
     // Characters stand on the backdrop's floor line rather than its top edge.
     const int floorY = originY + sceneH - sprH;
+    // A portrait in a band shorter than the scene (setPortraitRows): the
+    // backdrop is cropped to the band from the floor up, and the figure is
+    // scaled to stand in it.
+    const int bandH = Console::sceneRows() * std::max(1, Platform::cellH());
+    const bool capped = gPortraitOnly && bandH < sceneH;
+    const int bgY = capped ? originY + bandH - sceneH : originY;
+    if (capped) {
+        const SDL_Rect band{ 0, originY, Platform::screenW(), bandH };
+        SDL_RenderSetClipRect(r, &band);
+    }
 
     // Drawn through a lambda so a crossfade can ask for the same work twice,
     // once for what is going and once for what is arriving.
-    auto drawBackdrop = [&](Sheet* bg, Uint8 alpha) {
+    auto drawBackdrop = [&](Sheet* bg, Uint8 alpha, int pin) {
         if (!bg || !bg->ok() || alpha == 0) return;
-        int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, bg->count);
+        int f = pin >= 0 ? pin % std::max(1, bg->count)
+                         : (int)((SDL_GetTicks() / 700) % (Uint32)std::max(1, bg->count));
         const int screenW = Platform::screenW();
         const int fullW   = bg->frameW * spriteScale();
         int cols, srcX, drawW;
@@ -934,18 +1169,19 @@ void drawScene() {
             drawW = screenW;
         }
         SDL_Rect bsrc{ srcX, 0, cols, bg->frameH };
-        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, originY, drawW, sceneH };
+        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, bgY, drawW, sceneH };
         SDL_SetTextureColorMod(bg->tex, 255, 255, 255);
         SDL_SetTextureAlphaMod(bg->tex, alpha);
         SDL_RenderCopy(r, bg->tex, &bsrc, &bdst);
         SDL_SetTextureAlphaMod(bg->tex, 255);
     };
     if (gBgPrev && gBgFade < 1.0f) {
-        drawBackdrop(gBgPrev, 255);
-        drawBackdrop(gBgSheet, (Uint8)(gBgFade * 255.0f + 0.5f));
+        drawBackdrop(gBgPrev, 255, gBgPrevFrame);
+        drawBackdrop(gBgSheet, (Uint8)(gBgFade * 255.0f + 0.5f), gBgFrame);
     } else if (gBgSheet && gBgSheet->ok()) {
         // Two-frame ambient shimmer, same 700ms cadence the terminal used.
-        int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count);
+        int f = gBgFrame >= 0 ? gBgFrame % std::max(1, gBgSheet->count)
+                              : (int)((SDL_GetTicks() / 700) % (Uint32)std::max(1, gBgSheet->count));
         // The backdrop always spans the window: a centred 1:1 crop when it is wide
         // enough at the scene's scale, stretched to full width on a short window
         // (a vertical crop would cut off the dungeon torches).
@@ -962,7 +1198,7 @@ void drawScene() {
             drawW = screenW;
         }
         SDL_Rect bsrc{ srcX, 0, cols, gBgSheet->frameH };
-        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, originY, drawW, sceneH };
+        SDL_Rect bdst{ (screenW - drawW) / 2 + shX, bgY, drawW, sceneH };
         SDL_SetTextureColorMod(gBgSheet->tex, 255, 255, 255);
         SDL_SetTextureAlphaMod(gBgSheet->tex, 255);
         SDL_RenderCopy(r, gBgSheet->tex, &bsrc, &bdst);
@@ -970,17 +1206,24 @@ void drawScene() {
 
     const ArtSet& es = artSet(gType, gBoss);
 
+    // In a capped band the figure is as big as the band allows, standing on
+    // its floor; otherwise where it has always been.
+    const int pscale = capped ? std::max(2, std::min(scale, (bandH - 4) / 32)) : scale;
+    const SDL_Rect portraitDst = capped
+        ? SDL_Rect{ (Platform::screenW() - 30 * pscale) / 2, originY + bandH - 32 * pscale - 2, 30 * pscale, 32 * pscale }
+        : SDL_Rect{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
+
     if (gPortraitOnly && gPortraitKnight) {
         // View Player's portrait: the knight in the gear he is actually
         // wearing, breathing on the same cadence as everything else.
-        SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
         const int kframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
-        drawKnight(kframe, dst, Tint{});
+        drawKnight(kframe, portraitDst, Tint{});
+        if (capped) SDL_RenderSetClipRect(r, nullptr);
         return;
     }
 
     if (gPortraitOnly) {
-        SDL_Rect dst{ (Platform::screenW() - sprW) / 2, originY, sprW, sprH };
+        const SDL_Rect dst = portraitDst;
         // Breathe on the same 600ms cadence the battle scene uses. View Enemy
         // was picking one idle frame and holding it, so the portrait sat there
         // as a still image while everything else in the game moved.
@@ -989,7 +1232,8 @@ void drawScene() {
             pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
         Tint pt2 = gEnemyTint;
         if (gShadeTier == 1) { pt2.mulG *= 0.80f; pt2.mulB *= 0.55f; }
-        blitInBox(es, pframe2, dst, pt2, 255, scale, originY, sceneH);
+        blitInBox(es, pframe2, dst, pt2, 255, pscale, originY, capped ? bandH : sceneH);
+        if (capped) SDL_RenderSetClipRect(r, nullptr);
         return;
     }
 
@@ -999,19 +1243,49 @@ void drawScene() {
     if (pt.identity()) pickAura(gAuraKnight, pt);
     // Pushed apart by an extra 8 units each: the backdrop reaches the window
     // edges, so the pair has room to stand apart.
-    const int spread = spriteScale() * 8;
+    const int spread = spriteScale() * 8 + fieldExtra();
     SDL_Rect pdst{ originX + spriteScale() * 6 - spread + gPlayerNudge, floorY, sprW, sprH };
+    // Your raised dead stand just in front of you, toward the middle, at
+    // summon size. Drawn first, so your own lunge passes in front of them, and
+    // anchored to where you stand rather than to that lunge.
+    if (gAlly && gAlly->loaded) {
+        const int as = summonScale();
+        const int awid = 30 * as, ahgt = 32 * as;
+        SDL_Rect adst{ pdst.x - gPlayerNudge + sprW - spriteScale() * 2 + gAllyNudge,
+                       floorY + (sprH - ahgt), awid, ahgt };
+        int aframe = F_IDLE_A;
+        if (gAlly->animated && gAllyFrame >= 0) aframe = gAllyFrame;
+        else if (gAlly->animated)
+            aframe = ((SDL_GetTicks() / 600 + 1) % 2) ? F_IDLE_B : F_IDLE_A;
+        // The Lich's adds wear the same shade: up out of the ground, not
+        // native to the fight.
+        Tint at = gAllyTint;
+        if (at.identity()) { at.mulR = 0.78f; at.mulG = 0.82f; at.mulB = 0.95f; }
+        gAllyRect = adst;
+        blitMirrored(gAlly->sheet, aframe, adst, at);
+    } else {
+        gAllyRect = SDL_Rect{ 0, 0, 0, 0 };
+    }
     int pframe = gPlayerFrame;
     if (pframe == F_IDLE_A || pframe == F_IDLE_B)
         pframe = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
     gPlayerRect = pdst;
-    drawKnight(pframe, pdst, pt);
+    if (gVesselShown >= 0 && gVesselShown < (int)gVesselTex.size()) {
+        // the moon's vessel: the frames it took him in, then him as it wears him
+        int v = gVesselShown;
+        if (v >= (int)gVesselTex.size() - 2)
+            v = (int)gVesselTex.size() - 2 + (int)((SDL_GetTicks() / 600) % 2);
+        if (gVesselTex[v]) SDL_RenderCopy(r, gVesselTex[v], nullptr, &pdst);
+    } else {
+        drawKnight(pframe, pdst, pt);
+    }
     if (gSlashFrame >= 0) blit(lib().slashFx, gSlashFrame, pdst, Tint{});
     if (gCastFrame >= 0)  blit(lib().castFx, gCastFrame, pdst, Tint{});
 
     Tint et = gEnemyTint;
     if (et.identity()) pickAura(gAuraEnemy, et);
     if (gShadeTier == 1) { et.mulG *= 0.80f; et.mulB *= 0.55f; }
+    if (gStone) { et.mulR *= 0.62f; et.mulG *= 0.64f; et.mulB *= 0.72f; }
     SDL_Rect edst{ originX + sceneW - sprW - spriteScale() * 6 + spread - gEnemyNudge, floorY, sprW, sprH };
     // While idle, breathe between the two idle frames instead of standing on a
     // single one.
@@ -1021,13 +1295,20 @@ void drawScene() {
     // Ghost/Illusion: faded and spectral while the enemy can't be touched.
     // The box, not the frame: shots, sparks and numbers aim at the body.
     gEnemyRect = edst;
-    blitInBox(es, eframe, edst, et, gGhost ? 110 : 255, scale, originY, sceneH);
+    // What it left behind stays where it stood, whatever the body does.
+    if (gEnemyLeft >= 0 && es.sheet.count > gEnemyLeft) {
+        SDL_Rect home = edst;
+        home.x += gEnemyNudge;
+        blitInBox(es, gEnemyLeft, home, Tint{}, 255, scale, originY, sceneH);
+    }
+    blitInBox(es, eframe, edst, et, (Uint8)std::min(gGhost ? 110 : 255, gEnemyAlpha), scale, originY, sceneH);
 
     // The bolt, drawn last so it passes in front of both fighters.
     if (gProjFrame >= 0) {
         const float t = gProjT < 0.0f ? 0.0f : (gProjT > 1.0f ? 1.0f : gProjT);
         const SDL_Rect& from = gProjReverse ? pdst : edst;
-        const SDL_Rect& to   = gProjReverse ? edst : pdst;
+        const SDL_Rect& to   = gProjReverse ? edst
+                             : (gBlowsAtAlly && gAllyRect.w > 0) ? gAllyRect : pdst;
         // Drawn at a fraction of the sprite, not stretched across the whole rect -
         // a full-rect blit put the bolt wherever the orb happened to sit inside
         // its 30x32 frame, which read as "always near the top" for every enemy.
@@ -1066,7 +1347,8 @@ void drawScene() {
         const Sheet& ps = lib().projFx;
         if (ps.ok()) {
             const int bx0 = edst.x + edst.w * gBeamSrcXPct / 100;
-            const int bx1 = pdst.x + pdst.w / 2;
+            const SDL_Rect& at = (gBlowsAtAlly && gAllyRect.w > 0) ? gAllyRect : pdst;
+            const int bx1 = at.x + at.w / 2;
             const float bt = gBeamT < 0.0f ? 0.0f : (gBeamT > 1.0f ? 1.0f : gBeamT);
             const int len = (int)((bx0 - bx1) * bt);
             // Drawn over the full sprite box. The ray sits at its own height inside
@@ -1094,7 +1376,8 @@ void drawScene() {
         if (ps.ok()) {
             const int cols = 7;
             const int groundY = floorY + sprH;
-            const int fx0 = pdst.x + pdst.w / 2, fx1 = edst.x + edst.w / 2;
+            const SDL_Rect& at = (gBlowsAtAlly && gAllyRect.w > 0) ? gAllyRect : pdst;
+            const int fx0 = at.x + at.w / 2, fx1 = edst.x + edst.w / 2;
             // Full sprite width: the flame is a narrow strip inside its frame, so
             // drawing the frame at sprite size puts the column at the same
             // thickness the Archon raises at its own feet.
@@ -1116,11 +1399,11 @@ void drawScene() {
         }
     }
 
-    // The add stands inside the enemy, toward the middle of the field, at one
-    // scale step down. Integer scaling only: a fractional step drops the
+    // The add stands inside the enemy, toward the middle of the field, at
+    // summon size. Integer scaling only: a fractional step drops the
     // one-pixel features these sprites are mostly made of.
     if (gCompanion && gCompanion->loaded) {
-        const int cs = std::max(2, charScale() - 1);
+        const int cs = summonScale();
         const int cwid = 30 * cs, chgt = 32 * cs;
         // Anchored to where the enemy STANDS, not to its current lunge, so the add
         // keeps its ground while its master swings.
@@ -1145,6 +1428,9 @@ void hold(int ms) { Platform::delay(ms); }
 
 // Clears the one-shot pose overrides back to a neutral idle scene.
 void resetPose() {
+    gVesselShown = -1;
+    gVesselMote = -1.0f;
+    gVesselPulse = -1.0f;
     gPlayerFrame = F_IDLE_A;
     gEnemyFrame = F_IDLE_A;
     gPlayerTint = Tint{};
@@ -1152,6 +1438,8 @@ void resetPose() {
     gSlashFrame = -1;
     gCastFrame = -1;
     gEnemyNudge = 0;
+    gEnemyAlpha = 255;
+    gEnemyLeft = -1;
     gPlayerNudge = 0;
     gProjFrame = -1;
     gProjT = 0.0f;
@@ -1160,6 +1448,9 @@ void resetPose() {
     gProjScalePct = 30;
     gBeamFrame = -1;
     gFlameFrame = -1;
+    gAllyNudge = 0;
+    gAllyFrame = -1;
+    gAllyTint = Tint{};
 }
 
 // TODO: the slash sheets are still mostly empty - 0, 7 and 12 opaque pixels
@@ -1200,6 +1491,8 @@ void setCutsceneShot(Cutscene scene, int shot) {
     gSceneSounded = -1;
 }
 
+void setEndingMoonless(bool on) { gEndingMoonless = on; }
+
 bool cutsceneReady(Cutscene scene) {
     ensureInstalled();
     return wholeTexture(SCENES[scene == Cutscene::ENDING ? 1 : 0].file) != nullptr;
@@ -1234,7 +1527,8 @@ void drawMedal(int frame, const SDL_Rect& dst) {
     static Sheet medals;
     static bool tried = false;
     if (!tried) { tried = true; medals = loadSheet(basePath() + "assets/sprites/medals.png", 24); }
-    if (medals.ok()) blit(medals, frame, dst, Tint{});
+    // Until the crimson moon is on the sheet, the gold medal stands in for it.
+    if (medals.ok()) blit(medals, frame < medals.count ? frame : 2, dst, Tint{});
 }
 
 // Loaded the first time something asks for it, and kept. These are not in
@@ -1303,6 +1597,11 @@ void popNumberAdd(int amount, PopKind kind) {
     popIn(gCompanionRect, amount, kind);
 }
 
+void popNumberAlly(int amount, PopKind kind) {
+    ensureInstalled();
+    popIn(gAllyRect, amount, kind);
+}
+
 void popSparksIn(const SDL_Rect& box, bool onEnemy) {
     ensureInstalled();
     if (box.w <= 0) return;
@@ -1349,6 +1648,8 @@ void print(const Art& art, int /*indent*/) {
 }
 
 // The knight alone, for View Player. Mirrors print() on the enemy side.
+void setPortraitRows(int rows) { gPortraitCap = rows; }
+
 void printPlayerPortrait() {
     ensureInstalled();
     gPortraitOnly = true;
@@ -1362,6 +1663,7 @@ void printBattle(EnemyType type, BossType boss) {
     gPortraitOnly = false;
     gType = type; gBoss = boss;
     resetPose();
+    if (gArrivalPending) gEnemyAlpha = 0;   // not out of the eclipse yet
     showScene();
 }
 
@@ -1508,16 +1810,94 @@ void printCompanionAttack(EnemyType type, BossType boss) {
     gType = type; gBoss = boss;
     showScene();
     if (!gCompanion || !gCompanion->loaded) return;
-    const int gap = restingGap();
+    const int reach = restingGap() * 55 / 100 + summonReachExtra();
     const bool anim = gCompanion->animated;
     if (anim) gCompanionFrame = F_ATK1;
-    gCompanionNudge = gap * 25 / 100; hold(90);
+    gCompanionNudge = reach * 25 / 55; hold(90);
     if (anim) gCompanionFrame = F_ATK2;
-    gCompanionNudge = gap * 45 / 100; hold(90);
+    gCompanionNudge = reach * 45 / 55; hold(90);
     if (anim) gCompanionFrame = F_ATK3;
-    gCompanionNudge = gap * 55 / 100; hold(120);
+    gCompanionNudge = reach; hold(120);
     gCompanionNudge = 0;
     gCompanionFrame = -1;
+}
+
+// Your raised dead take their turn: a step out at the enemy and back, and
+// whatever it struck flinches if the blow landed. It stands in front of you,
+// so it has a shorter way to go than you do.
+void printAllyAttack(EnemyType type, BossType boss, bool connected, bool onCompanion) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gAlly || !gAlly->loaded) return;
+    const int reach = restingGap() * 55 / 100 + summonReachExtra();
+    const bool anim = gAlly->animated;
+    if (anim) gAllyFrame = F_ATK1;
+    gAllyNudge = reach * 25 / 55; hold(90);
+    if (anim) gAllyFrame = F_ATK2;
+    gAllyNudge = reach * 45 / 55; hold(90);
+    if (anim) gAllyFrame = F_ATK3;
+    gAllyNudge = reach;
+    if (connected) {
+        Platform::shake(140, 6.0f);
+        popSparksIn(onCompanion ? gCompanionRect : gEnemyRect, true);
+        if (onCompanion) { gCompanionFrame = F_HIT; gCompanionTint = HIT_FLASH; }
+        else {
+            if (artSet(type, boss).animated) gEnemyFrame = F_HIT;
+            gEnemyTint = HIT_FLASH;
+        }
+    }
+    hold(150);
+    gAllyNudge = 0;
+    gAllyFrame = -1;
+    gEnemyFrame = F_IDLE_A;
+    gEnemyTint = Tint{};
+    gCompanionFrame = -1;
+    gCompanionTint = Tint{};
+}
+
+// A blow it takes for you: its own flinch, where the knight's would have been.
+void printAllyHit(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gAlly || !gAlly->loaded) return;
+    if (gAlly->animated) gAllyFrame = F_HIT;
+    gAllyTint = HIT_FLASH;
+    Platform::shake(180, 9.0f);
+    popSparksIn(gAllyRect, false);
+    hold(110);
+    gAllyTint = Tint{};
+    gAllyFrame = -1;
+}
+
+// Up out of the ground: lying where it fell, then on its feet.
+void printAllyRise(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gAlly || !gAlly->loaded || !gAlly->animated) return;
+    gAllyFrame = F_DEATH; gAllyTint = DEATH_DARK; hold(160);
+    gAllyTint = Tint{};                           hold(120);
+    gAllyFrame = F_HIT;                           hold(120);
+    gAllyFrame = -1;
+}
+
+// And back down where it stood, darkening, before it is gone.
+void printAllyFall(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gAlly || !gAlly->loaded) return;
+    if (gAlly->animated) gAllyFrame = F_DEATH;
+    gAllyTint = DEATH_DARK;
+    hold(320);
+    gAllyTint = Tint{};
+    gAllyFrame = -1;
 }
 
 void printBattleBlock(EnemyType type, BossType boss) {
@@ -1575,7 +1955,10 @@ void printEnemyCast(EnemyType type, BossType boss, CastGlow glow, int projectile
     // spell: a move that throws nothing holds it, anything that flies shows it
     // for a beat and lets go.
     const bool noFlight = (projectile == Proj::NONE);
-    if (s.animated) {
+    if (castsWithHands(s, boss)) {
+        gEnemyFrame = F_SPELL; hold(noFlight ? 420 : 230);
+        if (!noFlight) gEnemyFrame = F_IDLE_A;
+    } else if (s.animated) {
         gEnemyFrame = F_ATK1; hold(80);
         gEnemyFrame = F_ATK2; hold(80);
         gEnemyFrame = F_ATK3; hold(noFlight ? 260 : 70);
@@ -1706,9 +2089,12 @@ void printBattleStatusFlash(EnemyType type, BossType boss, CastGlow glow, bool o
     showScene();
     Tint t = statusTint(glow);
     if (onEnemy) gEnemyTint = t; else gPlayerTint = t;
+    const bool hands = !onEnemy && castsWithHands(artSet(type, boss), boss);
+    if (hands) gEnemyFrame = F_SPELL;
     // Long enough to read as a hit of colour, short enough that a move made only
     // of a status does not stall the turn.
     hold(360);
+    if (hands) gEnemyFrame = F_IDLE_A;
     gEnemyTint = Tint{};
     gPlayerTint = Tint{};
 }
@@ -1723,12 +2109,60 @@ void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow) {
     gPlayerTint = Tint{};
 }
 
+// The moon's red at strength k (0 none, 1 full): the colour drained toward
+// crimson and darkened, as the moon's own creatures are drawn.
+static Tint moonTint(float k) {
+    Tint t;
+    t.mulR = 1.0f - 0.10f * k; t.mulG = 1.0f - 0.60f * k; t.mulB = 1.0f - 0.55f * k;
+    t.addR = (int)(96 * k); t.addG = 0; t.addB = (int)(14 * k);
+    return t;
+}
+
+// The moon's crimson wisp: the Vampire's, the one red wisp on the projectile
+// sheet. It flies from that sheet (isCast false); the cast sheet has five
+// frames, so asked of it, this frame drew nothing.
+static int moonWisp() {
+    int wisp = ProjectileTable::GEN_UNDEAD;
+    for (int i = 0; i < ProjectileTable::kByNameCount; i++)
+        if (std::string(ProjectileTable::kByName[i].enemy) == "Vampire") wisp = ProjectileTable::kByName[i].frame;
+    return wisp;
+}
+
+void printBattleMoonstruck(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    Audio::playSFX("moonstruck");
+    const bool hands = castsWithHands(artSet(type, boss), boss);
+    if (hands) gEnemyFrame = F_SPELL;      // the moon's fire held up in its hands
+    // It flares: two pulses of the moon's red through it, the second harder.
+    for (int pulse = 0; pulse < 2; ++pulse) {
+        const float peak = pulse == 0 ? 0.7f : 1.0f;
+        for (int i = 0; i <= 6; ++i) { gEnemyTint = moonTint(peak * i / 6.0f); hold(28); }
+        for (int i = 6; i >= 0; --i) { gEnemyTint = moonTint(peak * i / 6.0f); hold(28); }
+    }
+    gEnemyTint = Tint{};
+    // A crimson wisp crosses to him, out of the fire in its near hand when it
+    // holds it up (frame 11's flame sits at about (22, 2) of the 56x36 frame:
+    // a fifth into the sprite box, at its top).
+    flyProjectile(moonWisp(), Tint{}, 34, /*reverse*/false, /*isCast*/false,
+                  hands ? 20 : -1, hands ? 0 : -1);
+    // And the moon's red takes him, then sinks in and stays as his aura.
+    Platform::shake(320, 5.0f);
+    popSparks(false);
+    for (int i = 10; i >= 0; --i) { gPlayerTint = moonTint(i / 10.0f); hold(36); }
+    gPlayerTint = Tint{};
+    if (hands) gEnemyFrame = F_IDLE_A;
+}
+
 void setBattleAuras(AuraFlags knight, AuraFlags enemy) {
     gAuraKnight = knight;
     gAuraEnemy = enemy;
 }
 
 void setEnemyGhost(bool on) { gGhost = on; }
+void setEnemyStone(bool on) { gStone = on; }
 
 void setGearTiers(int weaponTiers, int armorTiers) {
     ensureInstalled();
@@ -1745,6 +2179,17 @@ void preload() { (void)lib(); ensureInstalled(); }
 
 void setBattleBackdrop(int encounterNumber) {
     ensureInstalled();
+    // Past the peak, the ruined church: its moon eclipsed for the last fight.
+    if (encounterNumber > 50) {
+        Library& L = lib();
+        gBgSheet = (encounterNumber >= 60 && L.churchEclipseBg.ok()) ? &L.churchEclipseBg
+                 : L.churchBg.ok() ? &L.churchBg : &L.bg[4];
+        gBgPrev = nullptr; gBgFade = 1.0f;
+        gBgFrame = gBgPrevFrame = -1;
+        gArrivalPending = false;
+        applyGround();
+        return;
+    }
     int idx = ((encounterNumber - 1) / 10) % 5;
     if (idx < 0) idx = 0;
     gBgSheet = &lib().bg[idx];
@@ -1796,6 +2241,7 @@ void transformToTrueForm(int zone, const std::string& trueName) {
         gBgFade = 0.0f;
     }
     setEnemyVariant(trueName);
+    gTrueForm = true;   // it keeps the Shadow Knight's name, so not found by it
     // Inside the glare the knight bends into the new shape: stooping, something
     // between the two, the true form coming together. Each one shakes the
     // screen, and the white hides everything but shape.
@@ -1842,19 +2288,17 @@ void setTutorialBackdrop() {
 // variants are, so a repeated summon never reloads the PNG.
 void setCompanion(const std::string& spriteKey) {
     ensureInstalled();
-    gCompanion = nullptr;
-    if (spriteKey.empty()) return;
-    static ArtSet cache[NAMED_COUNT];
-    static bool tried[NAMED_COUNT] = { false };
-    for (int i = 0; i < NAMED_COUNT; i++) {
-        if (spriteKey != NAMED_TABLE[i].key) continue;
-        if (!tried[i]) {
-            cache[i] = loadSet((std::string("assets/sprites/") + NAMED_TABLE[i].file + ".png").c_str());
-            tried[i] = true;
-        }
-        if (cache[i].loaded) gCompanion = &cache[i];
-        return;
-    }
+    gCompanion = spriteKey.empty() ? nullptr : summonSheet(spriteKey);
+}
+
+void setBlowsAtAlly(bool on) { gBlowsAtAlly = on; }
+
+void setAlly(const std::string& spriteKey) {
+    ensureInstalled();
+    gAlly = spriteKey.empty() ? nullptr : summonSheet(spriteKey);
+    gAllyNudge = 0;
+    gAllyFrame = -1;
+    gAllyTint = Tint{};
 }
 
 void setEnemyVariant(const std::string& enemyName) {
@@ -1862,15 +2306,20 @@ void setEnemyVariant(const std::string& enemyName) {
     gNamedVariant = nullptr;
     gCompanion = nullptr;   // a new fight never inherits the last one's add
     // Run.cpp prefixes second-wave enemies with "Greater" and bosses with
-    // "Ancient", so the name is enough to know which pass this is.
-    gShadeTier = (enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0) ? 1 : 0;
+    // "Ancient", so the name is enough to know which pass this is. A name
+    // that starts with "The" takes it after: "The Greater Unchosen".
+    gShadeTier = (enemyName.rfind("Greater ", 0) == 0 || enemyName.rfind("Ancient ", 0) == 0
+                  || enemyName.rfind("The Greater ", 0) == 0) ? 1 : 0;
     gTrueForm = enemyName.find("Moonstruck Shadow Knight") != std::string::npos;
+    gWideField = enemyName.find("Lich") != std::string::npos
+              || enemyName.find("False Moon") != std::string::npos
+              || enemyName.find("Shadow Knight") != std::string::npos;
     static ArtSet cache[NAMED_COUNT];
     static bool tried[NAMED_COUNT] = { false };
     for (int i = 0; i < NAMED_COUNT; i++) {
         if (enemyName.find(NAMED_TABLE[i].key) == std::string::npos) continue;
         if (!tried[i]) {
-            cache[i] = loadSet((std::string("assets/sprites/") + NAMED_TABLE[i].file + ".png").c_str());
+            cache[i] = loadNamed(NAMED_TABLE[i]);
             tried[i] = true;
         }
         // A missing sheet leaves gNamedVariant unset so artSet() falls through
@@ -1878,6 +2327,33 @@ void setEnemyVariant(const std::string& enemyName) {
         if (cache[i].loaded) gNamedVariant = &cache[i];
         return;
     }
+}
+
+// The False Moon was the moon: when it dies, the eclipse in the church's sky
+// goes out with it, fading from the breach over about a second and taking its
+// light off the stone, so the ruin is left under the stars. The ground turns
+// with the sky, as it does when the peak becomes the true form's arena. Only
+// from the eclipse itself, so nothing else that dies there touches the sky.
+void moonGoesOut() {
+    Library& L = lib();
+    if (!L.churchGoneBg.ok() || gBgSheet != &L.churchEclipseBg) return;
+    const SDL_Color groundFrom = groundFromBackdrop(gBgSheet, 26);
+    const SDL_Color groundTo = groundFromBackdrop(&L.churchGoneBg, 26);
+    gBgPrev = gBgSheet;
+    gBgSheet = &L.churchGoneBg;
+    const int STEPS = 24, MS = 45;
+    for (int i = 0; i <= STEPS; ++i) {
+        const float k = (float)i / STEPS;
+        gBgFade = k;
+        Platform::setGroundColor(SDL_Color{
+            (Uint8)(groundFrom.r + (groundTo.r - groundFrom.r) * k),
+            (Uint8)(groundFrom.g + (groundTo.g - groundFrom.g) * k),
+            (Uint8)(groundFrom.b + (groundTo.b - groundFrom.b) * k), 255 });
+        hold(MS);
+    }
+    gBgPrev = nullptr;
+    gBgFade = 1.0f;
+    Platform::setGroundColor(groundTo);
 }
 
 void printBattleDeath(EnemyType type, BossType boss) {
@@ -1902,12 +2378,158 @@ void printBattleDeath(EnemyType type, BossType boss) {
         gEnemyFrame = F_BURST;  Platform::shake(420, 4.5f); hold(440);
         gEnemyTint = DEATH_DARK;
         hold(200);
+    } else {
+        if (s.animated) gEnemyFrame = F_DEATH;
+        gEnemyTint = DEATH_DARK;
+        hold(300);
+    }
+    if (boss == BossType::FALSE_MOON) moonGoesOut();
+}
+
+// The true form in the run the church is open: it does not die at the peak,
+// it runs, so it is spared its cracked death. It reels from the last blow,
+// lets go of its sword, turns and runs back into the dark, fading as it
+// goes. The sword stays standing where it was planted (the False Moon has
+// none), and both stay as they are until the next fight sets the scene.
+void printBattleFlee(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    const ArtSet& s = artSet(type, boss);
+    gEnemyTint = HIT_FLASH;
+    if (s.animated) gEnemyFrame = F_HIT;
+    Platform::shake(260, 2.5f);
+    hold(160);
+    gEnemyTint = Tint{};
+    hold(320);
+    // It goes as the empty armour went in the intro: the dark comes over it,
+    // it sinks into the ground it stands on, and the pool it leaves runs off
+    // into the dark behind it.
+    if (s.sheet.count > F_POOL_SMALL) {
+        gEnemyLeft = F_LEFT_SWORD;                // the sword stays planted
+        gEnemyFrame = F_LETGO;
+        hold(260);
+        const int holds[] = { 200, 260, 200, 200, 160 };
+        for (int i = 0; i < 5; ++i) {
+            gEnemyFrame = F_SINK1 + i;
+            if (i == 2) Audio::playSFXPitched("wind", 0.7f);
+            hold(holds[i]);
+        }
+        const int away = spriteW() * 5 / 4;
+        const int STEPS = 12;
+        for (int i = 1; i <= STEPS; ++i) {
+            const float k = (float)i / STEPS;
+            gEnemyFrame = k < 0.4f ? F_POOL : F_POOL_SMALL;
+            gEnemyNudge = -(int)(away * k);
+            gEnemyAlpha = (int)(255 * std::min(1.0f, 1.6f * (1.0f - k)));
+            hold(50);
+        }
+        gEnemyAlpha = 0;
+        gEnemyNudge = 0;
+        gEnemyFrame = F_IDLE_A;
+        hold(560);                                // the peak empty but for the sword
         return;
     }
+    const bool letsGo = s.sheet.count > F_TURNED;
+    if (letsGo) {
+        gEnemyLeft = F_LEFT_SWORD;                // the sword stays planted
+        gEnemyFrame = F_LETGO;
+        hold(260);
+        gEnemyFrame = F_TURNED;
+        hold(140);
+    }
+    Audio::playSFXPitched("wind", 0.8f);
+    const int away = spriteW() * 5 / 4;           // well back, into the dark behind it
+    const int STEPS = 12;
+    for (int i = 1; i <= STEPS; ++i) {
+        const float k = (float)i / STEPS;
+        gEnemyNudge = -(int)(away * k * k);           // slow to start, then gone
+        gEnemyAlpha = (int)(255 * (1.0f - k));
+        Tint dark;                                     // and into the dark as it goes
+        dark.mulR = dark.mulG = dark.mulB = 1.0f - 0.5f * k;
+        gEnemyTint = dark;
+        hold(45);
+    }
+    gEnemyAlpha = 0;
+    gEnemyTint = Tint{};
+    gEnemyFrame = F_IDLE_A;
+    hold(letsGo ? 560 : 240);          // the peak empty but for the sword
+}
 
-    if (s.animated) gEnemyFrame = F_DEATH;
-    gEnemyTint = DEATH_DARK;
+// Whether the False Moon comes out of the eclipse: its sheet has the
+// arrival frames and the church has its moon's waking. Called as the fight's
+// backdrop goes up, before anything is drawn: the ruin under its plain moon,
+// and the False Moon not there yet.
+bool prepareArrival(BossType boss) {
+    ensureInstalled();
+    Library& L = lib();
+    if (boss != BossType::FALSE_MOON || L.FALSEMOON.sheet.count <= F_ARRIVE8
+        || !L.churchWakeBg.ok() || !L.churchBg.ok() || !L.churchEclipseBg.ok()) return false;
+    gBgSheet = &L.churchBg;
+    gBgPrev = nullptr; gBgFade = 1.0f;
+    gBgFrame = gBgPrevFrame = -1;
+    applyGround();
+    gArrivalPending = true;
+    gEnemyAlpha = 0;
+    return true;
+}
+
+// The False Moon comes out of the eclipse. The church's moon opens the
+// intro's eye, looks down at the knight, and its pupil opens until it fills
+// the moon: the eclipse, a bell going low as it does. Then the eye opens
+// again where the False Moon will stand, shuts into a dark moon, widens into
+// its ring, and it climbs out. The fight's music starts as it takes shape
+// (`track`, nothing until then). Only after prepareArrival.
+void printBattleArrival(EnemyType type, BossType boss, const char* track) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    if (!gArrivalPending) return;
+    Library& L = lib();
+    gEnemyAlpha = 0;
+    hold(600);                                    // the plain moon, for a moment
+    // Its eye: a slit, open, turned on him, then shutting.
+    gBgSheet = &L.churchWakeBg;
+    const int wake[] = { 320, 360, 760, 220, 220, 420 };
+    const int frames = std::min(6, L.churchWakeBg.count);
+    for (int i = 0; i < frames; ++i) {
+        gBgFrame = i;
+        if (i == 5) Audio::playSFXPitched("church_bell", 0.6f);   // the moon is all pupil
+        hold(wake[i]);
+    }
+    // Its light goes off the stone, the ground with it.
+    const SDL_Color groundFrom = groundFromBackdrop(&L.churchBg, 26);
+    const SDL_Color groundTo = groundFromBackdrop(&L.churchEclipseBg, 26);
+    gBgPrev = &L.churchWakeBg; gBgPrevFrame = frames - 1;
+    gBgSheet = &L.churchEclipseBg; gBgFrame = -1;
+    const int STEPS = 12;
+    for (int i = 0; i <= STEPS; ++i) {
+        const float k = (float)i / STEPS;
+        gBgFade = k;
+        Platform::setGroundColor(SDL_Color{
+            (Uint8)(groundFrom.r + (groundTo.r - groundFrom.r) * k),
+            (Uint8)(groundFrom.g + (groundTo.g - groundFrom.g) * k),
+            (Uint8)(groundFrom.b + (groundTo.b - groundFrom.b) * k), 255 });
+        hold(40);
+    }
+    gBgPrev = nullptr; gBgPrevFrame = -1; gBgFade = 1.0f;
+    Platform::setGroundColor(groundTo);
     hold(300);
+    // Where it will stand, the eye again: it shuts into a dark moon, and
+    // the dark moon becomes its ring.
+    gArrivalPending = false;
+    gEnemyAlpha = 255;
+    const int holds[] = { 420, 380, 300, 280, 240, 300, 340, 420 };
+    for (int i = 0; i < 8; ++i) {
+        gEnemyFrame = F_ARRIVE1 + i;
+        if (i == 2) Audio::playSFXPitched("church_bell", 0.5f);                       // its eye shuts
+        if (F_ARRIVE1 + i == F_RISING && track) Audio::playBGM(std::string(track));   // it takes shape
+        if (i == 7) Platform::shake(260, 3.0f);                                        // it is out
+        hold(holds[i]);
+    }
+    gEnemyFrame = F_IDLE_A;
 }
 
 void printBattleKnightHit(EnemyType type, BossType boss) {
@@ -1924,6 +2546,293 @@ void printBattleKnightHit(EnemyType type, BossType boss) {
     hold(100);
     gPlayerTint = Tint{};
     gPlayerFrame = F_IDLE_A;
+}
+
+// ---- the moon takes its vessel --------------------------------------------------------------
+// The knight's own pixels for a pose, his armour tier with his blade over it,
+// read from the gear sheets themselves (the textures keep none), so the moon
+// takes him as he is dressed.
+namespace {
+struct Rgba { std::vector<unsigned char> px; int w = 0, h = 0; };
+
+Rgba loadRgba(const std::string& rel) {
+    Rgba p;
+    int comp = 0;
+    if (unsigned char* d = stbi_load((basePath() + rel).c_str(), &p.w, &p.h, &comp, 4)) {
+        p.px.assign(d, d + (size_t)p.w * p.h * 4);
+        stbi_image_free(d);
+    } else {
+        p.w = p.h = 0;
+    }
+    return p;
+}
+
+struct KnightSheets { Rgba armour, weapon, plain; };
+KnightSheets knightSheets() {
+    KnightSheets k;
+    k.armour = loadRgba("assets/sprites/player_armor.png");
+    if (k.armour.w <= 0) k.plain = loadRgba("assets/sprites/player.png");
+    k.weapon = loadRgba("assets/sprites/player_weapon.png");
+    return k;
+}
+
+// 30x32 RGBA of the knight in pose `frame`.
+std::vector<unsigned char> knightPixels(const KnightSheets& k, int frame) {
+    std::vector<unsigned char> out(30 * 32 * 4, 0);
+    const int poses = std::max(1, lib().player.count);
+    auto layer = [&](const Rgba& sheet, int tier) {
+        if (sheet.w <= 0) return false;
+        const int tiers = sheet.w / (30 * poses);
+        const int t = std::max(0, std::min(tier, tiers - 1));
+        const int x0 = (t * poses + frame) * 30;
+        for (int y = 0; y < 32 && y < sheet.h; ++y)
+            for (int x = 0; x < 30; ++x) {
+                const unsigned char* s = &sheet.px[((size_t)y * sheet.w + x0 + x) * 4];
+                unsigned char* d = &out[((size_t)y * 30 + x) * 4];
+                const float a = s[3] / 255.0f;
+                if (a <= 0.0f) continue;
+                for (int c = 0; c < 3; ++c) d[c] = (unsigned char)(s[c] * a + d[c] * (1.0f - a) + 0.5f);
+                d[3] = (unsigned char)std::min(255, (int)(s[3] + d[3] * (1.0f - a) + 0.5f));
+            }
+        return true;
+    };
+    if (!layer(k.armour, gArmorTiers)) layer(k.plain, 0);
+    layer(k.weapon, gWeaponTiers);
+    return out;
+}
+
+float lumOf(const unsigned char* p) { return 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2]; }
+
+// Him as the moon wears him: black, the moon's red round the outside of him
+// brighter where the light finds it, its red flecks through him; the moon's
+// own armour (tools/trophy_moon_style.py), so the vessel looks like it.
+std::vector<unsigned char> asVessel(const std::vector<unsigned char>& src) {
+    static const unsigned char BODY[3] = { 12, 6, 10 }, BODY_LIT[3] = { 24, 10, 16 };
+    static const unsigned char RIM[3] = { 214, 46, 44 }, RIM_DIM[3] = { 76, 15, 21 };
+    static const unsigned char SPECK[3] = { 128, 24, 32 }, SPECK_HOT[3] = { 220, 64, 48 };
+    std::vector<unsigned char> out = src;
+    float lo = 255.0f, hi = 0.0f;
+    for (int i = 0; i < 30 * 32; ++i)
+        if (src[i * 4 + 3]) { const float l = lumOf(&src[i * 4]); lo = std::min(lo, l); hi = std::max(hi, l); }
+    auto solid = [&](int x, int y) { return x >= 0 && x < 30 && y >= 0 && y < 32 && src[((size_t)y * 30 + x) * 4 + 3] > 0; };
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 30; ++x) {
+            unsigned char* d = &out[((size_t)y * 30 + x) * 4];
+            if (!d[3]) continue;
+            const unsigned char* c;
+            if (!solid(x - 1, y) || !solid(x, y - 1)) c = RIM;
+            else if (!solid(x + 1, y) || !solid(x, y + 1)) c = RIM_DIM;
+            else {
+                const int h = (x * 73 + y * 151) % 43;
+                const float t = (lumOf(&src[((size_t)y * 30 + x) * 4]) - lo) / std::max(1.0f, hi - lo);
+                c = h == 0 ? SPECK_HOT : (h == 11 || h == 29) ? SPECK : (t > 0.55f ? BODY_LIT : BODY);
+            }
+            d[0] = c[0]; d[1] = c[1]; d[2] = c[2];
+        }
+    return out;
+}
+
+// The slit of his visor: the widest dark run a few rows into his helm, the
+// way make_trophy_gear finds it. Its middle four pixels.
+std::vector<std::pair<int, int>> visorOf(const std::vector<unsigned char>& src) {
+    std::vector<std::pair<int, int>> eye;
+    int top = -1;
+    for (int y = 0; y < 32 && top < 0; ++y)
+        for (int x = 0; x < 30; ++x) if (src[((size_t)y * 30 + x) * 4 + 3]) { top = y; break; }
+    if (top < 0) return eye;
+    for (int y = top + 3; y < std::min(top + 6, 32); ++y) {
+        int bestA = -1, bestN = 0, a = -1, n = 0;
+        for (int x = 0; x <= 30; ++x) {
+            const bool dark = x < 30 && src[((size_t)y * 30 + x) * 4 + 3] && lumOf(&src[((size_t)y * 30 + x) * 4]) < 90.0f;
+            if (dark) { if (n == 0) a = x; ++n; }
+            else { if (n > bestN) { bestN = n; bestA = a; } n = 0; }
+        }
+        if (bestN >= 4) {
+            const int mid = bestA + bestN / 2;
+            for (int x = mid - 2; x < mid + 2; ++x) eye.push_back({ x, y });
+            return eye;
+        }
+    }
+    return eye;
+}
+
+void lightVisor(std::vector<unsigned char>& px, const std::vector<std::pair<int, int>>& eye, float k) {
+    static const unsigned char EYE[3] = { 214, 58, 52 }, EYE_HOT[3] = { 255, 120, 90 };
+    for (size_t i = 0; i < eye.size(); ++i) {
+        unsigned char* d = &px[((size_t)eye[i].second * 30 + eye[i].first) * 4];
+        if (!d[3]) continue;
+        const unsigned char* c = (i % 4 == 1 || i % 4 == 2) ? EYE_HOT : EYE;
+        for (int j = 0; j < 3; ++j) d[j] = (unsigned char)(d[j] + (c[j] - d[j]) * k + 0.5f);
+    }
+}
+
+SDL_Texture* textureOf(std::vector<unsigned char>& px) {
+    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormatFrom(px.data(), 30, 32, 32, 30 * 4, SDL_PIXELFORMAT_RGBA32);
+    if (!s) return nullptr;
+    SDL_Texture* t = SDL_CreateTextureFromSurface(Platform::renderer(), s);
+    SDL_FreeSurface(s);
+    if (t) {
+        SDL_SetTextureScaleMode(t, SDL_ScaleModeNearest);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    }
+    return t;
+}
+
+// The frames: the dark spreading through him from his chest, where it came
+// into him, as it took him at the pond in the intro: a red edge where it is
+// still taking him and the outline of it boiling a little from one frame to
+// the next, slow to begin, reaching his far edge on the last frame; his visor
+// lighting as it finishes; then him standing as the vessel, both breaths.
+// What it has not reached yet is him as the piece left him: EMPTIED.
+const int VESSEL_STEPS = 14;
+Tint emptiedTint() {
+    Tint t;
+    t.mulR = 0.66f; t.mulG = 0.68f; t.mulB = 0.78f;
+    return t;
+}
+void buildVessel() {
+    for (SDL_Texture* t : gVesselTex) if (t) SDL_DestroyTexture(t);
+    gVesselTex.clear();
+    const KnightSheets sheets = knightSheets();
+    const std::vector<unsigned char> a = knightPixels(sheets, F_IDLE_A), b = knightPixels(sheets, F_IDLE_B);
+    const std::vector<unsigned char> va = asVessel(a);
+    const std::vector<std::pair<int, int>> eye = visorOf(a);
+    float cx = 0, cy = 0, n = 0;
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 30; ++x)
+            if (a[((size_t)y * 30 + x) * 4 + 3]) { cx += x; cy += y; n += 1; }
+    if (n > 0) { cx /= n; cy = cy / n - 2.0f; }                      // his chest
+    else { cx = 15.0f; cy = 14.0f; }
+    gVesselChestX = (cx + 0.5f) * 100.0f / 30.0f;
+    gVesselChestY = (cy + 0.5f) * 100.0f / 32.0f;
+    float far = 0.0f;
+    for (int y = 0; y < 32; ++y)
+        for (int x = 0; x < 30; ++x)
+            if (a[((size_t)y * 30 + x) * 4 + 3]) far = std::max(far, std::hypot(x - cx, (y - cy) * 0.85f));
+    const Tint dim = emptiedTint();
+    for (int k = 0; k < VESSEL_STEPS; ++k) {
+        const float t = (k + 1) / (float)VESSEL_STEPS;
+        const float reach = (far + 2.6f) * std::pow(t, 1.3f);       // the boil is 2.2 at most
+        std::vector<unsigned char> px = a;
+        for (int y = 0; y < 32; ++y)
+            for (int x = 0; x < 30; ++x) {
+                unsigned char* d = &px[((size_t)y * 30 + x) * 4];
+                if (!d[3]) continue;
+                const float dist = std::hypot(x - cx, (y - cy) * 0.85f)
+                    + 1.3f * std::sin(x * 1.7f + y * 0.9f + k * 1.9f) + 0.9f * std::sin(y * 2.3f - x * 0.7f - k);
+                const unsigned char* v = &va[((size_t)y * 30 + x) * 4];
+                if (dist < reach) { d[0] = v[0]; d[1] = v[1]; d[2] = v[2]; continue; }
+                d[0] = (unsigned char)(d[0] * dim.mulR + 0.5f);
+                d[1] = (unsigned char)(d[1] * dim.mulG + 0.5f);
+                d[2] = (unsigned char)(d[2] * dim.mulB + 0.5f);
+                if (dist < reach + 1.4f) {
+                    d[0] = (unsigned char)(d[0] + (214 - d[0]) * 0.8f);
+                    d[1] = (unsigned char)(d[1] + (46 - d[1]) * 0.8f);
+                    d[2] = (unsigned char)(d[2] + (44 - d[2]) * 0.8f);
+                }
+            }
+        if (t >= 0.8f) lightVisor(px, eye, std::min(1.0f, (t - 0.8f) / 0.2f));
+        gVesselTex.push_back(textureOf(px));
+    }
+    std::vector<unsigned char> fa = va, fb = asVessel(b);
+    lightVisor(fa, eye, 1.0f);
+    lightVisor(fb, visorOf(b), 1.0f);
+    gVesselTex.push_back(textureOf(fa));
+    gVesselTex.push_back(textureOf(fb));
+}
+
+// The eclipse ends: the church's sky goes back to its red moon, the ground
+// with it, as the moon came back into the pond in the intro once it had him.
+void eclipseEnds() {
+    Library& L = lib();
+    if (!L.churchBg.ok() || gBgSheet != &L.churchEclipseBg) return;
+    const SDL_Color groundFrom = groundFromBackdrop(gBgSheet, 26);
+    const SDL_Color groundTo = groundFromBackdrop(&L.churchBg, 26);
+    gBgPrev = gBgSheet;
+    gBgSheet = &L.churchBg;
+    const int STEPS = 24;
+    for (int i = 0; i <= STEPS; ++i) {
+        const float k = (float)i / STEPS;
+        gBgFade = k;
+        Platform::setGroundColor(SDL_Color{
+            (Uint8)(groundFrom.r + (groundTo.r - groundFrom.r) * k),
+            (Uint8)(groundFrom.g + (groundTo.g - groundFrom.g) * k),
+            (Uint8)(groundFrom.b + (groundTo.b - groundFrom.b) * k), 255 });
+        hold(45);
+    }
+    gBgPrev = nullptr;
+    gBgFade = 1.0f;
+    Platform::setGroundColor(groundTo);
+}
+} // namespace
+
+// The moon takes its vessel. The last piece of him goes up out of him and
+// into the moon, and he greys without it; the False Moon holds up its fire,
+// goes dark and comes apart, and what it is crosses to him as the crimson
+// wisp; the dark spreads through him from his chest, his visor lights the
+// moon's red, and he stands as the moon wears him, in its own armour's look.
+// The eclipse ends: it has its body.
+void printBattleVessel(EnemyType type, BossType boss) {
+    ensureInstalled();
+    gPortraitOnly = false;
+    gType = type; gBoss = boss;
+    showScene();
+    buildVessel();
+    const ArtSet& s = artSet(type, boss);
+    gPlayerFrame = F_IDLE_A; gPlayerTint = Tint{}; gPlayerNudge = 0;
+    gEnemyTint = Tint{}; gEnemyNudge = 0;
+    hold(300);
+    // the last piece of him goes up into the moon
+    Audio::playSFXPitched("special", 1.5f);
+    const Tint emptied = emptiedTint();
+    const int RISE = 40;
+    for (int i = 0; i <= RISE; ++i) {
+        const float t = i / (float)RISE;
+        const float k = std::min(1.0f, t / 0.3f);
+        gVesselMote = t;
+        gPlayerTint.mulR = 1.0f + (emptied.mulR - 1.0f) * k;
+        gPlayerTint.mulG = 1.0f + (emptied.mulG - 1.0f) * k;
+        gPlayerTint.mulB = 1.0f + (emptied.mulB - 1.0f) * k;
+        hold(32);
+    }
+    gVesselMote = -1.0f;
+    for (int i = 0; i <= 10; ++i) { gVesselPulse = i / 10.0f; hold(30); }
+    gVesselPulse = -1.0f;
+    hold(250);
+    // it holds up its fire, goes dark, and comes apart into what it is
+    const bool hands = castsWithHands(s, boss);
+    if (hands) gEnemyFrame = F_SPELL;
+    for (int i = 0; i <= 6; ++i) { gEnemyTint = moonTint(i / 6.0f); hold(30); }
+    Audio::stopBGM();                       // its music began as it took shape; it ends as it lets go
+    Audio::playSFX("moonstruck");
+    for (int i = 0; i <= 10; ++i) {
+        const float k = i / 10.0f;
+        Tint t;
+        t.mulR = 1.0f - 0.80f * k; t.mulG = 1.0f - 0.92f * k; t.mulB = 1.0f - 0.88f * k;
+        t.addR = (int)(70 * (1.0f - k)); t.addB = (int)(10 * (1.0f - k));
+        gEnemyTint = t;
+        gEnemyAlpha = (int)(255 * (1.0f - k * k));
+        hold(34);
+    }
+    gEnemyAlpha = 0;
+    // What it is crosses to him: the moon's crimson wisp, from where its heart
+    // was to his chest, slower than a shot.
+    gProjSrcXPct = 50; gProjSrcPct = 45;
+    gProjDstXPct = (int)(gVesselChestX + 0.5f); gProjDstPct = (int)(gVesselChestY + 0.5f);
+    gProjIsCast = false; gProjReverse = false; gProjFall = false;
+    gProjScalePct = 36; gProjTint = Tint{};
+    gProjFrame = moonWisp();
+    for (int i = 0; i <= 16; ++i) { gProjT = i / 16.0f; hold(28); }
+    gProjFrame = -1; gProjT = 0.0f; gProjIsCast = true; gProjScalePct = 30;
+    // and it takes him
+    Platform::shake(300, 3.5f);
+    for (int k = 0; k < VESSEL_STEPS; ++k) { gVesselShown = k; hold(75); }
+    gVesselShown = VESSEL_STEPS;
+    gPlayerTint = Tint{};
+    Audio::playSFXPitched("church_bell", 0.45f);
+    hold(500);
+    eclipseEnds();
+    hold(900);
 }
 
 void printBattleKnightDeath(EnemyType type, BossType boss) {
