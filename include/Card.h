@@ -64,8 +64,8 @@ enum class CardEffect {
 // What a payoff card (UNLEASH) puts on whoever plays it: 6 of the ailment it
 // set off.
 constexpr int UNLEASH_PRICE = 6;
-// What Raise Undead takes out of you, every time it is played (2026-10-05):
-// the dead are not raised for free.
+// What Raise Undead takes out of you, every time it is played: the dead are
+// not raised for free.
 constexpr int RAISE_PRICE = 20;
 
 class Card {

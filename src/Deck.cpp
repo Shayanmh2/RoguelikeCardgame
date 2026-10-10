@@ -1,9 +1,8 @@
 #include "Deck.h"
 #include <algorithm>
 #include <random>
-#include <stdexcept> // std::runtime_error / std::out_of_range: MSVC and libc++ pull
-                     // this in transitively, libstdc++ does not, so the Linux build
-                     // is the only one that ever noticed it was missing.
+#include <stdexcept> // std::runtime_error / std::out_of_range: libstdc++ does not
+                     // pull this in through <algorithm> the way MSVC and libc++ do.
 
 Deck::Deck() {}
 

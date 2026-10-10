@@ -89,7 +89,7 @@ jobs:
           mkdir -p build
           lipo -create -output build/cardgame_sdl2 \
             build-arm64/cardgame_sdl2 build-x86_64/cardgame_sdl2
-          # Stop here rather than ship a one-architecture app again.
+          # Stop here rather than ship a one-architecture app.
           lipo build/cardgame_sdl2 -verify_arch arm64 x86_64
           lipo -info build/cardgame_sdl2
           # The post-build step put the data beside each binary; either copy will do.
@@ -140,6 +140,12 @@ jobs:
               echo "icon conversion failed; the app will use the generic icon"
             fi
 
+            # The version Finder shows, read from the one the title screen
+            # shows (include/Version.h, "v0.9.9" -> "0.9.9"), so the two always
+            # match. An empty match fails the release (set -e).
+            ver=$(sed -n 's/^#define MOONSTRUCK_VERSION "v\([^"]*\)".*/\1/p' include/Version.h)
+            [ -n "$ver" ]
+
             # Written with grouped echoes rather than a heredoc: a heredoc
             # terminator has to sit at column 0, which would close the YAML
             # block scalar this whole script lives in and break the workflow.
@@ -153,8 +159,8 @@ jobs:
               echo '  <key>CFBundleExecutable</key><string>Moonstruck</string>'
               echo '  <key>CFBundleIdentifier</key><string>io.github.shayanmh2.moonstruck</string>'
               echo '  <key>CFBundlePackageType</key><string>APPL</string>'
-              echo '  <key>CFBundleShortVersionString</key><string>0.9.3</string>'
-              echo '  <key>CFBundleVersion</key><string>0.9.3</string>'
+              echo "  <key>CFBundleShortVersionString</key><string>$ver</string>"
+              echo "  <key>CFBundleVersion</key><string>$ver</string>"
               echo '  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>'
               echo '  <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>'
               echo '  <key>LSApplicationCategoryType</key><string>public.app-category.role-playing-games</string>'
@@ -171,9 +177,9 @@ jobs:
             # ("detritus not allowed"), so clear extended attributes first.
             xattr -cr "$app"
             # Ad-hoc signature over the whole bundle. Not notarised (that needs
-            # a paid Apple Developer account), but it has to VERIFY: no "|| true"
-            # any more, a bad signature now fails the release instead of
-            # shipping an app the kernel will kill.
+            # a paid Apple Developer account), but it has to VERIFY: a bad
+            # signature fails the release instead of shipping an app the
+            # kernel will kill.
             codesign --force --sign - --timestamp=none "$app"
             codesign --verify --deep --strict --verbose=2 "$app"
 

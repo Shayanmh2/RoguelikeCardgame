@@ -31,8 +31,8 @@ int Card::minCost() const {
 }
 
 // Legendary first: Bloodlust is both superRare and legendary and takes the
-// legendary number. Rare and Super Rare share 2.0 on purpose. Bloodlust was
-// x4 until 2026-10-07; at x4 it killed everything, so it is x3.
+// legendary number, x3; any higher and it wins every fight on its own.
+// Rare and Super Rare share 2.0 on purpose.
 double Card::strengthMultiplier() const {
     if (legendary) return 3.0;
     if (superRare) return 2.0;
@@ -298,7 +298,7 @@ std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
         case CardEffect::STUN:   s = "The enemy loses their next turn. Bosses often resist."; break;
         case CardEffect::WEAK:
             s = std::string("Weaken the enemy for 3 turns: their attacks deal ")
-              + (superRare ? "2" : rare ? "1.75" : "1.5") + "x less.";
+              + (superRare ? "50" : rare ? "43" : "33") + "% less.";
             break;
         case CardEffect::COUNTER: s = "Turn the enemy's next attack or ailment back on them, doubled, +" + v + "."; break;
         case CardEffect::PARRY:
@@ -395,7 +395,7 @@ void Card::upgrade() {
         if (effect == CardEffect::DOUBLE_HIT)
             description = "Deal " + std::to_string(value) + " damage twice (" + std::to_string(value * 2) + " total).";
         else if (effect == CardEffect::PIERCE)
-            description = "Deal " + std::to_string(value) + " damage: ignoring enemy defense.";
+            description = "Deal " + std::to_string(value) + " damage, ignoring enemy defense.";
         else if (effect == CardEffect::TRUESTRIKE)
             description = "Deal " + std::to_string(value) + " damage that nothing reduces. Ignores armor, "
                           "defense, resistance, and any stance or phase the enemy is hiding behind.";
@@ -439,7 +439,7 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
         else if (effect == CardEffect::WARD)
             description = "Gain " + std::to_string(value) + " armor and ward yourself for 2 turns. "
-                          "Every ailment the enemy would inflict (Poison, Burn, Weak or Stun) is blocked while it holds.";
+                          "Every ailment the enemy would inflict (Poison, Burn, Rend, Weak or Stun) is blocked while it holds.";
         else if (effect == CardEffect::SCRAP)
             description = "Gain " + std::to_string(value) + " armor. You take 1 damage.";
         else if (effect == CardEffect::SELFWEAK)
@@ -482,9 +482,9 @@ void Card::upgrade() {
                         + std::to_string(value) + " damage the next 3 times the enemy attacks).";
         else if (effect == CardEffect::WEAK) {
             // Duration is always 3; the multiplier is set by rarity, not by value.
-            const char* m = superRare ? "2" : rare ? "1.75" : "1.5";
-            description = std::string("Weaken the enemy for 3 turns: their attacks land for ")
-                        + m + "x less damage.";
+            const char* pct = superRare ? "50" : rare ? "43" : "33";
+            description = std::string("Weaken the enemy for 3 turns: their attacks deal ")
+                        + pct + "% less damage.";
         }
         else if (effect == CardEffect::HEAL)
             description = "Restore yourself to " + std::to_string(value)

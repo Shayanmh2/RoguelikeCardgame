@@ -20,7 +20,7 @@ struct State {
     // Flat bonuses the player adds to every attack / defend card. Always
     // shown, so the row reads against the enemy's ATK/DEF opposite it.
     int  playerAtk = 0, playerDef = 0;
-    // Gear, now a multiplier rather than a flat add, so it is shown separately.
+    // Gear is a multiplier rather than a flat add, so it is shown separately.
     int  playerAtkPct = 0, playerDefPct = 0;
     std::string playerTags;         // fortified / bonuses / status summary
 
@@ -33,6 +33,12 @@ struct State {
     std::string addName;
     int  addHp = 0, addMax = 0;
     bool addActive = false;
+
+    // Your own raised dead (Raise Undead): a bar under yours, for the same
+    // reason, and what it strikes for, for its tooltip.
+    std::string allyName;
+    int  allyHp = 0, allyMax = 0, allyStrike = 0;
+    bool allyActive = false;
 
     std::string notice;             // curse countdown, taunt, bound
 };

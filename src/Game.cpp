@@ -3911,23 +3911,26 @@ namespace {
                "him: his shadow, his face, and his name in someone's mouth.",
                "He puts the fire out himself. He wants to be the one who does it." } },
 
-        { 6, { "He breaks up a pew for the fire. There are names cut into the wood, whole families "
-               "of them, generation after generation in the same seats.",
-               "The valley emptied into this church a long time ago. Everyone who was left came in "
-               "here to wait for the moon to choose them.",
-               "It never chose anyone. They kept waiting, and their children waited after them." } },
+        { 6, { "Someone has kept count of the crimson nights on the wall by the door, one scratch "
+               "for each. Most of the scratches are years apart. The newest are one a night, going "
+               "back weeks.",
+               "The thing in the moon draws its strength from a crimson night. He wonders whether "
+               "it has been holding the moon red ever since it struck him, fighting the moon "
+               "itself to keep it that way.",
+               "Under the open roof he can feel it up there, latched onto the real moon. Next to "
+               "the moon itself, it is nothing." } },
+        { 6, { "The roof did not fall in. The faithful took it down themselves, a beam at a time, "
+               "so that nothing would stand between them and the moon.",
+               "When it rained they let the font fill, and knelt around it to pray to the moon in "
+               "the water, the way he once stood looking into a pond.",
+               "He does not go near it. He knows what lives in a reflection, and how much it likes "
+               "to be looked at." } },
         { 6, { "The candles along the walls have never been let go out. Each new one was lit from "
                "the last, by someone sitting up with it through the night.",
                "It is a vigil, like the flames the moon set in the colossus and the others, except "
                "these were lit by people who wanted it to stay awake.",
                "That is what kept it awake after he put out the last of its own. While anyone in "
                "here is still praying to it, it cannot sleep." } },
-        { 6, { "They wanted to be chosen more than anything. They gave it their nights, their "
-               "sleep, and in the end their whole lives.",
-               "He thinks he knows why it never took one of them. They had given so much of "
-               "themselves away that there was no one left in them to be.",
-               "He never asked it for anything. He was only himself, standing by a pond, and that "
-               "was what it wanted." } },
         { 6, { "Out on the road it was a reflection, a borrowed shape, a suit of his armor. In "
                "here it was a god, with a house of its own and a whole valley looking up at it "
                "every night.",

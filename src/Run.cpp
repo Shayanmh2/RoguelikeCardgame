@@ -14,6 +14,11 @@ namespace {
     constexpr int QUICK_LENGTH = 25;
     constexpr int QUICK_BOSS_POSITIONS[] = {5, 10, 15, 20, 24, 25};
     constexpr int QUICK_PER_AREA = 4;
+    // The ruined church, past the peak: nine fights and the
+    // False Moon, only ever on the full road, and only once the true form
+    // has run there. Its fights are encounters 51-60 inside the run, shown
+    // counting down from -9 to the False Moon at 0.
+    constexpr int CHURCH_FIRST = 51, CHURCH_BOSS = 60;
 
     int cyclePos(int encounter) { return ((encounter - 1) % CYCLE_LENGTH) + 1; }
 
@@ -57,7 +62,12 @@ int  Run::getLength() const { return quick ? QUICK_LENGTH : CYCLE_LENGTH; }
 // Two of the full road's fights to each quick one, so fight 5 is the
 // Colossus's 10 and fight 20 the Hydra's 40; the last two are the Dragon's
 // 49 and the Shadow Knight's 50.
+bool Run::inChurch() const { return !quick && currentEncounter >= CHURCH_FIRST; }
+
+int Run::shownEncounter() const { return inChurch() ? currentEncounter - CHURCH_BOSS : currentEncounter; }
+
 int Run::getRoadPosition() const {
+    if (inChurch()) return std::min(currentEncounter, CHURCH_BOSS);
     if (!quick) return cyclePos(currentEncounter);
     const int q = std::max(1, std::min(QUICK_LENGTH, currentEncounter));
     if (q == QUICK_BOSS_POSITIONS[4]) return BOSS_POSITIONS[4];
@@ -65,9 +75,10 @@ int Run::getRoadPosition() const {
     return q * 2;
 }
 
-int Run::getAreaIndex() const { return std::min(4, (getRoadPosition() - 1) / 10); }
+int Run::getAreaIndex() const { return inChurch() ? 5 : std::min(4, (getRoadPosition() - 1) / 10); }
 
 bool Run::isAreaStart() const {
+    if (inChurch()) return currentEncounter == CHURCH_FIRST;
     return !isBossEncounter() && getRegularIndex() % (quick ? QUICK_PER_AREA : NORMAL_PER_AREA) == 0;
 }
 
@@ -120,10 +131,12 @@ int Run::getEnemyDefense() const {
 }
 
 bool Run::isBossEncounter() const {
+    if (inChurch()) return getRoadPosition() == CHURCH_BOSS;
     return bossSlot(getRoadPosition()) >= 0;
 }
 
 int Run::getBossIndex() const {
+    if (inChurch()) return 6;   // the False Moon
     int s = bossSlot(getRoadPosition());
     return s < 0 ? 0 : s; // 0..5: colossus, witch, thunder beast, hydra, dragon, shadow knight
 }
@@ -139,6 +152,8 @@ int Run::getBossNumber() const {
 }
 
 int Run::getRegularIndex() const {
+    // The church's nine come after the road's 44.
+    if (inChurch()) return 44 + std::min(currentEncounter, CHURCH_BOSS - 1) - CHURCH_FIRST;
     if (quick) {
         int before = 0;
         for (int b : QUICK_BOSS_POSITIONS)
