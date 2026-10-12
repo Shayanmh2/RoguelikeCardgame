@@ -272,7 +272,10 @@ int UIHelper::titleMenu(const std::vector<std::string>& options) {
         else if (k.key == Platform::Key::DOWN || k.key == Platform::Key::RIGHT)
             gTitleSel = (gTitleSel + 1) % n;
         else if (k.key == Platform::Key::ENTER) { Audio::menuSelect(); return gTitleSel; }
-        else if (k.key == Platform::Key::ESCAPE) { Audio::menuSelect(true); return -1; }
+        // Escape here quits. A controller's B is "back" everywhere else, and
+        // pressed here it would close the game, so a controller quits by
+        // choosing Quit.
+        else if (k.key == Platform::Key::ESCAPE && !k.pad) { Audio::menuSelect(true); return -1; }
 
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {

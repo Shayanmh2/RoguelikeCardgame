@@ -1,7 +1,9 @@
 #ifndef CARD_H
 #define CARD_H
 
+#include <functional>
 #include <string>
+#include <vector>
 #include "DamageType.h"
 
 enum class CardType {
@@ -83,6 +85,12 @@ private:
     DamageType physType;  // physical school tag (SMASH/PIERCE), NONE if untyped
     DamageType physType2; // second physical school tag - only Finishing Blow uses both
     DamageType elemType;  // elemental tag (FIRE/POISON/WIND), NONE if untyped
+    // A weld from the Anvil: two cards hammered into one, which plays the
+    // first and then the second. Empty for every other card. The weld's own
+    // fields are worked out from its halves (refreshWeld()): its name is both
+    // names, its cost both costs, and it is an attack if either half is.
+    std::vector<Card> parts;
+    void refreshWeld();
 
 public:
     // The one definition of the Strength ladder, which every effect table reads.
@@ -137,6 +145,19 @@ public:
     std::string brief(int shown, int elemChance, bool live, int luck = 0) const;
 
     void upgrade();
+
+    // Welding. A card can go into a weld unless it is a legendary, a weld
+    // already, or one of the cards that leave the fight or need something
+    // first (Sacrifice, Last Stand, the payoffs, Turnabout, Feint, Raise
+    // Undead): played as half of another card, those had nowhere to stop.
+    static bool canWeld(const Card& c);
+    static Card weld(const Card& first, const Card& second);
+    bool isWeld() const { return parts.size() == 2; }
+    const std::vector<Card>& getParts() const { return parts; }
+    // What a weld's face quotes for each half. The value through gear, and in
+    // the hand through Weak and Strength, is the game's to work out, so it
+    // hands this in once (Game::run()); unset, the printed values are used.
+    static void setShownValue(std::function<int(const Card& half, bool live)> f);
 };
 
 #endif

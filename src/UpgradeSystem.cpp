@@ -49,7 +49,7 @@ void UpgradeSystem::selectActiveUpgrades() {
         }
         options.push_back(CardBar::Action{ "Done", "start the next run", false });
 
-        int choice = CardBar::pick("Upgrades, select to toggle", {}, options, 0);
+        int choice = CardBar::pick("Upgrades: select one to turn it on or off", {}, options, 0);
 
         if (choice < 0 || choice >= (int)idxMap.size()) break;  // Done or ESC
 

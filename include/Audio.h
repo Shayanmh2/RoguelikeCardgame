@@ -22,6 +22,8 @@ public:
     // answer the player with a recognisably darker version of their own sound.
     // ratio < 1 plays it slower and lower. Cached per (name, ratio).
     static void playSFXPitched(const std::string& name, float ratio);
+    // When a cue last started (SDL ticks), at any pitch; 0 if it never has.
+    static unsigned int lastPlayed(const std::string& name);
     // A cue looped on a channel of its own until stopped: the heartbeat at
     // low health, the wind on the peak. Starting the one already playing
     // does nothing, and a missing file plays nothing.

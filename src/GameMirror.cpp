@@ -104,6 +104,14 @@ void Game::playKnightAnswer(const Card& c, bool beforeYourCard) {
 
 // Plays out one mirrored card's effect against the player.
 void Game::executeShadowKnightMirror(const Card& mirrored) {
+    // A weld is both its cards: it mirrors the first, then the second.
+    if (mirrored.isWeld()) {
+        for (const Card& half : mirrored.getParts()) {
+            if (!enemy.isAlive() || playerHealth <= 0) break;
+            executeShadowKnightMirror(half);
+        }
+        return;
+    }
     // Weakness and strength both come in here: bossStrikesPlayer() only shows
     // them. Nothing gave the knight strength until the true form learned your
     // Strengthen, Berserk and Blood Pact, so this is what makes those count.

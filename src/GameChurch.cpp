@@ -185,7 +185,7 @@ std::string Game::churchRule() const {
              + (confessedCard.empty() ? std::string() : " Named now: " + confessedCard + ".");
     if (enemyIs("Glass Templar"))
         return "It puts on " + std::to_string(enemy.getBaseDefense() * 3) + " armor of glass every turn. "
-               "Break the glass with an attack and the shards cut you for half of it. Pierce hits go round "
+               "Break the glass with an attack and the shards cut you for half of it. Pierce hits go around "
                "the glass and leave it standing.";
     if (enemyIs("Gargoyle"))
         return std::string("Stone on every other turn, and nothing hurts it then. It wakes by dropping on you "
@@ -193,7 +193,7 @@ std::string Game::churchRule() const {
     if (enemyIs("Exhumed Saint")) {
         const std::string bless = "Below half its health it blesses itself for "
             + std::to_string(std::max(4, enemy.getMaxHealth() / 25)) + " each turn.";
-        return saintRisen ? "It has got up once already, and will not again. " + bless
+        return saintRisen ? "It has gotten up once already, and will not again. " + bless
                           : "When it falls it gets back up once, at half its health, unless Fire finishes it "
                             "or it falls while burning. " + bless;
     }
@@ -218,16 +218,16 @@ std::string Game::churchRule() const {
 std::string Game::churchNotice() const {
     if (!enemy.isAlive()) return "";
     if (moonClock > 0)
-        return "MOONSTRUCK - its vessel in " + std::to_string(moonClock)
+        return "MOONSTRUCK: its vessel in " + std::to_string(moonClock)
              + (moonClock == 1 ? " turn" : " turns");
     if (!confessedCard.empty() && enemyIs("Confessor"))
-        return "CONFESSED - playing " + confessedCard + " heals the Confessor";
+        return "CONFESSED: playing " + confessedCard + " heals the Confessor";
     if (enemyInvulnerable && enemyIs("Gargoyle"))
-        return "STONE - nothing hurts the Gargoyle this turn";
+        return "STONE: nothing hurts the Gargoyle this turn";
     if (bellTolls >= 2 && enemyIs("Bellringer"))
-        return "GREAT TOLL NEXT - the bell has rung twice";
+        return "GREAT TOLL NEXT: the bell has rung twice";
     if (inquisitorMarks >= 3 && enemyIs("Inquisitor"))
-        return "MARKED 3 of 3 - its next bolt ignores your armor";
+        return "MARKED 3 of 3: its next bolt ignores your armor";
     return "";
 }
 
@@ -241,8 +241,8 @@ void Game::moonstruckCast() {
     UIHelper::typeWrite(std::string(Color::BOLD) + Color::RED + "The False Moon opens its arms: MOONSTRUCK."
                         + Color::RESET + "\n");
     std::cout << "  " << Color::MAGENTA << "In ten turns you are its vessel. Every two, it takes back a piece of you,"
-                 " in the order the road gave them back. Under five turns left, every quarter of its health you"
-                 " take wins a turn back. Sacrifice and Last Stand each win a turn back."
+                 " in the order the road gave them back. Once you have fewer than five turns left, every quarter"
+                 " of its health you take wins a turn back. Sacrifice and Last Stand each win a turn back."
               << (hasRelic(Relic::RED_THREAD) && !redThreadUsed
                   ? " If your Red Thread saves you, you have at least five turns left."
                   : "")
@@ -341,7 +341,7 @@ bool Game::falseMoonShadeMove() {
             --moonClock;
             Audio::playSFXPitched("special", 0.75f);
             std::cout << Color::BOLD << Color::MAGENTA << "Its stare settles on you, and you stand there as stone"
-                      << " while a turn goes by." << Color::RESET << "\n";
+                      << " for a turn." << Color::RESET << "\n";
             moonPiecesChanged(before, moonClock);
             break;
         }

@@ -18,6 +18,9 @@ struct Card {
     std::string note;        // per-screen state, e.g. the Forge's "2 upgrades left"
     int         cost = 0;
     SDL_Color   tint{ 240, 101, 92, 255 };   // type stripe along the top edge
+    // A weld's second half: the stripe splits down the middle, this colour on
+    // the right. Transparent for every other card.
+    SDL_Color   tint2{ 0, 0, 0, 0 };
     SDL_Color   nameColor{ 228, 228, 238, 255 };  // rarity tint, as the text UI had
     // Gold border: marks the cards that come with a cost, where a warning is
     // worth something.
@@ -100,6 +103,10 @@ void setNextGridStyle(bool veil, int cardlessTopPct);
 // rather than a hand's worth. A screen with two buttons and no cards wants
 // its text to have the room.
 void setNextHandRows(int rows);
+// For the next select() or pick() only: item i starts highlighted, not the
+// first. A screen that opens a card's page and then asks again keeps its
+// place, which on a controller saves walking back to it.
+void setNextHighlight(int i);
 
 // Full-screen picker: a centred grid of cards, prompt above, actions below.
 // `columns` caps the row width (0 fits the window). Returns as select() does,

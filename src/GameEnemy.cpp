@@ -951,7 +951,7 @@ void Game::enemyTurn() {
     }
     if (nameHas("Falcon")) {
         // Nothing crosses the gap: it dives in and pulls out again, so Proj::NONE.
-        themed("The falcon stoops and GOUGES on a howling gust!");
+        themed("The falcon dives on a howling gust and GOUGES you!");
         doAttackAt(atk + 1, true, true, true, EnemyArt::Proj::NONE, /*closeIn*/true);
         return;
     }
@@ -989,7 +989,7 @@ void Game::enemyTurn() {
         return;
     }
     if (nameHas("Manticore")) {
-        themed("The Manticore lunges with a TWIN MAW - both heads at once!");
+        themed("The Manticore lunges with a TWIN MAW: both heads bite at once!");
         doAttack(atk, false);
         if (playerHealth > 0 && enemy.isAlive()) doAttack(atk, false);
         return;

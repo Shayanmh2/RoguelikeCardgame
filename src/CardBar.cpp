@@ -52,6 +52,10 @@ std::vector<SDL_Rect> gActionRects;
 std::vector<Card>   gCards;
 std::vector<Action> gActions;
 int gCurrent = 0;
+// The card whose "+" was the last answer. The screen asks again once its
+// text is closed, and the highlight goes back to that card rather than the
+// first: on a controller, walking back to it every time was the cost.
+int gResumeAt = -1;
 bool gActive = false;      // drawing
 bool gPicking = false;     // and accepting input
 
@@ -259,6 +263,25 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
     return lineY;
 }
 
+// The type stripe along a card's top. A weld's is split down the middle, its
+// second half's colour on the right, each half drawn once under a clip so
+// a dimmed card's colours do not stack where they meet.
+void typeStripe(SDL_Renderer* r, const SDL_Rect& s, int rd, const Card& c, Uint8 a) {
+    if (c.tint2.a == 0) { DrawUtil::fillRound(r, s, rd, c.tint, a); return; }
+    SDL_Rect old{ 0, 0, 0, 0 };
+    const bool had = SDL_RenderIsClipEnabled(r) == SDL_TRUE;
+    if (had) SDL_RenderGetClipRect(r, &old);
+    const SDL_Rect halves[2] = { SDL_Rect{ s.x, s.y, s.w / 2, s.h },
+                                 SDL_Rect{ s.x + s.w / 2, s.y, s.w - s.w / 2, s.h } };
+    for (int i = 0; i < 2; ++i) {
+        SDL_Rect clip = halves[i];
+        if (had && !SDL_IntersectRect(&halves[i], &old, &clip)) continue;
+        SDL_RenderSetClipRect(r, &clip);
+        DrawUtil::fillRound(r, s, rd, i == 0 ? c.tint : c.tint2, a);
+    }
+    SDL_RenderSetClipRect(r, had ? &old : nullptr);
+}
+
 // Shared by the in-battle hand and the full-screen picker. They differ only in
 // where the rects are.
 void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
@@ -323,8 +346,8 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         frameR(r, q, sel ? lime : cardLine);
         if (sel) { SDL_Rect in{ q.x+1, q.y+1, q.w-2, q.h-2 }; frameR(r, in, lime); }
         if (c.risk) { SDL_Rect g{ q.x+3, q.y+3, q.w-6, q.h-6 }; frameR(r, g, gold); }
-        DrawUtil::fillRound(r, SDL_Rect{ q.x+3, q.y+3, q.w-6, std::max(4, rad()) },
-                            rad()-1, c.tint, c.disabled ? 140 : 255);
+        typeStripe(r, SDL_Rect{ q.x+3, q.y+3, q.w-6, std::max(4, rad()) },
+                   rad()-1, c, c.disabled ? 140 : 255);
 
         const int lineY = cardText(r, c, q, true);
         const int textBottom = cardTextBottom(q);
@@ -553,6 +576,18 @@ bool inside(const SDL_Rect& q, int x, int y) {
     return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h;
 }
 
+// A controller's triggers (the user, 2026-10-11): R2 jumps from the cards to
+// the buttons beside them, L2 back. Each lands where the highlight last stood
+// in that group, or else on its first usable item.
+template <class Usable>
+void jumpGroup(bool toActions, int nCards, int n, int lastCard, int lastAction, Usable usable) {
+    const int lo = toActions ? nCards : 0, hi = toActions ? n : nCards;
+    const int back = toActions ? lastAction : lastCard;
+    if (back >= lo && back < hi && usable(back)) { gCurrent = back; return; }
+    for (int i = lo; i < hi; ++i)
+        if (usable(i)) { gCurrent = i; return; }
+}
+
 std::function<void(int)> gOnHover;
 
 } // namespace
@@ -576,6 +611,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     gCurrent = 0;
     while (gCurrent < n && !usable(gCurrent)) gCurrent++;
     if (gCurrent >= n) gCurrent = 0;
+    if (gResumeAt >= 0 && gResumeAt < n && usable(gResumeAt)) gCurrent = gResumeAt;
+    gResumeAt = -1;
     // Report the highlighted card so the panel can show what it would do.
     int lastHover = -2;
     auto tellHover = [&]() {
@@ -592,6 +629,7 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     Platform::mousePos(lastMx, lastMy);
     Uint32 lastTick = SDL_GetTicks();
     int result = -1;
+    int lastCard = -1, lastAction = -1;   // for the triggers
 
     auto step = [&](int dir) {
         int i = gCurrent;
@@ -620,12 +658,20 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
                 if (inside(q, mx, my) && usable(i)) { gCurrent = i; break; }
             }
         }
+        if (gCurrent < (int)cards.size()) lastCard = gCurrent; else lastAction = gCurrent;
 
         Platform::KeyEvent k = Platform::pollKey();
         if (k.key == Platform::Key::LEFT  || k.key == Platform::Key::UP)   step(-1);
         else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::DOWN) step(1);
         else if (k.key == Platform::Key::ENTER) { result = gCurrent; break; }
         else if (k.key == Platform::Key::ESCAPE) { result = -1; break; }
+        // A controller's X: the highlighted card's "+".
+        else if (k.key == Platform::Key::DETAILS && gCurrent < (int)gPlusRects.size()) {
+            result = -2 - gCurrent;
+            break;
+        }
+        else if (k.key == Platform::Key::TO_ACTIONS || k.key == Platform::Key::TO_CARDS)
+            jumpGroup(k.key == Platform::Key::TO_ACTIONS, (int)cards.size(), n, lastCard, lastAction, usable);
         else if (k.key == Platform::Key::CHAR && k.ch >= '1' && k.ch <= '9') {
             int i = k.ch - '1';
             if (i < (int)cards.size() && usable(i)) { result = i; break; }
@@ -663,6 +709,7 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
     if (gOnHover) { gOnHover(-1); gOnHover = nullptr; }  // no stale ghost on the bar
     // A card played has its own sound; the buttons, a + and Escape click.
     if (result < 0 || result >= (int)cards.size()) Audio::menuSelect(result == -1);
+    if (result <= -2) gResumeAt = -2 - result;
     return result;
 }
 
@@ -765,6 +812,8 @@ void setIconRenderer(std::function<void(SDL_Renderer*, int, const SDL_Rect&)> fn
 
 void setNextHandRows(int rows) { gNextHandRows = rows; }
 
+void setNextHighlight(int i) { gResumeAt = i; }
+
 void setNextGridStyle(bool veil, int cardlessTopPct) {
     gGridVeil = veil;
     gCardlessTopPct = cardlessTopPct;
@@ -789,6 +838,8 @@ int pick(const std::string& title, const std::vector<Card>& cards,
     gCurrent = 0;
     while (gCurrent < n && !usable(gCurrent)) gCurrent++;
     if (gCurrent >= n) gCurrent = 0;
+    if (gResumeAt >= 0 && gResumeAt < n && usable(gResumeAt)) gCurrent = gResumeAt;
+    gResumeAt = -1;
     gPicking = true;
 
     Platform::setModalRenderer(&drawGrid);
@@ -797,6 +848,7 @@ int pick(const std::string& title, const std::vector<Card>& cards,
     Platform::mousePos(lastMx, lastMy);
     int result = -1;
     int heard = gCurrent;   // the highlight the last hover cue was for
+    int lastCard = -1, lastAction = -1;   // for the triggers
 
     auto step = [&](int d) {
         int i = gCurrent;
@@ -841,6 +893,7 @@ int pick(const std::string& title, const std::vector<Card>& cards,
             for (int i = 0; i < n; i++)
                 if (inside(rectFor(i), mx, my) && usable(i)) { gCurrent = i; break; }
         }
+        if (gCurrent < (int)cards.size()) lastCard = gCurrent; else lastAction = gCurrent;
 
         Platform::KeyEvent k = Platform::pollKey();
         // On a slider row, left and right belong to the value. Up and down
@@ -861,6 +914,13 @@ int pick(const std::string& title, const std::vector<Card>& cards,
         else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::DOWN) step(1);
         else if (k.key == Platform::Key::ENTER) { result = gCurrent; break; }
         else if (k.key == Platform::Key::ESCAPE) { result = -1; break; }
+        // A controller's X: the highlighted card's "+".
+        else if (k.key == Platform::Key::DETAILS && gCurrent < (int)gGridPlus.size()) {
+            result = -2 - gCurrent;
+            break;
+        }
+        else if (k.key == Platform::Key::TO_ACTIONS || k.key == Platform::Key::TO_CARDS)
+            jumpGroup(k.key == Platform::Key::TO_ACTIONS, (int)cards.size(), n, lastCard, lastAction, usable);
         else if (k.key == Platform::Key::CHAR && k.ch >= '1' && k.ch <= '9') {
             int i = k.ch - '1';
             if (i < (int)cards.size() && usable(i)) { result = i; break; }
@@ -916,6 +976,7 @@ int pick(const std::string& title, const std::vector<Card>& cards,
     gPicking = false;
     Platform::setModalRenderer(nullptr);
     Audio::menuSelect(result == -1);
+    if (result <= -2) gResumeAt = -2 - result;
     return result;
 }
 
@@ -969,15 +1030,19 @@ void showDetail(const Card& c, const std::string& description,
         }
     }
 
-    // Wrap the description to the panel, on word boundaries.
+    // Wrap the description to the panel, on word boundaries. A "\n" starts a
+    // new line and "\n\n" leaves an empty one: the bestiary's entry, then its
+    // facts.
     const int textCols = std::max(12, (panelW - 6 * cw) / cw);
     std::vector<std::string> lines;
-    {
+    for (size_t start = 0; ; ) {
+        const size_t nl = description.find('\n', start);
+        const std::string para = description.substr(start, nl == std::string::npos ? std::string::npos : nl - start);
         std::string cur;
         size_t i2 = 0;
-        while (i2 <= description.size()) {
-            size_t sp = description.find(' ', i2);
-            std::string word = description.substr(i2, sp == std::string::npos ? std::string::npos : sp - i2);
+        while (i2 <= para.size()) {
+            size_t sp = para.find(' ', i2);
+            std::string word = para.substr(i2, sp == std::string::npos ? std::string::npos : sp - i2);
             if (cur.empty()) cur = word;
             else if ((int)(cur.size() + 1 + word.size()) <= textCols) cur += " " + word;
             else { lines.push_back(cur); cur = word; }
@@ -985,6 +1050,9 @@ void showDetail(const Card& c, const std::string& description,
             i2 = sp + 1;
         }
         if (!cur.empty()) lines.push_back(cur);
+        else if (nl != std::string::npos) lines.push_back("");   // the gap between paragraphs
+        if (nl == std::string::npos) break;
+        start = nl + 1;
     }
 
     // Description lines are drawn at 1.45x line height and the panel gets
@@ -1006,8 +1074,8 @@ void showDetail(const Card& c, const std::string& description,
         DrawUtil::glowRound(r, panel, rad(), SDL_Color{ 0, 0, 0, 255 }, 10, 120);
         fillR(r, panel, tone(30));
         frameR(r, panel, c.risk ? SDL_Color{ 232, 196, 84, 255 } : tone(80));
-        DrawUtil::fillRound(r, SDL_Rect{ panel.x + 3, panel.y + 3, panel.w - 6, std::max(4, rad()) },
-                            rad() - 1, c.tint);
+        typeStripe(r, SDL_Rect{ panel.x + 3, panel.y + 3, panel.w - 6, std::max(4, rad()) },
+                   rad() - 1, c, 255);
 
         int x = panel.x + cw * 2;
         int y = panel.y + ch;

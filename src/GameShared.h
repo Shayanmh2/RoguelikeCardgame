@@ -86,7 +86,7 @@ static const MoonMove MOON_MOVES[5] = {
     { "Grave Silk",           "Weaken 2 and Poison 3 at once: bone-white thread that rots what it holds." },
     { "Lunar Mirage",         "you draw 2 fewer cards next turn, and it gains armor while you cannot see it." },
     { "Howl at the Red Moon", "heals 6% of its health and gains +2 attack, up to +6." },
-    { "Petrifying Gaze",      "stone creeps up your legs: kill it within 6 turns or it is over. Once per fight." },
+    { "Petrifying Gaze",      "stone creeps up your legs. Kill it within 6 turns or it is over. Once per fight." },
     { "Eclipse Ward",         "raises a heavy guard and heals 8." },
 };
 

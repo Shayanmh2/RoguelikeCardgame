@@ -1,7 +1,58 @@
 #include "Card.h"
 #include <algorithm>
+#include <cctype>
 #include <vector>
 #include <sstream>
+
+namespace {
+// The game's way of quoting a weld half's value (Card::setShownValue).
+std::function<int(const Card&, bool)>& shownValueFn() {
+    static std::function<int(const Card&, bool)> f;
+    return f;
+}
+}
+
+void Card::setShownValue(std::function<int(const Card&, bool)> f) { shownValueFn() = std::move(f); }
+
+bool Card::canWeld(const Card& c) {
+    if (c.isWeld() || c.legendary) return false;
+    switch (c.effect) {
+        case CardEffect::SACRIFICE: case CardEffect::LASTSTAND: case CardEffect::UNLEASH:
+        case CardEffect::TURNABOUT: case CardEffect::FEINT:     case CardEffect::RAISE:
+            return false;
+        default:
+            return true;
+    }
+}
+
+Card Card::weld(const Card& first, const Card& second) {
+    Card w = first;
+    w.parts = { first, second };
+    w.refreshWeld();
+    return w;
+}
+
+// Everything a weld is, read off its halves again: at the Anvil, after the
+// forge, and on loading a save.
+void Card::refreshWeld() {
+    if (!isWeld()) return;
+    const Card& a = parts[0];
+    const Card& b = parts[1];
+    name = a.name + " & " + b.name;
+    description = "Plays " + a.name + ", then " + b.name + ". " + a.name + ": " + a.description + " "
+                + b.name + ": " + b.description;
+    type = (a.type == CardType::ATTACK || b.type == CardType::ATTACK) ? CardType::ATTACK
+         : (a.type == CardType::DEFEND || b.type == CardType::DEFEND) ? CardType::DEFEND
+                                                                      : CardType::SPECIAL;
+    effect = CardEffect::NONE;   // each half carries its own
+    cost = a.cost + b.cost;
+    value = a.value;             // no one number for both; the halves' are what get played
+    upgradeCount = a.upgradeCount + b.upgradeCount;
+    rare = a.rare || b.rare;
+    superRare = a.superRare || b.superRare;
+    legendary = false;
+    physType = physType2 = elemType = DamageType::NONE;
+}
 
 int Card::healAmount(int value, int current, int maxHp) {
     if (maxHp <= 0) return 0;
@@ -14,6 +65,7 @@ int Card::healAmount(int value, int current, int maxHp) {
 }
 
 int Card::minCost() const {
+    if (isWeld()) return parts[0].minCost() + parts[1].minCost();
     // Stun Strike never gets cheap enough to chain: a stun takes a whole enemy
     // turn away.
     if (getBaseName() == "Stun Strike") return 3;
@@ -152,6 +204,7 @@ bool Card::isLegendary() const {
 
 
 bool Card::hasDrawback() const {
+    if (isWeld()) return parts[0].hasDrawback() || parts[1].hasDrawback();   // the price comes with it
     switch (effect) {
         case CardEffect::SCRAP:        case CardEffect::RECKLESS:
         case CardEffect::SELFWEAK:     case CardEffect::OVEREXTEND:
@@ -199,6 +252,19 @@ DamageType Card::getElemType() const {
 }
 
 std::string Card::getTypeTag() const {
+    // A weld's are both halves', each named once.
+    if (isWeld()) {
+        std::string tag = parts[0].getTypeTag();
+        const std::string more = parts[1].getTypeTag();
+        for (size_t at = 0; at < more.size(); ) {
+            const size_t end = more.find(']', at);
+            if (end == std::string::npos) break;
+            const std::string one = more.substr(at, end - at + 1);
+            if (tag.find(one) == std::string::npos) tag += one;
+            at = end + 1;
+        }
+        return tag;
+    }
     std::string tag;
     if (physType  != DamageType::NONE) tag += std::string("[") + damageTypeName(physType) + "]";
     if (physType2 != DamageType::NONE) tag += std::string("[") + damageTypeName(physType2) + "]";
@@ -207,12 +273,15 @@ std::string Card::getTypeTag() const {
 }
 
 std::string Card::getBaseName() const {
+    if (isWeld()) return parts[0].getBaseName() + " & " + parts[1].getBaseName();
     std::string base = name;
     while (!base.empty() && base.back() == '+') base.pop_back();
     return base;
 }
 
 int Card::getMaxUpgrades() const {
+    // A weld forges each half as far as that half goes.
+    if (isWeld()) return parts[0].getMaxUpgrades() + parts[1].getMaxUpgrades();
     // Not upgradable when the value changes nothing: Weak, Stun, Taunt and Fear,
     // and a SPECIAL Strength card, whose multiplier comes from its rarity.
     // Bloodlust is an ATTACK, so its damage still upgrades.
@@ -242,6 +311,14 @@ int Card::getMaxUpgrades() const {
 // not. The numbers follow the same formulas upgrade() writes into the
 // description below, so the face and the details panel never disagree.
 std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
+    // A weld says what each half does, in the order they are played.
+    if (isWeld()) {
+        auto shownOf = [&](const Card& h) { return shownValueFn() ? shownValueFn()(h, live) : h.value; };
+        std::string second = parts[1].brief(shownOf(parts[1]), elemChance, live, luck);
+        if (second.size() > 1 && std::isupper((unsigned char)second[0]) && !std::isupper((unsigned char)second[1]))
+            second[0] = (char)std::tolower((unsigned char)second[0]);
+        return parts[0].brief(shownOf(parts[0]), elemChance, live, luck) + " Then " + second;
+    }
     const std::string v = std::to_string(shown);
     // Taunt and Fear miss one time in five, less with Fortune.
     const int miss = std::max(0, 20 - luck);
@@ -370,6 +447,13 @@ std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
 }
 
 void Card::upgrade() {
+    // The forge works both halves of a weld at once, each as far as it goes.
+    if (isWeld()) {
+        for (Card& h : parts)
+            if (h.upgradeCount < h.getMaxUpgrades()) h.upgrade();
+        refreshWeld();
+        return;
+    }
     // The step scales with rarity: at a flat +3 a maxed uncommon reached 1
     // energy for 18 damage, which is a printed rare at a third of the cost.
     // 2/3/4/5 puts the ceilings at 16/28/46/55, one tier under the next.
@@ -417,7 +501,7 @@ void Card::upgrade() {
         else if (effect == CardEffect::WILDCHARGE)
             description = "Deal " + std::to_string(value) + " damage. You lose all your armor.";
         else if (effect == CardEffect::EMBERBLADE)
-            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You gain 2 Burn.";
+            description = "Deal " + std::to_string(value) + " damage and apply 4 Burn. You catch Burn 2 yourself.";
         else if (effect == CardEffect::SHATTERPOINT)
             description = "Deal " + std::to_string(value) + " damage. You may play only one more card this turn.";
         else if (effect == CardEffect::ALLIN)
@@ -439,7 +523,7 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
         else if (effect == CardEffect::WARD)
             description = "Gain " + std::to_string(value) + " armor and ward yourself for 2 turns. "
-                          "Every ailment the enemy would inflict (Poison, Burn, Rend, Weak or Stun) is blocked while it holds.";
+                          "Every ailment the enemy would inflict (Poison, Burn, Rend, Weak or Stun) is blocked while the ward lasts.";
         else if (effect == CardEffect::SCRAP)
             description = "Gain " + std::to_string(value) + " armor. You take 1 damage.";
         else if (effect == CardEffect::SELFWEAK)
@@ -458,16 +542,16 @@ void Card::upgrade() {
             description = "Gain " + std::to_string(value) + " armor.";
     } else if (type == CardType::SPECIAL) {
         if (effect == CardEffect::COUNTER)
-            description = "Counter: reverses the enemy's next attack or ailment back at them, doubled, +" + std::to_string(value)
-                        + ". Fizzles if they do neither.";
+            description = "Turn the enemy's next attack or ailment back on them, doubled, +" + std::to_string(value)
+                        + ", though a quarter of the blow still reaches you. It fizzles if they do neither.";
         else if (effect == CardEffect::PARRY) {
             // Parry and Parry+ say the same things: the stun, the armour threshold
             // and the ranged caveat, with the value-derived numbers filled in.
             description = "Block the enemy's next attack and riposte for 1.5x their attack "
                           "plus " + std::to_string(value) + ", ignoring their defense, with a chance to stun them. "
-                          "How big a blow you can catch is your armor plus " + std::to_string(value * 3) + ": "
-                          "too heavy a hit breaks the guard. Ranged enemies are blocked but "
-                          "stand too far away to riposte.";
+                          "You can catch a blow up to your armor plus " + std::to_string(value * 3) + "; "
+                          "anything heavier breaks your guard. Ranged attacks are blocked, but "
+                          "the enemy stands too far away to riposte.";
         }
         // The tick is not the card value: poison pays half of it over six turns,
         // burn half again over two. Both formulas mirror StatusEffects::apply().
@@ -499,7 +583,7 @@ void Card::upgrade() {
         else if (effect == CardEffect::RAISE)
             description = "Raise the last undead you killed to fight beside you. It takes the enemy's "
                           "attacks for you until it falls, and strikes them for " + std::to_string(value)
-                        + " at the end of each of your turns, through your weapon and past their "
+                        + " at the end of each of your turns, with your weapon's bonus and past their "
                           "defense. The further up the road it fell, the stronger it rises. Play this "
                           "again to raise it back to full health. You lose " + std::to_string(RAISE_PRICE)
                         + " HP each time you play it. It crumbles when the fight ends.";

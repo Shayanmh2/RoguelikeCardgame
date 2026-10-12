@@ -126,9 +126,11 @@ void Game::loadSettings() {
         else if (tag == "SFX")   in >> optSfx;
         else if (tag == "CONFIRM") in >> optConfirm;
         else if (tag == "MENUSFX") in >> optMenuSounds;
+        else if (tag == "TAGS") in >> optTagStyle;
     }
     optConfirm = std::max(0, std::min(2, optConfirm));
     optMenuSounds = optMenuSounds ? 1 : 0;
+    optTagStyle = std::max(0, std::min(2, optTagStyle));
     applySettings();
 }
 
@@ -141,7 +143,8 @@ void Game::saveSettings() const {
         << "MUSIC " << optMusic     << "\n"
         << "SFX "   << optSfx       << "\n"
         << "CONFIRM " << optConfirm << "\n"
-        << "MENUSFX " << optMenuSounds << "\n";
+        << "MENUSFX " << optMenuSounds << "\n"
+        << "TAGS " << optTagStyle << "\n";
 }
 
 // The values reach different systems, so this is the one place that knows
@@ -152,10 +155,11 @@ void Game::applySettings() const {
     Audio::setMusicVolume(optMusic);
     Audio::setSfxVolume(optSfx);
     Audio::setMenuSounds(optMenuSounds != 0);
+    Hud::setTagStyle(optTagStyle);
 }
 
 void Game::showSettings() {
-    // Six settings and a way out. Left and right move the row under the
+    // Seven settings and a way out. Left and right move the row under the
     // cursor, and the value is applied as it moves, so a volume is heard
     // while it is being set rather than after the screen closes.
     auto speedWord = [](int v) {
@@ -192,6 +196,15 @@ void Game::showSettings() {
     confirms.picker = true;
     CardBar::Action menuSounds{ "Menu sounds", &optMenuSounds, 0, 1, 1, onOffWord, tapped };
     menuSounds.picker = true;
+    // The combat panel's status tags, for anyone who cannot tell their
+    // colours apart, or who would rather have the panel quieter. Pointing at
+    // a tag says it in full whichever way it is shown.
+    auto tagWord = [](int v) {
+        return std::string(v == Hud::TAGS_ICONS_AND_TEXT ? "icons and text"
+                           : v == Hud::TAGS_TEXT_ONLY ? "text only" : "icons only");
+    };
+    CardBar::Action tagStyle{ "Status tags", &optTagStyle, 0, 2, 1, tagWord, applied };
+    tagStyle.picker = true;
     std::vector<CardBar::Action> acts{
         CardBar::Action{ "Text speed",  &optTextSpeed,   0, 300, 20, speedWord, applied },
         pace,
@@ -199,6 +212,7 @@ void Game::showSettings() {
         CardBar::Action{ "Sound",       &optSfx,         0, 100,  5, volWord,   heard   },
         menuSounds,
         confirms,
+        tagStyle,
         CardBar::Action{ "Back", false },
     };
     CardBar::pick("Settings        left and right to set", {}, acts, 0);
@@ -224,6 +238,7 @@ void Game::loadProgress() {
         else if (tag == "BEATEN") in >> beaten;
         else if (tag == "SITS") in >> sits;
         else if (tag == "MOON") in >> moonOut;
+        else if (tag == "MET") in >> metMask[0] >> metMask[1];
     }
     // Clears from before there were achievements still count, quietly.
     if (clearedMask & 1) ach |= 1ULL << Achievements::CLEAR;
@@ -235,6 +250,7 @@ void Game::loadProgress() {
     Achievements::setSitsHeard(sits);
     // Saves from before the record still put it out if they hold the crimson one.
     Achievements::setFalseMoonBeaten(moonOut != 0 || Achievements::has(Achievements::FALSE_MOON));
+    seedMetFromProgress();
 }
 
 void Game::saveProgress() const {
@@ -249,6 +265,7 @@ void Game::saveProgress() const {
     out << "BEATEN " << Achievements::formsBeaten() << "\n";
     out << "SITS " << Achievements::sitsHeard() << "\n";
     out << "MOON " << (Achievements::falseMoonBeaten() ? 1 : 0) << "\n";
+    out << "MET " << metMask[0] << " " << metMask[1] << "\n";
 }
 
 void Game::earn(int achievement) {
@@ -416,6 +433,7 @@ void Game::writeSaveTo(std::ostream& out) const {
     out << "MOONMET " << moonstruckMet << "\n";
     out << "MOONBEATEN " << moonZonesBeaten << "\n";
     out << "SAT " << satCount << "\n";
+    out << "STOPS " << stopsDone << "\n";
     out << "RESTED " << (restedThisRun ? 1 : 0) << "\n";
     out << "DISCARDED " << (discardedThisRun ? 1 : 0) << "\n";
     out << "NONDOT " << (playedNonDot ? 1 : 0) << "\n";
@@ -433,7 +451,16 @@ void Game::writeSaveTo(std::ostream& out) const {
             << "|" << dmgToStr(c.getPhysType()) << "|" << dmgToStr(c.getPhysType2()) << "|" << dmgToStr(c.getElemType())
             << "|" << c.getUpgradeCount() << "\n";
     };
-    for (const Card& c : playerDeck.getAllCardsOrdered()) cardLine("CARD|", c);
+    // A weld is its two halves, the first on a WELD line of its own and the
+    // second on the CARD line after it.
+    for (const Card& c : playerDeck.getAllCardsOrdered()) {
+        if (c.isWeld()) {
+            cardLine("WELD|", c.getParts()[0]);
+            cardLine("CARD|", c.getParts()[1]);
+        } else {
+            cardLine("CARD|", c);
+        }
+    }
     // The upgraded cards thrown out this run, after the deck: a reward of the
     // same card still brings them back as they were after a reload.
     for (const Card& c : discardedCards) cardLine("GONE|", c);
@@ -481,12 +508,16 @@ bool Game::loadSaveFrom(std::istream& in) {
     int savedRoadBonus = 0, savedRoadGear = 0;
     std::vector<bool> unlockedFlags(5, false), activeFlags(5, false);
     std::vector<Card> loadedCards, loadedGone;
+    Card weldFirst("", "", CardType::ATTACK, 0, 0);   // a weld's first half, until its second is read
+    bool haveWeldFirst = false;
+    int savedStops = 0;
 
     while (std::getline(in, line)) {
         if (line.empty()) continue;
 
         const bool gone = line.rfind("GONE|", 0) == 0;
-        if (line.rfind("CARD|", 0) == 0 || gone) {
+        const bool weldHalf = line.rfind("WELD|", 0) == 0;
+        if (line.rfind("CARD|", 0) == 0 || gone || weldHalf) {
             std::vector<std::string> f;
             size_t pos = 5;
             while (pos <= line.size()) {
@@ -497,10 +528,12 @@ bool Game::loadSaveFrom(std::istream& in) {
             }
             if (f.size() != 13) continue; // corrupted line - skip rather than abort the whole load
             try {
-                (gone ? loadedGone : loadedCards).push_back(Card(
-                    f[0], f[1], strToCardType(f[2]), std::stoi(f[3]), std::stoi(f[4]),
-                    strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), strToDmg(f[11]),
-                    f[7] == "1", strToDmg(f[10]), f[8] == "1", std::stoi(f[12])));
+                Card c(f[0], f[1], strToCardType(f[2]), std::stoi(f[3]), std::stoi(f[4]),
+                       strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), strToDmg(f[11]),
+                       f[7] == "1", strToDmg(f[10]), f[8] == "1", std::stoi(f[12]));
+                if (weldHalf) { weldFirst = c; haveWeldFirst = true; continue; }
+                if (haveWeldFirst && !gone) { c = Card::weld(weldFirst, c); haveWeldFirst = false; }
+                (gone ? loadedGone : loadedCards).push_back(c);
             } catch (...) { continue; }
             continue;
         }
@@ -526,6 +559,7 @@ bool Game::loadSaveFrom(std::istream& in) {
         else if (tag == "MOONMET")     iss >> savedMoonMet;
         else if (tag == "MOONBEATEN")  iss >> savedMoonBeaten;
         else if (tag == "SAT")         iss >> savedSat;
+        else if (tag == "STOPS")       iss >> savedStops;
         else if (tag == "RESTED")      iss >> savedRested;
         else if (tag == "DISCARDED")   iss >> savedDiscarded;
         else if (tag == "NONDOT")      iss >> savedNonDot;
@@ -570,6 +604,7 @@ bool Game::loadSaveFrom(std::istream& in) {
     moonstruckMet     = std::max(0, savedMoonMet);
     moonZonesBeaten   = savedMoonBeaten & 31;
     satCount          = std::max(0, savedSat);
+    stopsDone         = std::max(0, savedStops);
     restedThisRun     = savedRested != 0;
     discardedThisRun  = savedDiscarded != 0;
     discardedCards    = loadedGone;

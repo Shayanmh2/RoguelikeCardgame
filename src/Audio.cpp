@@ -276,7 +276,16 @@ static Mix_Chunk* loadSFX(const std::string& name) {
     return chunk;
 }
 
+// When each cue last started, so a sound can wait for another of its kind
+// rather than land on top of it (the achievement chime after a reward's).
+static std::unordered_map<std::string, Uint32> gLastPlayed;
+unsigned int Audio::lastPlayed(const std::string& name) {
+    auto it = gLastPlayed.find(name);
+    return it == gLastPlayed.end() ? 0u : it->second;
+}
+
 void Audio::playSFX(const std::string& name) {
+    gLastPlayed[name] = SDL_GetTicks();
     if (!audioReady) return;
     Mix_Chunk* chunk = loadSFX(name);
     if (chunk) Mix_PlayChannel(-1, chunk, 0);
@@ -289,6 +298,7 @@ void Audio::playSFX(const std::string& name) {
 // nearest-sample picking left pitched cues gritty. Made once per cue and
 // pitch, then cached, so the cost is paid on the first play only.
 void Audio::playSFXPitched(const std::string& name, float ratio) {
+    gLastPlayed[name] = SDL_GetTicks();
     if (!audioReady) return;
     if (ratio <= 0.05f || ratio > 4.0f) ratio = 1.0f;
     char key[64];

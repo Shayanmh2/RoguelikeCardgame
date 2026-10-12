@@ -53,6 +53,7 @@ add_executable(cardgame_sdl2 WIN32
     src/EnemyArt.cpp
     src/CardBar.cpp
     src/Hud.cpp
+    src/StatusIcons.cpp
     src/Audio.cpp
     src/Achievements.cpp
     # Game logic: the Game class is spread over the Game*.cpp files.
@@ -61,6 +62,8 @@ add_executable(cardgame_sdl2 WIN32
     src/GameMirror.cpp
     src/GameChurch.cpp
     src/GameSave.cpp
+    src/GameBestiary.cpp
+    src/GameStops.cpp
     src/Card.cpp
     src/Deck.cpp
     src/Enemy.cpp
