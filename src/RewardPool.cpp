@@ -15,7 +15,7 @@ void RewardPool::initializeCardPool() {
     std::string configPath = Audio::dataDir() + "config/cards.json";
 
     if (!std::filesystem::exists(configPath)) {
-        std::cout << Color::YELLOW << "Warning: " << configPath << " not found - no card rewards will be available. "
+        std::cout << Color::YELLOW << "Warning: " << configPath << " was not found, so no card rewards will be available. "
                    << "Reinstall the game, or check that the config folder sits next to the exe." << Color::RESET << "\n";
         return;
     }
@@ -53,7 +53,7 @@ void RewardPool::initializeCardPool() {
 }
 
 
-std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames, int maxRarityUnlocked, int luck) {
+std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoost, int maxCost, const std::vector<std::string>& ownedNames, int maxRarityUnlocked, int luck, bool noUncommon) {
     std::vector<Card> choices;
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -72,6 +72,9 @@ std::vector<Card> RewardPool::generateWeightedRewards(int count, bool rarityBoos
         if (c.isSuperRare()) { if (maxRarityUnlocked >= 2) superRarePool.push_back(c); }
         else { if (maxRarityUnlocked >= 1) rarePool.push_back(c); }
     }
+
+    // The church: the uncommon slot falls through to rare.
+    if (noUncommon) uncommonPool.clear();
 
     std::uniform_int_distribution<> rollDis(1, 100);
 
@@ -165,4 +168,22 @@ std::vector<Card> RewardPool::getUnownedLegendaries(const std::vector<std::strin
         if (c.isLegendary() && owned.find(c.getName()) == owned.end())
             result.push_back(c);
     return result;
+}
+
+std::vector<Card> RewardPool::cardsOfRarity(int rank) const {
+    std::vector<Card> out;
+    if (rank == 1) return commonCards;
+    for (const auto& c : rareCards) {
+        const int r = c.isLegendary() ? 4 : c.isSuperRare() ? 3 : 2;
+        if (r == rank) out.push_back(c);
+    }
+    return out;
+}
+
+DamageType RewardPool::elementOf(const std::string& name) const {
+    std::string base = name;
+    while (!base.empty() && base.back() == '+') base.pop_back();
+    for (const auto& c : commonCards) if (c.getName() == base) return c.getElemType();
+    for (const auto& c : rareCards)   if (c.getName() == base) return c.getElemType();
+    return DamageType::NONE;
 }

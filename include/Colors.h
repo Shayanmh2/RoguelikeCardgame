@@ -47,10 +47,13 @@ namespace Color {
     constexpr const char* COMMON_TINT     = "\033[38;5;120m"; // pale green
     constexpr const char* RARE_TINT       = "\033[38;5;153m"; // pale sky blue
     constexpr const char* SUPER_RARE_TINT = "\033[38;5;218m"; // pale pink
+    // The keepsakes from the camps: the color of old paper, apart from the ladder.
+    constexpr const char* KEEPSAKE_TINT   = "\033[38;5;223m"; // pale peach
+    // Slanted text, for words someone wrote down: the camps' letters.
+    constexpr const char* ITALIC = "\033[3m";
 
-    // Legendary is a step up from the pastel family on purpose - bold, saturated
-    // neon gold, so Dodge Reversal (the only legendary card) visually stands out rather
-    // than just being another pastel.
+    // Legendary is a step up from the pastels on purpose: bold, saturated neon gold,
+    // so a legendary card stands out instead of being just another pastel.
     constexpr const char* LEGENDARY_TINT = "\033[1m\033[38;5;220m"; // bold neon gold
 }
 

@@ -26,18 +26,17 @@ namespace EnemyArt {
     void print(const Art& art, int indent = 6);
     // The knight alone, in the gear he is wearing: View Player's portrait.
     void printPlayerPortrait();
-    // View Player and View Enemy lay their screen out to their text: the
-    // portrait's band is capped to `rows`, the figure scaled down to fit it,
-    // and 0 leaves the portrait out. -1 lifts the cap.
+    // View Player and View Enemy fit their layout to their text: the portrait band
+    // is capped to `rows` and the figure scaled to fit, 0 hides the portrait, -1
+    // lifts the cap.
     void setPortraitRows(int rows);
 
     // --- battle scene: knight on the left, enemy on the right ---
 
     void printBattle(EnemyType type, BossType boss = BossType::NONE);
 
-    // Redraws the scene in place (menu idle tick), at the row printBattle()
-    // last drew it - tracked internally so it can't drift out of sync with
-    // wherever the console actually put it.
+    // Redraws the scene in place (menu idle tick) at the row printBattle() last
+    // used, tracked in here so it can't drift from where the console put it.
     void animateBattleIdleAt(EnemyType type, BossType boss);
 
     // Enemy attack: windup, swing, impact. knightGuard shows the knight's shield
@@ -59,10 +58,9 @@ namespace EnemyArt {
         enum { NONE = -2 };
     }
 
-    // The knight's blow lands and the enemy flashes. trailElem colours the sword
-    // trail and spark by element. connected=false swings without the flinch, for
-    // a blow that did no damage. onCompanion lands it on the summoned add in
-    // front (the Lich's skeleton) instead of its master.
+    // The knight's blow lands and the enemy flashes. trailElem colours the trail
+    // and spark by element, connected=false swings with no flinch (no damage),
+    // onCompanion lands it on the Lich's skeleton instead of the Lich.
     void printBattleHit(EnemyType type, BossType boss = BossType::NONE, DamageType trailElem = DamageType::NONE,
                         bool connected = true, bool onCompanion = false);
 
@@ -76,9 +74,9 @@ namespace EnemyArt {
     // Ailment cast: knight's palm glows in the ailment's color.
     enum class CastGlow { POISON, BURN, STUN, WEAK, REND };
     void printBattleCast(EnemyType type, BossType boss, CastGlow glow);
-    // A cast or shot that is not a plain attack: attack frames, then a bolt.
-    // projectile is a Proj index (-1 is the plain status orb); scalePct is its
-    // size as a percentage of a sprite (30 for a bolt, far more for breath).
+    // A cast or shot that isn't a plain attack: attack frames, then a bolt.
+    // projectile is a Proj index (-1 = the plain orb), scalePct its size as a % of
+    // a sprite (30 for a bolt, way more for breath).
     void printEnemyCast(EnemyType type, BossType boss, CastGlow glow, int projectile = -1,
                         int muzzleX = -1, int muzzleY = -1, int scalePct = 30);
 
@@ -99,9 +97,8 @@ namespace EnemyArt {
     enum class SelfGlow { STRENGTH, HEAL };
     void printBattleSelfBuff(EnemyType type, BossType boss, SelfGlow glow);
 
-    // The False Moon casting Moonstruck: it flares crimson twice, a crimson
-    // wisp crosses to the knight, and the moon's red takes him, to a sound
-    // of its own (sounds/moonstruck).
+    // The False Moon casting Moonstruck: it flares red twice, a red wisp crosses to
+    // the knight and the moon's red takes him, with its own sound.
     void printBattleMoonstruck(EnemyType type, BossType boss);
 
     struct AuraFlags {
@@ -140,13 +137,13 @@ namespace EnemyArt {
     // The knight sat at his fire, in the armour he is wearing, over the top of
     // the screen. -1 takes it down.
     void setRestScene(int armorTier);
-    // The cutscenes over the top of the screen, a shot to each line of text:
-    // the opening at the pond and the ending on the peak
-    // (tools/make_intro_scene.py, tools/make_ending_scene.py).
+    // The cutscenes at the top of the screen, one shot per line of text: the
+    // opening at the pond and the ending on the peak (tools/make_intro_scene.py,
+    // tools/make_ending_scene.py).
     enum class Cutscene { INTRO, ENDING };
-    // The ending without its moon, for the run that put the False Moon out in
-    // the church (ending_scene_moonless.png, when it is there).
-    void setEndingMoonless(bool on);
+    // The ending with the moon let go, for the run that put the False Moon out
+    // in the church (ending_scene_freed.png, when it is there).
+    void setEndingFreed(bool on);
     // Puts a shot up; -1 takes the cutscene down.
     void setCutsceneShot(Cutscene scene, int shot);
     // False when its art is missing, so the words can stand on their own.
@@ -163,6 +160,10 @@ namespace EnemyArt {
     // medals.png: bronze, silver, gold, then the locked one.
     constexpr int MEDAL_ICON0 = 100, MEDAL_LOCKED = 3;
     void drawMedal(int frame, const SDL_Rect& dst);
+    // Bestiary pictures: frame `frame` of assets/sprites/<file>.png, centred in dst
+    // at the biggest whole scale. `dark` draws just the silhouette for an enemy
+    // you haven't met.
+    void drawSheetFrame(const std::string& file, int frameW, int frame, const SDL_Rect& dst, bool dark);
 
 // The title wordmark and headline banners, drawn as art. `name` is the file
 // stem under assets/sprites; false means the art is missing, so use text.
@@ -186,17 +187,15 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     // The ??? encounter: the forest under a blood moon.
     // The Moonstruck's crimson sky for the area it appears in (0-4).
     void setSecretBackdrop(int zone = 2);
-    // The Shadow Knight becoming what was wearing it: the sprite bleaches to
-    // white, the true form comes up inside the glare, and the backdrop
-    // crossfades to the final arena underneath.
+    // The Shadow Knight turning into its true form: bleaches to white, the true
+    // form comes up inside the glare, and the backdrop crossfades underneath.
     void transformToTrueForm(int zone, const std::string& trueName);
 
     // Tutorial fight only.
     void setTutorialBackdrop();
 
-    // Picks a per-name sprite (beasts, undead, the wyvern) by matching the
-    // enemy's name. Call at encounter start; names without their own sheet
-    // fall back to their type's sprite.
+    // Picks a per-name sprite by matching the enemy's name. Call it at encounter
+    // start; names without their own sheet fall back to their type's sprite.
     void setEnemyVariant(const std::string& enemyName);
 
     // A summoned add drawn beside the enemy, one scale step down. Empty key
@@ -205,10 +204,9 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     // The add takes its own turn: it steps out at the knight and back.
     void printCompanionAttack(EnemyType type, BossType boss = BossType::NONE);
 
-    // Your own raised dead (Raise Undead): drawn just in front of the knight,
-    // one scale step down and turned round to face the enemy. Empty key clears
-    // it. It rises, takes its turn (connected: the blow landed; onCompanion:
-    // on the Lich's add rather than its master), takes a blow, and falls.
+    // Your raised dead: drawn just in front of the knight, a step smaller, facing
+    // the enemy. Empty key clears it. It rises, takes its turn (connected = the
+    // blow landed, onCompanion = it hit the Lich's add), takes a blow, falls.
     void setAlly(const std::string& spriteKey);
     void printAllyRise(EnemyType type, BossType boss = BossType::NONE);
     void printAllyAttack(EnemyType type, BossType boss, bool connected, bool onCompanion);
@@ -222,18 +220,15 @@ void drawWordmark(const std::string& name, const SDL_Rect& dst);
     // The true form running from the peak in the church's run: it reels, then
     // draws back into the dark and fades out instead of dying.
     void printBattleFlee(EnemyType type, BossType boss);
-    // The False Moon out of the eclipse: prepareArrival as the backdrop goes
-    // up (true when it will come, the church under its plain moon and the
-    // False Moon hidden), then printBattleArrival once the fight is on
-    // screen, starting `track` as it takes shape.
+    // The False Moon's arrival: prepareArrival when the backdrop goes up (true if
+    // it'll happen: the church under a plain moon, False Moon hidden), then
+    // printBattleArrival once the fight's on screen, starting `track` as it forms.
     bool prepareArrival(BossType boss);
     void printBattleArrival(EnemyType type, BossType boss, const char* track);
 
     void printBattleKnightHit(EnemyType type, BossType boss = BossType::NONE);
 
     void printBattleKnightDeath(EnemyType type, BossType boss = BossType::NONE);
-    // The False Moon takes him for its vessel: the last piece of him rises, it
-    // comes apart and crosses to him, the dark spreads through him and he
-    // stands as it wears him; the eclipse ends. In place of his death there.
+    // The vessel scene, played instead of your death in the False Moon fight.
     void printBattleVessel(EnemyType type, BossType boss);
 }

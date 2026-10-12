@@ -11,9 +11,9 @@
 namespace CardBar {
 namespace {
 
-// Energy left this turn. Declared up here because both the layout (which
-// reserves a column for the pips) and the card painter (which reddens a badge
-// you cannot pay for) are defined above the drawing code that sets it.
+// Energy left this turn. Declared up here because the layout (which reserves a
+// column for the pips) and the card painter (which reddens a badge you can't
+// pay for) are both defined above the code that sets it.
 int gEnergy = 0, gEnergyMax = 0;
 // True while the full-screen picker owns the display. drawCards is shared
 // with it, and needs to know not to apply hand-only styling there.
@@ -46,15 +46,15 @@ int  gCardlessTopPct = -1;
 std::vector<SDL_Rect> gPlusRects;
 std::vector<SDL_Rect> gActionRects;
 
-// Snapshots. The hand keeps drawing after select() returns, so a play's result
-// lands with the cards still on screen; borrowing the caller's vector would
-// dangle the moment it left scope.
+// Snapshots. The hand keeps drawing after select() returns, so borrowing the
+// caller's vector would dangle the moment it went out of scope. Ask me how
+// long that crash took to find.
 std::vector<Card>   gCards;
 std::vector<Action> gActions;
 int gCurrent = 0;
-// The card whose "+" was the last answer. The screen asks again once its
-// text is closed, and the highlight goes back to that card rather than the
-// first: on a controller, walking back to it every time was the cost.
+// The card whose "+" was pressed last. After its text closes, the highlight
+// goes back to that card instead of the first one, because walking back to it
+// every time on a controller was a pain.
 int gResumeAt = -1;
 bool gActive = false;      // drawing
 bool gPicking = false;     // and accepting input
@@ -102,10 +102,9 @@ void buildRects() {
                                        L.plusR*2, L.plusR*2 });
     }
     if (!gActions.empty() && gCards.empty()) {
-        // No hand beside them (View Player, View Enemy): the band is theirs, so
-        // they sit in a row across its middle at the size the full-screen
-        // choices are, rather than a line of text each in the corner a hand
-        // would leave free.
+        // No hand next to them (View Player, View Enemy): the band is theirs, so the
+        // buttons sit in a row across the middle at full size, instead of a line of
+        // text each in whatever corner a hand would have left.
         const int cw = std::max(1, Platform::cellW()), lh = std::max(1, Platform::cellH());
         int nameCells = 0;
         for (const Action& a : gActions) nameCells = std::max(nameCells, (int)a.label.size());
@@ -145,9 +144,9 @@ int cardTextBottom(const SDL_Rect& q) {
     return q.y + q.h - std::max(18, Platform::cellH() + 4) - 14;
 }
 
-// A card's text, top down: name, tags, effect, note. Returns the y the text
-// ended at, and only draws when asked, so the grid can measure every card
-// before it decides how big their pictures can be.
+// A card's text top to bottom: name, tags, effect, note. Returns where the
+// text ended, and only draws when asked, so the grid can measure every card
+// before deciding how big the pictures can be.
 int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
     const SDL_Color dim{ 150, 150, 168, 255 };
     const int pad = std::max(11, q.w / 12);
@@ -165,9 +164,9 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
     } else if ((int)nm.size() <= gridFit) {
         if (draw) Console::drawTextPx(r, q.x + pad, q.y + pad + 8, nm, nameCol, true);
     } else {
-        // Too long even for the small face: wrap at a space rather than
-        // cutting it off. "Cracked Seal Fragment" read as "Cracked Seal Fr",
-        // and a thrice-forged card lost its pluses the same way.
+        // Too long even for the small font: wrap at a space instead of cutting it off.
+        // "Cracked Seal Fragment" was coming out as "Cracked Seal Fr", and forged
+        // cards lost their pluses the same way.
         size_t cut = nm.rfind(' ', (size_t)gridFit);
         if (cut == std::string::npos || cut == 0) cut = (size_t)gridFit;
         std::string rest = nm.substr(nm[cut] == ' ' ? cut + 1 : cut);
@@ -215,9 +214,7 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
         return lines;
     };
     const int top = ty + 2;
-    // Whole lines only, so the last one never runs on over the cost badge.
-    // The few pixels allowed here are the gap between a line's glyphs and
-    // the bottom of its cell.
+    // Whole lines only, so the last line never runs over the cost badge.
     const int depth = cardTextBottom(q) + 4 - top;
     struct Body { int fit = 1, cellH = 1, room = 0, briefRoom = 0; std::vector<std::string> brief, note; };
     auto lay = [&](int cellW, int cellH) {
@@ -230,15 +227,13 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
         bd.briefRoom = std::max(0, bd.room - (int)bd.note.size());
         return bd;
     };
-    // The grid size when it fits. The unusual cards have more to say, and in
-    // a small window their briefs shrink to the card face rather than lose
-    // their ends.
+    // Grid size when it fits. Wordier cards shrink to the small font in a small
+    // window instead of losing their ends.
     Body bd = lay(Platform::cellW(), Platform::cellH());
     const bool small = (int)bd.brief.size() > bd.briefRoom && Console::smallCellW() < Platform::cellW();
     if (small) bd = lay(Console::smallCellW(), Console::smallCellH());
-    // Too long even so, a brief gives up whole sentences from its end and
-    // says there is more, rather than stopping halfway through one. The
-    // details panel has all of it.
+    // If it STILL doesn't fit, drop whole sentences off the end and say there's
+    // more, instead of stopping mid sentence. The details panel has the lot.
     std::string kept = c.effect;
     while ((int)bd.brief.size() > bd.briefRoom) {
         const size_t cut = kept.rfind(". ");
@@ -263,9 +258,9 @@ int cardText(SDL_Renderer* r, const Card& c, const SDL_Rect& q, bool draw) {
     return lineY;
 }
 
-// The type stripe along a card's top. A weld's is split down the middle, its
-// second half's colour on the right, each half drawn once under a clip so
-// a dimmed card's colours do not stack where they meet.
+// The type stripe along the top. A weld's is split down the middle (second
+// half's colour on the right), each half drawn once under a clip so a dimmed
+// card's colours don't stack where they meet.
 void typeStripe(SDL_Renderer* r, const SDL_Rect& s, int rd, const Card& c, Uint8 a) {
     if (c.tint2.a == 0) { DrawUtil::fillRound(r, s, rd, c.tint, a); return; }
     SDL_Rect old{ 0, 0, 0, 0 };
@@ -299,9 +294,8 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
     const SDL_Color dim{ 150, 150, 168, 255 };
     const SDL_Color gold{ 232, 196, 84, 255 };
 
-    // One icon size for every card in the grid: the largest the most crowded
-    // one has room for. Sized card by card, a two-line name left one medal
-    // half the size of its neighbours.
+    // One icon size for the whole grid: the biggest the most crowded card has room
+    // for. Sizing card by card left one medal half the size of its neighbours.
     const size_t nDraw = std::min(cards.size(), rects.size());
     int iconSz = 24 * 6, iconLow = 24 * 6;
     for (size_t i = 0; i < nDraw; i++) {
@@ -311,9 +305,8 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         const int wide = q.w - 2 * std::max(11, q.w / 12);
         const int room = cardTextBottom(q) - end;
         iconSz = std::min(iconSz, std::min(wide, room));
-        // An item has no cost badge, so its picture may also come down into
-        // the bottom row, to the card's inner edge, as wide as stays clear of
-        // the "+" in its corner.
+        // Items have no cost badge, so their picture can come down into the bottom
+        // row too, as wide as stays clear of the "+".
         int low = room;
         if (cards[i].item) {
             const int clear = i < plus.size() ? 2 * (q.x + q.w - plus[i].x) + 8 : 0;
@@ -322,11 +315,9 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         iconLow = std::min(iconLow, std::min(wide, low));
     }
     iconSz = iconSz / 24 * 24;
-    // A card with too much to say for even one whole 24px picture under its
-    // words would leave the page with no pictures, and a small one in the
-    // corner looks lost beside the other pages'. So a crowded page lets its
-    // pictures come down beside the "+", still centred and one size for the
-    // page.
+    // If a card has too much text for even one 24px picture under it, the whole
+    // page would lose its pictures, and a tiny one in the corner looks lost. So a
+    // crowded page lets them come down next to the "+", still centred, one size.
     const bool lowIcons = iconSz < 24 && iconLow / 24 * 24 >= 24;
     if (lowIcons) iconSz = iconLow / 24 * 24;
     const bool cornerIcons = iconSz < 24;
@@ -352,9 +343,9 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         const int lineY = cardText(r, c, q, true);
         const int textBottom = cardTextBottom(q);
 
-        // The item's own picture, centred in what the text left free, at the
-        // grid's one size and a whole multiple of the 24px art so it never blurs.
-        // (In the corner only on an item: a card's corner is its cost badge.)
+        // The item's picture, centred in the space the text left, at a whole multiple
+        // of the 24px art so it never blurs. (Corner only on items, a card's corner is
+        // its cost badge.)
         if (c.icon >= 0 && gIconRenderer && iconSz >= 24 && (!cornerIcons || c.item)) {
             SDL_Rect d{ q.x + (q.w - iconSz) / 2, lineY + (textBottom - lineY - iconSz) / 2 + 4, iconSz, iconSz };
             // Too little room under the words: centred lower, in the bottom row as well.
@@ -372,9 +363,9 @@ void drawCards(SDL_Renderer* r, const std::vector<Card>& cards,
         const bool longForm = room >= (5 + (int)num.size()) * cellW + 12;
         int bw = (longForm ? (5 + (int)num.size()) : (int)num.size()) * cellW + 12;
         SDL_Rect badge{ q.x + 7, q.y + q.h - bh - 8, std::min(room, bw), bh };
-        // A card you cannot pay for says so on its cost badge. Hand only: energy
-        // means nothing in the full-screen picker, and last turn's figure would mark
-        // rewards as unaffordable.
+        // Can't afford it? The cost badge says so. Hand only: energy means nothing in
+        // the full screen picker, and last turn's number would mark rewards as
+        // unaffordable.
         const bool tooDear = !gGridActive && gEnergyMax > 0 && c.cost > gEnergy;
         fillR(r, badge, tooDear ? SDL_Color{ 58, 26, 26, 255 } : badgeBg);
         frameR(r, badge, tooDear ? SDL_Color{ 176, 68, 60, 255 } : badgeLn);
@@ -505,10 +496,8 @@ void drawActions(SDL_Renderer* r, const std::vector<SDL_Rect>& rects, int indexO
         const int ty = q.y + (q.h - Platform::cellH()) / 2;
         const SDL_Color nameCol = a.disabled ? dim : (sel ? lime : ink);
         if (anyDesc || a.value) {
-            // Name bold on the left, description (or the bar) in its column.
-            // The two columns as one block, centred in the button the way a
-            // plain label is, so the descriptions still line up down the list.
-            // A slider row keeps the edge its bar is measured from.
+            // Bold name on the left, description (or the slider) in its column, both
+            // centred as one block so the descriptions still line up down the list.
             const int pad = std::max(14, cellW * 2);
             const int blockW = (nameCells + 3 + descCells) * cellW;
             const int x = anySlider ? q.x + pad : q.x + std::max(pad, (q.w - blockW) / 2);
@@ -561,10 +550,10 @@ void drawEnergy(const Layout& L) {
 }
 
 void drawHand() {
-    // No reserved band means some other screen owns the display now. clear()
-    // drops the band, so this covers every full-screen view without each of
-    // them having to remember to hide the hand. Buttons with no cards still
-    // draw: View Player's were there to press but never shown.
+    // No reserved band means another screen owns the display, and clear() drops
+    // the band, so this covers every full screen view without each one having to
+    // hide the hand. Buttons with no cards still draw (View Player's buttons were
+    // there and pressable but invisible before this, lovely).
     if (!gActive || (gCards.empty() && gActions.empty()) || Console::handRows() <= 0) return;
     SDL_Renderer* r = Platform::renderer();
     drawEnergy(gLayout);
@@ -576,9 +565,9 @@ bool inside(const SDL_Rect& q, int x, int y) {
     return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h;
 }
 
-// A controller's triggers (the user, 2026-10-11): R2 jumps from the cards to
-// the buttons beside them, L2 back. Each lands where the highlight last stood
-// in that group, or else on its first usable item.
+// Controller triggers: R2 jumps from the cards to the buttons, L2 back. Each
+// lands where the highlight last was in that group, or on its first usable
+// item. Added after trying it on a PS4 pad.
 template <class Usable>
 void jumpGroup(bool toActions, int nCards, int n, int lastCard, int lastAction, Usable usable) {
     const int lo = toActions ? nCards : 0, hi = toActions ? n : nCards;
@@ -591,6 +580,10 @@ void jumpGroup(bool toActions, int nCards, int n, int lastCard, int lastAction, 
 std::function<void(int)> gOnHover;
 
 } // namespace
+
+void drawCardAt(SDL_Renderer* r, const Card& c, const SDL_Rect& at) {
+    drawCards(r, { c }, { at }, {}, 0);
+}
 
 void setHoverCallback(const std::function<void(int)>& fn) { gOnHover = fn; }
 void setEnergy(int current, int max) { gEnergy = current; gEnergyMax = max; }
@@ -649,9 +642,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
         Platform::mousePos(mx, my);
         if (mx != lastMx || my != lastMy) {
             lastMx = mx; lastMy = my;
-            // Back to front. A fanned hand overlaps, and the card on top is the
-            // last one drawn, so the highest index under the cursor is the one
-            // the player can actually see and means to point at.
+            // Back to front. A fanned hand overlaps and the top card is drawn last, so the
+            // highest index under the cursor is the one you can actually see.
             for (int i = n - 1; i >= 0; i--) {
                 const SDL_Rect& q = (i < (int)cards.size())
                                         ? gCardRects[i] : gActionRects[i - (int)cards.size()];
@@ -772,9 +764,8 @@ void layoutGrid(int columns) {
     for (const Action& a : gActions) if (a.value) anySlider = true;
     if (anySlider) descCells = std::max(descCells, SLIDER_CELLS + 12);
     int aw = descCells > 0 ? nameCells + 3 + descCells : nameCells;
-    // Longer and taller than the label strictly needs. A "Yes"/"No" pair
-    // sized to its text is a tiny box in the middle of an empty screen;
-    // these are the most-clicked controls in the game.
+    // Bigger than the label needs. A Yes/No pair sized to its text was a tiny box
+    // in the middle of an empty screen, and these get clicked more than anything.
     aw = std::max((aw + 10) * cw, 26 * cw);
     aw = std::min(aw, W - 80);
     const int btnH = actionH + ch / 2;
@@ -858,9 +849,8 @@ int pick(const std::string& title, const std::vector<Card>& cards,
         return i < (int)gGridRects.size() ? gGridRects[i]
                                           : gGridActions[i - (int)gGridRects.size()];
     };
-    // Which slider the mouse has hold of, as an index into gActions. Held
-    // across frames, because a drag is allowed to wander off the bar and
-    // keep working, which is what every other slider in the world does.
+    // Which slider the mouse is holding. Kept across frames because a drag is
+    // allowed to wander off the bar and keep working, like every other slider.
     int dragging = -1;
     auto actionAt = [&](int i) -> Action* {
         if (i < (int)gGridRects.size()) return nullptr;
@@ -885,9 +875,8 @@ int pick(const std::string& title, const std::vector<Card>& cards,
         }
         int mx, my;
         Platform::mousePos(mx, my);
-        // Not while a slider is being dragged: the pointer is allowed to
-        // wander off the row, and the highlight should stay on what is
-        // actually being moved.
+        // Not while dragging a slider: the pointer can wander off the row and the
+        // highlight should stay on what's being moved.
         if ((mx != lastMx || my != lastMy) && dragging < 0) {
             lastMx = mx; lastMy = my;
             for (int i = 0; i < n; i++)
@@ -928,9 +917,9 @@ int pick(const std::string& title, const std::vector<Card>& cards,
 
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
-            // `done` means the click was used up; `chose` means it was used
-            // up by something that ends the menu. A slider is the first thing
-            // here that consumes a click without answering.
+            // `done` means the click got used, `chose` means it got used by something that
+            // ends the menu. Sliders are the first thing that eats a click without
+            // answering.
             bool done = false, chose = false;
             // A slider row is set, never chosen: clicking it takes hold of
             // the bar instead of answering the menu with that row.
@@ -948,9 +937,8 @@ int pick(const std::string& title, const std::vector<Card>& cards,
                     continue;
                 }
                 const SDL_Rect track = sliderTrack(rectFor(i));
-                // Anywhere on the row starts a drag, and a press on the bar
-                // jumps the level there first: a bar you have to hit exactly
-                // is a bar nobody uses.
+                // Anywhere on the row starts a drag, and pressing on the bar jumps there first.
+                // A bar you have to hit exactly is a bar nobody uses.
                 if (cy >= track.y - 8 && cy < track.y + track.h + 8) {
                     sliderSetFromX(*a, track, cx);
                     if (a->onChange) a->onChange();
@@ -989,9 +977,8 @@ void showDetail(const Card& c, const std::string& description,
     const int cw = std::max(1, Platform::cellW());
     const int ch = std::max(1, Platform::cellH());
 
-    // The row under the name, each item with the spaces after it. Measured
-    // before the panel is sized: a twice-forged card with two damage tags ran
-    // "upgraded ++" out past the frame.
+    // The row under the name, measured before the panel is sized: a twice forged
+    // card with two damage tags ran "upgraded ++" out past the frame.
     struct Tag { std::string text; SDL_Color col; int gap; };
     std::vector<Tag> tags{ { typeLabel, c.tint, 2 } };
     // The bracketed tag only when it adds something: "RELIC [RELIC]" said
@@ -1030,9 +1017,8 @@ void showDetail(const Card& c, const std::string& description,
         }
     }
 
-    // Wrap the description to the panel, on word boundaries. A "\n" starts a
-    // new line and "\n\n" leaves an empty one: the bestiary's entry, then its
-    // facts.
+    // Wrap the description on word boundaries. "\n" starts a new line, "\n\n"
+    // leaves a gap (the bestiary entry, then its facts).
     const int textCols = std::max(12, (panelW - 6 * cw) / cw);
     std::vector<std::string> lines;
     for (size_t start = 0; ; ) {
@@ -1055,9 +1041,8 @@ void showDetail(const Card& c, const std::string& description,
         start = nl + 1;
     }
 
-    // Description lines are drawn at 1.45x line height and the panel gets
-    // more padding: at a flat ch per line the text was set solid and read
-    // as a block rather than as sentences.
+    // Description lines at 1.45x line height with more padding. At a flat line
+    // height the text was set solid and read as one block instead of sentences.
     const int lineH = (ch * 29) / 20;
     const int panelH = lineH * (int)lines.size() + ch * 7 + 28
                      + ((int)tagRows.size() - 1) * (ch + 2);

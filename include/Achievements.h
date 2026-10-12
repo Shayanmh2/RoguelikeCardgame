@@ -1,18 +1,17 @@
 #ifndef ACHIEVEMENTS_H
 #define ACHIEVEMENTS_H
 
-// Things done across every run, kept with the cleared roads in progress.dat.
-// Three ranks, each with its medal, and a fourth, crimson, for the one that
-// means everything is done (its page shows only once it is earned). Earning one slides a notice in at the top
-// right, over everything, the full-screen pickers included.
+// Achievements, kept across runs in progress.dat with the cleared roads.
+// Bronze, silver and gold, plus crimson for the one that means everything's
+// done (its page only shows once you have it). Earning one slides a notice
+// in at the top right, over everything.
 namespace Achievements {
 
 enum Rank { BRONZE, SILVER, GOLD, CRIMSON };
 
-// In the order they were added, which is the order progress.dat keeps them
-// in: never reorder or insert, only add on the end, or everything earned
-// after the change shifts. Each one's rank is in INFO, and the order the pages
-// list them in is DISPLAY_ORDER (Achievements.cpp).
+// In the order they were added, which is how progress.dat stores them. NEVER
+// reorder or insert, only add to the end, or everything earned after that
+// point shifts. Ranks are in INFO, page order is DISPLAY_ORDER.
 enum Id {
     WIN_FIGHT, COLOSSUS, VIGIL, SIT, FORGE, RELIC, BOON, PARRY, STUN,
     WITCH, THUNDER, HYDRA, DRAGON, MOONSTRUCK, SEAR, BIG_HIT, THREAD, LEGEND,
@@ -34,6 +33,7 @@ enum Id {
     SHORT_WAY,
     GRAVE_MISTAKE,
     FALSE_MOON,
+    EVERY_CARD,
     COUNT
 };
 

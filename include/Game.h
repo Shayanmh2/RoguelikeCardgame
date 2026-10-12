@@ -9,17 +9,32 @@
 #include "StatusEffect.h"
 #include "UpgradeSystem.h"
 #include "Hud.h"
+#include <set>
 #include <vector>
 #include <functional>
 #include <iosfwd>
 
+struct SDL_Renderer;
+struct SDL_Rect;
+namespace CardBar { struct Card; }
+
 class Game {
 public:
-    // Which road you are walking. Random is Normal with the roster shuffled;
-    // Hard scales as if fifty fights had come first; Quick is twenty-five,
-    // every area at half the length. Saved with the run, so a loaded save
-    // resumes its own road. Append only: the save holds the number.
+    // Which road you're on. Random is Normal shuffled, Hard scales like fifty
+    // fights already happened, Quick is 25 (every area half length). Saved with
+    // the run. Only add to the end, the save stores the number.
     enum class Mode { NORMAL, RANDOM, HARD, RANDOM_HARD, QUICK };
+
+    // A card's rarity as a step: 0 starter, 1 uncommon, 2 rare, 3 super rare,
+    // 4 legendary; and its name, as the details panel shows it.
+    static int rarityOf(const Card& c);
+    static std::string rarityName(const Card& c);
+    // The starting deck, one of each starter.
+    static std::vector<Card> starterCards();
+
+    // One page of the Lore Book: a story beat (tab 0), a fire (1) or a
+    // cutscene to watch again (2, which says which).
+    struct LoreEntry { int tab; std::string title; std::vector<std::string> lines; bool seen; int cutscene; };
 
 private:
     Deck playerDeck;
@@ -33,9 +48,8 @@ private:
     int maxPlayerHealth;
     int playerArmor;
     int playerArmorPersistTurns; // FORTIFY defend cards: turns remaining before armor resets on its own
-    // Four, down from five. Halving the action advantage needed both the cost
-    // floor and a smaller hand; extra cards come from the encounter-15/30/45
-    // boon instead of being free from the start.
+    // Four, down from five. Cutting the action advantage needed both the cost
+    // floor and a smaller hand; extra cards come from the 15/30/45 boon now.
     static constexpr int BASE_HAND_SIZE = 4;
     int handSizeBonus = 0;      // boon: +1 card drawn each turn
     int runLuck = 0;            // boon: raises every roll in the run, see luckBonus()
@@ -57,8 +71,8 @@ private:
     bool counterWasLegendary = false; // armed by a legendary, so the payoff gets the legendary cue
     int  parryBonusValue;   // Parry's current value - added as flat bonus riposte damage
     // --- the price of the cards that pay for their power -----------------
-    // These bypass applyPlayerStatus(), so Status Guard cannot ward off your own
-    // drawback and Dodge Reversal cannot bounce it onto the enemy.
+    // These skip applyPlayerStatus() on purpose, so Status Guard can't block your
+    // own drawback and Dodge Reversal can't bounce it onto the enemy.
     int  cardDamagePenalty = 0;      // Reckless Swing: flat damage off every card
     int  pendingDamagePenalty = 0;   // ...which lands on the following turn
     int  cardSoftenPct = 0;          // Heavy Guard: % off your damage this turn
@@ -76,6 +90,20 @@ private:
     bool armorBroken = false;           // a card spent your guard this turn
     int  maxHpDebt = 0;      // ...and what it costs until the fight ends
     std::vector<Card> exhausted;     // Sacrifice, Last Stand: handed back when the fight ends
+    // The keepsakes from the camps (GameStops.cpp): held for the run, each
+    // working on its own, the once-a-fight ones spent until the fight ends.
+    int  keepsakes = 0;              // held, a bit each in KEEP_ order (the camps' zones)
+    int  keepsakesSpent = 0;         // used up this fight
+    bool hasKeepsake(int k) const { return (keepsakes >> k) & 1; }
+    bool keepsakeReady(int k) const { return hasKeepsake(k) && !((keepsakesSpent >> k) & 1); }
+    int  wickBonus(const Card& c) const;   // what the Lamplighter's Wick adds to this card's blow
+    bool charmTakes(const Card& c) const;  // whether the Sister's Charm plays this card twice
+    void springSnare();              // the Hunter's Snare, on the fight's first attack
+    int  castNet(int blow);          // the Fisher's Net: the first blow past your stances, halved
+    void templarsCandle();           // the Templar's Candle, at the start of a turn below half
+    static const char* keepsakeName(int k);
+    static std::string keepsakeRule(int k);   // what it does, for View Player and its card
+    CardBar::Card keepsakeCard(int k) const;  // as the camp shows it
     // Boons
     int  attunementBoons = 0;        // +12% elemental on-hit chance each
     int  gearInterval = 3;           // Scavenger: encounters between gear drops
@@ -85,9 +113,9 @@ private:
     int  enemyTauntTurns = 0; // Taunt: enemy's action roll is forced toward Attack for this many of their turns
     int  enemyFearTurns  = 0; // Fear: each of these turns the enemy has a FEAR_BRACE_CHANCE to brace instead of acting
 
-    // The ??? encounter, once per area per run: it does not advance the fight
-    // counter and losing it cannot end the run. Bit n is set once area n's has
-    // been met; moonZone says which shape it wears.
+    // The Moon Shade fight, once per area per run. Doesn't advance the fight
+    // counter and losing it can't end the run. Bit n = area n's has been met,
+    // moonZone says which shape it's wearing.
     int  moonZonesSeen = 0;
     int  moonZonesBeaten = 0;     // the Moon Shades beaten this run, by area: all five open the church
     int  moonZone = 2;
@@ -99,10 +127,9 @@ private:
     int  wornWeapon = 0, wornArmor = 0;
     // Relics held, one bit per Relic id (see Game.cpp).
     Mode runMode = Mode::NORMAL;
-    // Random mode draws from a shuffled bag of the 44 regulars, so nothing
-    // repeats until every one has been fought, and Quick keeps the four it
-    // drew from each area here. The seed is saved, so a loaded run keeps the
-    // order it was playing.
+    // Random draws from a shuffled bag of the 44 regulars (no repeats until all
+    // are fought), Quick keeps its four per area here. The seed's saved so a
+    // loaded run keeps its order.
     unsigned randomSeed = 0;
     std::vector<int> randomOrder;
     // What this player has cleared, kept in progress.dat beside the slots:
@@ -120,9 +147,9 @@ private:
     int  unlockedSets = 0;
     static const int TIER_SHADOW = 7, TIER_MOON = 8;
     bool hasSet(int bit) const { return (unlockedSets & (1 << bit)) != 0; }
-    // How far the equipment ladder goes: six rungs, plus one per trophy set.
-    // Hard needs the fifty cleared first, so the Shadow Knight's set always
-    // comes before the moon's.
+    // How far the gear ladder goes: six rungs, plus one per trophy set. Hard
+    // needs the fifty cleared first, so the Shadow set always comes before the
+    // moon's.
     int  maxGearTier() const { return 6 + (hasSet(0) ? 1 : 0) + (hasSet(1) ? 1 : 0); }
     // Moonstruck fought this run, across waves. One, with four broken seals,
     // is what it takes to meet the Shadow Knight's true form.
@@ -139,12 +166,36 @@ private:
     void rememberDiscard(const Card& c);
     void showDiscardUpgrades(std::vector<Card>& offer) const;
     Card takeBackDiscard(const Card& c);
+
+    // The stops on the road (GameStops.cpp): the Anvil and the Offering, each
+    // passed once a run, and View Deck's trade of three cards for one.
+    int stopsDone = 0;   // a bit each: 1 the Anvil, 2 the Offering
+    void roadStops();
+    void anvilStop(bool unchosens);      // false: the witch's guards', after 15
+    void offeringStop(bool paladins);    // false: the roadside shrine, after 25
+    void tradeThree();
+    bool pickThreeOfARarity(const std::string& what, std::vector<Card>& out);
+    bool hasThreeOfARarity() const;
+    bool cardOfRarity(int rank, const std::vector<Card>& given, Card& out);
+    void giveUp(const std::vector<Card>& cards);
+    void showGotCard(const std::string& title, const Card& got);
+    void leftWithTheArmor();   // the church road's legendary, at the peak
+    // The Lost Camps: after a Moon Shade, the camp of the person tied to it.
+    // Read the letter and take their keepsake, or bury them for max HP.
+    void lostCamp(int zone);
+    void campLore(std::vector<LoreEntry>& out) const;   // the Lore Book's letters
+    int lettersRead = 0;   // a bit per camp whose letter has been read, in any run (progress.dat)
+    std::vector<Card> moonShadePrize(int beatenThisRun);   // what a beaten Moon Shade was carrying
+    std::vector<int> relicChoices(int nth) const;          // the relics on offer at the nth choice
+    int  pickCardPaged(const std::string& title, const std::vector<Card>& cards, const std::vector<int>& counts);
+    // A card as the screens outside a fight show it: through gear, at rest.
+    CardBar::Card cardWidget(const Card& c, bool disabled = false) const;
     // A card other than poison, burn or rend played from encounter 10 on:
     // Magician is for a clear that never did.
     bool playedNonDot = false;
-    // The true form mirrors the stances the plain knight let fizzle: Parry
-    // uses enemyParryStance, Taunt uses playerAttackOnly, and Dodge Reversal
-    // is this, which turns your next hit back on you.
+    // The true form copies the stances: Parry uses enemyParryStance, Taunt uses
+    // playerAttackOnly, and Dodge Reversal is this, which turns your next hit
+    // back on you.
     bool enemyReflectNext = false;
     // Set while the second phase is on the field, so the knight's death is
     // read as the form rising rather than as the fight being over.
@@ -172,15 +223,14 @@ private:
     bool saintRisen = false;     // Exhumed Saint: it gets back up once
     bool fireKill = false;       // the blow that just felled the enemy was Fire
     std::string confessedCard;   // Confessor: the card it named this turn
-    // The False Moon's Moonstruck: turns until you are its vessel, counting
-    // down from ten, and the quarters of its health you have taken, each of
-    // which won one back. 0 when it is not running.
+    // The False Moon's Moonstruck clock: turns until you're its vessel (counts
+    // down from ten), and how many quarters of its health you've taken (each won
+    // a turn back). 0 when it isn't running.
     int  moonClock = 0;
     int  moonQuarters = 0;
     int  moonShadeLast = -1;            // the shape the False Moon wore last, so it never wears one twice running
-    // The true form answers your cards with the whole card, price included,
-    // so it runs up the same kinds of debt you do. All of it ends with the
-    // fight (endEncounterEffects) and starts clean when it stands up.
+    // The true form plays your cards back whole, price included, so it runs up
+    // the same kinds of debt you do. All of it resets with the fight.
     int  enemyArmorHoldTurns = 0;      // Fortify, Turtle Up, Last Stand: its armour outlasts its turn
     int  enemyVulnerableTurns = 0;     // Berserk: it takes x1.5 from your attacks until its turn
     bool enemyNoHeal = false;          // Last Stand, Pact of Ruin: its wounds stop closing
@@ -198,9 +248,9 @@ private:
     bool redThreadUsed = false;     // Red Thread: once a run
     bool lastSaveByThread = false;  // the last lethal blow was caught by the Thread, not the boss save
     int  threadClockFrom = 0;       // what the False Moon's clock read before that catch moved it, or 0
-    // Attacks played this turn: the Iron Sword and the Mythril Edge both act on
-    // the first. openingAttack is true while that first attack resolves, since
-    // the counter has already moved on by then.
+    // Attacks played this turn. The Iron Sword and the Mythril Edge care about
+    // the first one; openingAttack is true while it resolves, since the counter
+    // has already moved on by then.
     int  attacksPlayedThisTurn = 0;
     bool openingAttack = false;
     // The Mythril Edge's discount, spent this turn on an attack you paid for.
@@ -228,10 +278,9 @@ private:
     // Which of the dead is standing there. Every message about the add reads
     // this, so raising a Wraith does not announce a skeleton.
     std::string lichAddName = "Skeleton";
-    // Raise Undead: the last undead you killed this run, called up to fight
-    // beside you. It takes the enemy's blows until it falls and strikes at the
-    // end of each of your turns. raisedValue is the card's own number: the
-    // weapon and the undead's own weight go on as it strikes.
+    // Raise Undead: the last undead you killed this run, back to fight for you.
+    // It takes the enemy's blows until it falls and hits at the end of your turns.
+    // raisedValue is the card's number; weapon and the undead's weight go on top.
     std::string lastUndead;
     bool raisedAlive = false;
     std::string raisedName;
@@ -263,9 +312,9 @@ private:
     int defWithGear(int rawValue) const;
     int gearedValue(const Card& c, int rawValue) const;  // dispatches on card type
     int calculateDamage(int attackValue, int defenseValue) const;
-    // HP the enemy would lose to this card right now, for the hover preview.
-    // 0 for anything that would not land: non-attacks, a phased enemy, or
-    // while the Lich's skeleton is soaking hits.
+    // HP the enemy would lose to this card right now, for the hover preview. 0
+    // for anything that wouldn't land (non-attacks, a phased enemy, the Lich's
+    // skeleton soaking hits).
     int previewDamage(const Card& c) const;
     // What a card is worth on this board, not on its face: All In and Last Stand
     // read your armour and your wounds rather than their own printed value.
@@ -273,6 +322,10 @@ private:
     bool spendEnergy(int cost);
     void resetEnergy();
     void playCardFromHand(int index);
+    // What a card does once it's paid for. A weld runs each half through here;
+    // `playedAs` is the name it was played under, which is what the Confessor
+    // names.
+    void resolveCardEffect(const Card& playedCard, const std::string& playedAs);
     void applyCardEffect(const Card& card);
     // Routes through Dodge Reversal and Status Guard's ward; true only if it landed on you.
     bool applyPlayerStatus(StatusType type, int amount, double weakMultiplier = 1.5);
@@ -295,9 +348,9 @@ private:
     // The payoff cards: one ailment set off at once, before and after armour.
     int  unleashTotal(const Card& c) const;
     int  unleashDamage(const Card& c) const;
-    // Feint's pieces: the type your armor resists that its blows can turn to
-    // (NONE if none), whether that would help right now, and what Turnabout
-    // and Feint say in the hand about this enemy.
+    // Feint stuff: the type your armour resists that its blows can turn into
+    // (NONE if none), whether that helps right now, and what Turnabout and Feint
+    // say in the hand for this enemy.
     DamageType feintType() const;
     bool feintHelps() const;
     std::string typesFace(const Card& c) const;
@@ -307,18 +360,18 @@ private:
     bool rendCutsHead();
     // What a poison, burn or rend of `amount` comes to under its relic.
     int  dotPower(StatusType type, int amount) const;
-    // ranged: a shot, spell or thrown weapon. The attacker holds its ground in
-    // the scene, and Parry blocks it but has nothing in reach to riposte.
-    // ignoreArmor: straight through the armour, which is left standing.
+    // ranged: a shot, spell or thrown weapon. The attacker stays put, and Parry
+    // blocks it but has nothing in reach to riposte.
+    // ignoreArmor: straight through your armour, which is left standing.
     void enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, bool ranged = false,
                            bool useAttackFrames = true, int projectile = -1, bool closeIn = false, bool fromCompanion = false,
                            bool ignoreArmor = false);
     int  enemyProjectile() const;    // frame from the generated ProjectileTable
     int  enemyMuzzleX() const;       // and where on its sprite the shot leaves
     int  enemyMuzzleY() const;
-    // The Archon's attack frames ARE its pillars of flame, so every move it
-    // makes raises them across the arena rather than only its Hellfire.
-    // The Omneye reaches you with a beam joined to its pupil on every attack.
+    // The Archon's attack frames ARE its pillars of flame, so every move raises
+    // them, not just Hellfire. The Omneye hits you with a beam from its pupil on
+    // every attack.
     bool enemyFiresBeam() const;
     void offerSeal();
     // Difficulty plumbing: the picker, the permanent record of what has been
@@ -347,15 +400,20 @@ private:
     void earn(int achievement);       // Achievements::earn, saved at once if it is new
     void updateHeartbeat();           // beats under a fight at a fifth of your health or less
     void checkDeckAchievements();     // the ones a card in the deck earns, whichever way it arrived
+    // The Card Ledger: every card held in any run, by name (progress.dat).
+    std::set<std::string> cardsHeld;
+    void noteCardsHeld();                  // the deck's cards go in; all of them earns A Full Ledger
+    std::vector<Card> allCards() const;    // every card in the game: the starters, then the pool
+    CardBar::Card printedWidget(const Card& c) const;   // a card at its printed numbers
     void writeWinSave() const;
     bool loadWinSave();
     bool hasWinSave() const;
     void writeSaveTo(std::ostream& out) const;
     bool loadSaveFrom(std::istream& in);
     bool trueFormEarned() const;
-    // Settings, as percentages of the authored values. They live beside the
-    // saves rather than in one, because they describe the player and not the
-    // run: dying must not reset how fast the text reads.
+    // Settings, as % of the authored values. Kept next to the saves, not in one,
+    // because they're about the player and not the run: dying shouldn't reset
+    // how fast your text reads.
     int  optTextSpeed = 100;
     int  optPace      = 150;
     int  optMusic     = 100;
@@ -365,24 +423,58 @@ private:
     int  optConfirm   = 0;
     // The soft taps on moving through and choosing from a menu: 1 on, 0 off.
     int  optMenuSounds = 1;
+    // The combat panel's status tags: 0 symbols and words, 1 words only,
+    // 2 symbols only (Hud::TagStyle).
+    int  optTagStyle  = 0;
     std::string settingsPath() const;
     void loadSettings();
     void saveSettings() const;
     void applySettings() const;
     void showSettings();
+    // The bestiary (GameBestiary.cpp): every enemy met, in a gallery off the
+    // title menu. Who has been met is kept with the progress, a bit each.
+    unsigned long long metMask[2] = { 0, 0 };
+    bool hasMet(int id) const;
+    bool churchFound() const;   // anything in the ruined church met: its tab and its pages show
+    void markMet(const std::string& enemyName);   // saved at once if it is new
+    void seedMetFromProgress();                   // what a save from before the bestiary has seen
+    void showBestiary();
+    // The Gallery (GameBestiary.cpp): the bestiary, the Lore Book and the Card
+    // Ledger. The Lore Book reads every story beat and fire from Game.cpp and can
+    // replay the cutscenes.
+    std::vector<LoreEntry> loreEntries() const;
+    void replayCutscene(int which);   // 0 the pond, 1 the morning on the peak, 2 the long night ending, 3 the Hard ending
+    void showGallery();
+    void showLoreBook();
+    void showCardLedger();
+    // Esc in a fight: Resume, Settings, or back to the main menu (always asks,
+    // since a fight in progress isn't saved). True means leave.
+    bool pauseMenu();
+    bool quitToMenu = false;   // set by the pause menu, picked up by the run loop
+    void abandonToMenu();      // drop the fight and everything since the last save
+    void resetRunState();      // clean slate for the next run (finishRun and abandonToMenu)
+    // The moments with no other record of being seen, a bit each
+    // (progress.dat): 1 the False Moon taking him for its vessel.
+    int scenesSeen = 0;
+    void replayMoment(int which);   // the Lore Book's moments, 4 on (replayCutscene has 0-3)
+    std::string bestiaryEntryText(int id) const;   // its entry, then weak to, resists and blows
+    static int bestiaryIndexOf(const std::string& enemyName);
+    // Card pictures: the bestiary's enemies here, everything else in the art layer.
+    static void drawCardIcon(SDL_Renderer* r, int icon, const SDL_Rect& dst);
+    static DamageType blowTypeOf(const std::string& name, EnemyType type);   // the kind of blow, by name
+    static std::string flavorTextOf(const std::string& name);              // View Enemy's line
     void beginTrueForm();
-    // The ruined church, past the peak: open when every Moonstruck shape has
-    // been beaten in some run and every vigil is out in this one. The true
-    // form then runs there instead of going down.
+    // The ruined church after the peak: open once every Moon Shade has been
+    // beaten in some run and every vigil is out in this one. The true form runs
+    // there instead of dying.
     bool churchEarned() const;
     void trueFormRuns();          // the true form beaten, the church open: it flees, the run goes on
     // The roads and sets a clear opened. On the way down to the church
     // nothing is said when nothing new opened, and the moon is not asleep.
     void announceClear(int before, int beforeSets, bool toTheChurch = false);
     void handleTrueVictory();     // the False Moon put out: the true ending, the run ends
-    // The final bosses that answer your cards with your own: the Shadow
-    // Knight and the False Moon. The second plays every card whole, as the
-    // true form does.
+    // The bosses that answer your cards with your own: the Shadow Knight and the
+    // False Moon. The False Moon plays every card whole, like the true form.
     bool mirrorBoss() const;
     bool wholeMirror() const;
     std::string mirrorName() const;   // "Shadow Knight" or "False Moon", for its lines
@@ -420,9 +512,9 @@ private:
     void applyFightStartRelics();
     void rollLens();
     std::string lensIntent() const;
-    // The move a signature turn will be, named as View Enemy names it, for a
-    // roll; empty when that turn goes to the kit instead. The fallback is what
-    // an enemy with no move of its own does on that turn.
+    // The move a signature turn will be, named like View Enemy names it, for a
+    // roll. Empty when the turn goes to the kit. The fallback is what an enemy
+    // without its own move does then.
     std::string ownMoveName(int roll, bool taunted) const;
     std::string fallbackMoveName(int roll) const;
     bool enemyWeakens() const;   // false in the first ten fights, see NO_WEAKEN_UNTIL
@@ -435,7 +527,8 @@ private:
     // ends the turn by itself when there is none.
     bool freeCardPlayable() const;
     void onPlayerHit(const Card& card, int hpLost);
-    int  sealScaled(int base, int pctPerSeal) const;
+    int  sealScaled(int base, bool health) const;   // through every vigil put out
+    int  sealPct(bool health) const;                 // the percent they add, all told
     void equipmentMenu();
     void showIntro();
     bool enemyRaisesFlames() const;
@@ -474,9 +567,9 @@ private:
     void  executeShadowKnightMirror(const Card& mirrored); // plays out one mirrored card's effect against the player
     bool  trueFormMirror(const Card& mirrored, int atk, int v); // the true form's version of the cards the knight only half knew
     void  knightExtraMove();  // one more mirrored move, straight away (Blood Price, Adrenaline, Borrowed Time)
-    // The final boss answers each card you play with one of its prepared
-    // moves: drawn as you commit the card, played before it lands when it is
-    // a stance the true form holds, after it otherwise.
+    // The final boss answers each card you play with one of its prepared moves:
+    // drawn as you commit, played before yours lands if it's a stance the true
+    // form holds, after it otherwise.
     bool  drawKnightAnswer(Card& out);
     bool  knightTakesStance(const Card& c) const;
     void  playKnightAnswer(const Card& c, bool beforeYourCard);
@@ -505,8 +598,8 @@ private:
     void showHowToPlay();
     void showTutorial();   // interactive practice fight vs. a Training Dummy; restores state on exit
 
-    // Three save slots, written only between encounters (at Continue/End Run) so
-    // they cannot be used as a combat checkpoint. Dying wipes only the slot this
+    // Three save slots, only written between encounters (Continue/End Run) so
+    // they can't be used as a mid-fight checkpoint. Dying wipes only the slot the
     // run came from.
     static const int SAVE_SLOTS = 3;
     int  currentSaveSlot = 0;        // 1-3 once this run is tied to a slot, else 0

@@ -36,12 +36,26 @@ void delay(int ms);
 // the durations as written, higher is slower. Combat pacing in Settings.
 void setPacePercent(int pct);
 
-// Keys are queued by frame() so a blocking read never misses one.
-enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR };
-struct KeyEvent { Key key = Key::NONE; char ch = 0; };
+// Keys get queued by frame() so a blocking read never misses one. Controllers
+// feed the same queue: d-pad/left stick are the arrows, A is Enter, B is
+// Escape, X is DETAILS (a card's "+", the one thing only the mouse could do),
+// R2 is TO_ACTIONS and L2 TO_CARDS. `pad` means a controller sent it.
+enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR, DETAILS, TO_ACTIONS, TO_CARDS };
+struct KeyEvent { Key key = Key::NONE; char ch = 0; bool pad = false; };
 
 KeyEvent pollKey();               // NONE if nothing queued
 void     flushKeys();
+
+// Presses of the tip button since the last call (Tab, or a controller's Y and
+// shoulders; Shift+Tab and the left shoulder count back). The combat panel
+// steps through its status tips with them, so no mouse is needed to read one.
+int takeTipSteps();
+// Goes up with every other input: a key, a click, the mouse moving. A tip
+// picked with the tip button stays up until this changes.
+unsigned inputSerial();
+// The pointer is hidden while a controller is in use, and the mouse's
+// resting place should then raise nothing.
+bool pointerHidden();
 
 // Mouse click in logical coordinates, consumed once. Menus use this so the
 // list is clickable as well as keyboard-driven.

@@ -82,9 +82,9 @@ bool Game::drawKnightAnswer(Card& out) {
     return true;
 }
 
-// A stance the true form actually holds, which it takes up before your card
-// lands so the blow walks into it. The plain knight cannot hold one: its copy
-// lunges, and answers after your card like everything else.
+// A stance the true form actually holds, put up before your card lands so your
+// blow walks into it. The plain knight can't hold one: its copy lunges and
+// answers after your card like everything else.
 bool Game::knightTakesStance(const Card& c) const {
     return wholeMirror() && (c.getEffect() == CardEffect::COUNTER || c.getEffect() == CardEffect::PARRY);
 }
@@ -112,8 +112,8 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
         }
         return;
     }
-    // Weakness and strength both come in here: bossStrikesPlayer() only shows
-    // them. Nothing gave the knight strength until the true form learned your
+    // Weak and Strength both get applied here, bossStrikesPlayer() only shows them.
+    // Nothing gave the knight Strength until the true form learned your
     // Strengthen, Berserk and Blood Pact, so this is what makes those count.
     double weakMult = enemy.getWeakMultiplier() * enemy.getStrengthMultiplier();
     int atk = (int)(std::max(0, enemy.getBaseAttack() + enemy.getBonusAttack()) * weakMult);
@@ -187,9 +187,9 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
                     UIHelper::pause(200);
                     break;
                 }
-                // Your heal card mirrored back, run through the same floor rule against
-                // ITS pool, then halved - the boss pool dwarfs yours and a full-strength
-                // mirror undid two whole turns of damage.
+                // Your heal mirrored back through the same floor rule against ITS pool, then
+                // halved. The boss pool is huge and a full strength copy undid two whole turns
+                // of damage. That fight was miserable before this.
                 int healAmt = std::max(1, Card::healAmount(v, enemy.getHealth(),
                                                            enemy.getMaxHealth()) / 2);
                 enemy.heal(healAmt);
@@ -236,9 +236,9 @@ void Game::executeShadowKnightMirror(const Card& mirrored) {
                 const CardEffect me = mirrored.getEffect();
                 const bool stanceCard = me == CardEffect::COUNTER || me == CardEffect::PARRY
                                      || me == CardEffect::TAUNT;
-                // Only a card that IS a stance becomes one. Everything unhandled
-                // fell through to here, so the true form was answering a Blood
-                // Pact with a reversal the player had never owned.
+                // Only an actual stance card becomes one. Everything unhandled used to fall
+                // through to here, so the true form answered a Blood Pact with a reversal you
+                // never even owned. Oops.
                 if (stanceCard && wholeMirror()) {
                     if (me == CardEffect::PARRY) {
                         enemyParryStance = true;
@@ -297,8 +297,8 @@ void Game::knightExtraMove() {
 }
 
 // The cards the plain knight only half knew, played whole by the true form:
-// what each one does and what it costs, the same bargain the card offers you.
-// Returns false for anything the shared mirror already plays properly.
+// what each does and what it costs, same deal the card gives you. Returns
+// false for anything the shared mirror already handles.
 bool Game::trueFormMirror(const Card& mirrored, int atk, int v) {
     const CardEffect e = mirrored.getEffect();
     auto say = [](const std::string& colour, const std::string& text) {
@@ -504,9 +504,9 @@ bool Game::trueFormMirror(const Card& mirrored, int atk, int v) {
             break;
         }
         case CardEffect::RAISE: {
-            // Your own Raise Undead, played whole: the undead you had last rises
-            // for it, with what it would have risen with for you, and stands in
-            // front of it like the Lich's, taking your blows and striking at you.
+            // Your own Raise Undead played back at you: the last undead you had rises for
+            // it, as strong as it would've been for you, and stands in front of it like
+            // the Lich's does.
             const RaisedDead* d = raisedDead(lastUndead);
             if (!d) {
                 say(Color::MAGENTA, "None of your dead answer it, so it strikes you itself.");

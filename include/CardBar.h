@@ -116,6 +116,10 @@ int pick(const std::string& title,
          const std::vector<Action>& actions,
          int columns = 0);
 
+// One card drawn where it is asked for, outside any picker: no "+", no
+// highlight. The Gallery's Card Ledger shows the card it is open on this way.
+void drawCardAt(SDL_Renderer* r, const Card& c, const SDL_Rect& at);
+
 // Details panel for one card, opened by its "+" button.
 void showDetail(const Card& c, const std::string& description,
                 const std::string& typeLabel, const std::string& rarityLabel,

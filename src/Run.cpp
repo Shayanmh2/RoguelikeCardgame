@@ -14,10 +14,9 @@ namespace {
     constexpr int QUICK_LENGTH = 25;
     constexpr int QUICK_BOSS_POSITIONS[] = {5, 10, 15, 20, 24, 25};
     constexpr int QUICK_PER_AREA = 4;
-    // The ruined church, past the peak: nine fights and the
-    // False Moon, only ever on the full road, and only once the true form
-    // has run there. Its fights are encounters 51-60 inside the run, shown
-    // counting down from -9 to the False Moon at 0.
+    // The ruined church after the peak: nine fights and the False Moon, full road
+    // only, and only once the true form has run there. Encounters 51-60 inside
+    // the run, shown counting down from -9 to the False Moon at 0.
     constexpr int CHURCH_FIRST = 51, CHURCH_BOSS = 60;
 
     int cyclePos(int encounter) { return ((encounter - 1) % CYCLE_LENGTH) + 1; }
@@ -59,9 +58,9 @@ void Run::setQuick(bool on) { quick = on; }
 bool Run::isQuick() const { return quick; }
 int  Run::getLength() const { return quick ? QUICK_LENGTH : CYCLE_LENGTH; }
 
-// Two of the full road's fights to each quick one, so fight 5 is the
-// Colossus's 10 and fight 20 the Hydra's 40; the last two are the Dragon's
-// 49 and the Shadow Knight's 50.
+// Each Quick fight stands in for two of the full road's, so fight 5 is the
+// Colossus's 10 and fight 20 the Hydra's 40; the last two are the Dragon's 49
+// and the Shadow Knight's 50.
 bool Run::inChurch() const { return !quick && currentEncounter >= CHURCH_FIRST; }
 
 int Run::shownEncounter() const { return inChurch() ? currentEncounter - CHURCH_BOSS : currentEncounter; }
@@ -93,9 +92,8 @@ int Run::getEncountersWon() const {
 void Run::setDifficulty(int tier) { difficulty = tier < 0 ? 0 : tier; }
 int Run::getDifficulty() const { return difficulty; }
 
-// What the scaling is told the encounter number is: Hard adds a cycle's
-// worth of encounters to every stat formula, and Quick is told where on the
-// full road it stands.
+// What encounter number the scaling gets told: Hard adds a whole cycle to
+// every stat formula, and Quick says where on the full road it stands.
 int Run::scaledEncounter() const {
     return (quick ? getRoadPosition() : currentEncounter) + difficulty * CYCLE_LENGTH;
 }
@@ -123,9 +121,9 @@ int Run::getEnemyDefense() const {
     // Every 7 encounters, not 5. Defense is subtracted per hit, so it bites hardest
     // on the cheap cards a three-card turn relies on.
     const int base = 2 + (scaledEncounter() - 1) / 7;
-    // From the lake on it climbs a point faster every 3 encounters, or a late
-    // deck's hits walk straight through it. Counted on the run's own encounter,
-    // so Hard gets the same climb on top of its head start.
+    // From the lake on it climbs a point faster every 3 encounters, otherwise a
+    // late deck walks straight through it. Uses the run's own encounter, so Hard
+    // gets the same climb on top of its head start.
     const int past = getRoadPosition() - 30;
     return base + (past > 0 ? past / 3 : 0);
 }
@@ -167,9 +165,9 @@ int Run::getRegularIndex() const {
     return pos - 1 - bossesBefore; // 0..43 within the cycle
 }
 
-// Regular fights left in this area, this one included, up to the last one
-// before its boss: the mountain's is the 48th, since the Dragon is its 49th.
-// For the Moonlit Locket, which is never on the quick road.
+// Regular fights left in this area, this one included, up to the last before
+// the boss (the mountain's is the 48th, the Dragon's the 49th). For the
+// Moonlit Locket, which never shows up on Quick.
 int Run::regularFightsLeftInArea() const {
     const int pos = cyclePos(currentEncounter);
     int last = ((pos - 1) / 10) * 10 + 10;
@@ -178,9 +176,9 @@ int Run::regularFightsLeftInArea() const {
 }
 
 int Run::areaBossesCleared() const {
-    // The five that carry a piece of him: the peak's own boss is not one of
-    // them. Counted off the encounter rather than stored, so a loaded save is
-    // right without having to have written it down.
+    // The five bosses that carry a piece of him (the peak's boss isn't one).
+    // Worked out from the encounter instead of stored, so loaded saves are right
+    // without having written it down.
     int done = 0;
     const int pos = getRoadPosition();
     for (int i = 0; i < BOSS_COUNT - 1; ++i)

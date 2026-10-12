@@ -6,9 +6,9 @@
 #include "Platform.h"
 #include <iostream>
 
-// TODO: the Emscripten target is untouched since the SDL2 port. Platform.cpp
-// blocks inside frame(), which a browser main loop will not tolerate, so it
-// needs emscripten_set_main_loop before it will run at all.
+// TODO: the Emscripten build hasn't been touched since the SDL2 port.
+// Platform.cpp blocks inside frame(), which a browser main loop won't put up
+// with, so it needs emscripten_set_main_loop before it'll run at all. One day.
 int main(int, char**) {
     Audio::logLaunch("start: entering Platform::init");
     if (!Platform::init("Moonstruck")) {

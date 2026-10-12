@@ -157,11 +157,10 @@ void Audio::init() {
     std::cerr << "Audio: Mix_OpenAudio failed on the default driver ("
               << SDL_GetCurrentAudioDriver() << "): " << Mix_GetError() << "\n";
 
-    // SDL tries WASAPI first on Windows, and it does fail on real machines
-    // (exclusive-mode devices, odd virtual endpoints, nothing attached), so walk
-    // the older backends rather than run silent. Each attempt restarts the
-    // subsystem, since the driver is read at init. A user-pinned
-    // SDL_AUDIODRIVER is left alone.
+    // SDL tries WASAPI first on Windows, and it really does fail on real machines
+    // (exclusive mode devices, weird virtual endpoints, nothing plugged in), so walk
+    // the older backends instead of going silent. Each try restarts the subsystem
+    // since the driver is read at init. A user-pinned SDL_AUDIODRIVER is left alone.
     if (SDL_getenv("SDL_AUDIODRIVER") != nullptr) return;
 
     for (const char* drv : { "directsound", "winmm", "wasapi", "dsp" }) {
@@ -291,12 +290,11 @@ void Audio::playSFX(const std::string& name) {
     if (chunk) Mix_PlayChannel(-1, chunk, 0);
 }
 
-// A pitched copy of a cue: SDL_mixer has no pitch control, and a second
-// recording of every sound is a lot of megabytes for one bit of information.
-// Resampled with a Lanczos-3 window, its cutoff lowered when pitching up so
-// nothing folds back, which is about what a browser does with playbackRate:
-// nearest-sample picking left pitched cues gritty. Made once per cue and
-// pitch, then cached, so the cost is paid on the first play only.
+// A pitched copy of a sound. SDL_mixer has no pitch control, and recording every
+// sound twice is a lot of megabytes for not much. Resampled with a Lanczos-3
+// window (cutoff lowered when pitching up so nothing folds back), which is
+// roughly what a browser does with playbackRate. Nearest sample picking made
+// pitched sounds gritty. Built once per sound and pitch, then cached.
 void Audio::playSFXPitched(const std::string& name, float ratio) {
     gLastPlayed[name] = SDL_GetTicks();
     if (!audioReady) return;
@@ -377,9 +375,9 @@ void Audio::startLoop(const std::string& name) {
     gLoopName = name;
 }
 
-// A fade the mixer will not start is a cut instead: it refuses one on a
-// channel at volume 0 (the effects slider at nothing), and a loop left
-// running there would be heard again the moment the slider came back up.
+// If the mixer won't start a fade (it refuses on a channel at volume 0, i.e. the
+// effects slider at nothing), just cut instead. A loop left running there came
+// back the second the slider went up again.
 void Audio::stopLoop(int fadeMs) {
     if (!audioReady || gLoopName.empty()) return;
     if (fadeMs <= 0 || Mix_FadeOutChannel(LOOP_CHANNEL, fadeMs) == 0)
@@ -395,9 +393,8 @@ void Audio::fadeOutBGM(int ms) {
     currentBgmPath.clear();
 }
 
-// Menu cues: soft and short, and only while the player keeps them on. A
-// hover is held to one every 45 ms, so a sweep across a row of buttons
-// ticks rather than rattles.
+// Menu sounds: soft, short, and only if you've left them on. Hovers are limited
+// to one every 45 ms so sweeping across buttons ticks instead of rattling.
 static bool gMenuSounds = true;
 static Uint32 gLastHover = 0;
 

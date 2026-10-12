@@ -353,7 +353,7 @@ std::string Card::brief(int shown, int elemChance, bool live, int luck) const {
             s = "Gain " + v + " armor. " + std::to_string(std::min(100, 50 + luck))
               + "% chance to Weaken the enemy.";
             break;
-        case CardEffect::CHIP:         s = "Gain " + v + " armor and deal 3 damage."; break;
+        case CardEffect::CHIP:         s = "Gain " + v + " armor and deal " + std::to_string(value) + " damage."; break;
         case CardEffect::WARD:         s = "Gain " + v + " armor. Block ailments for 2 turns."; break;
         case CardEffect::SCRAP:        s = "Gain " + v + " armor. You take 1 damage."; break;
         case CardEffect::SELFWEAK:     s = "Gain " + v + " armor. Your attacks deal 10% less this turn."; break;
@@ -454,9 +454,9 @@ void Card::upgrade() {
         refreshWeld();
         return;
     }
-    // The step scales with rarity: at a flat +3 a maxed uncommon reached 1
-    // energy for 18 damage, which is a printed rare at a third of the cost.
-    // 2/3/4/5 puts the ceilings at 16/28/46/55, one tier under the next.
+    // The upgrade step scales with rarity. At a flat +3 a maxed uncommon hit 1
+    // energy for 18 damage, which is a rare at a third of the cost. 2/3/4/5 puts
+    // the ceilings at 16/28/46/55, each one under the next tier.
     const int step = legendary ? 5 : superRare ? 4 : rare ? 3 : 2;
     // Heals are a percentage of max HP, so the same step runs away with them.
     value = (effect == CardEffect::HEAL) ? std::min(70, value + 2) : value + step;
@@ -520,7 +520,8 @@ void Card::upgrade() {
         else if (effect == CardEffect::IMPAIR)
             description = "Gain " + std::to_string(value) + " armor. 50% chance to Weaken the enemy.";
         else if (effect == CardEffect::CHIP)
-            description = "Gain " + std::to_string(value) + " armor. Deal 3 damage.";
+            description = "Gain " + std::to_string(value) + " armor, then deal " + std::to_string(value)
+                        + " damage that bypasses the enemy's armor.";
         else if (effect == CardEffect::WARD)
             description = "Gain " + std::to_string(value) + " armor and ward yourself for 2 turns. "
                           "Every ailment the enemy would inflict (Poison, Burn, Rend, Weak or Stun) is blocked while the ward lasts.";

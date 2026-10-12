@@ -92,9 +92,8 @@ static CardType strToCardType(const std::string& s) {
     return CardType::SPECIAL;
 }
 
-// The full road's own: its clears and long hauls, and everything that only
-// happens on it (the vigils, the Moonstruck, the true form). The quick road
-// cannot earn these.
+// Full road only: the clears and long hauls, and anything that only happens on
+// it (vigils, Moon Shades, the true form). Quick can't earn these.
 static bool fullRoadOnly(int id) {
     switch (id) {
         case Achievements::CLEAR: case Achievements::HEAD_START: case Achievements::NO_REST:
@@ -159,9 +158,8 @@ void Game::applySettings() const {
 }
 
 void Game::showSettings() {
-    // Seven settings and a way out. Left and right move the row under the
-    // cursor, and the value is applied as it moves, so a volume is heard
-    // while it is being set rather than after the screen closes.
+    // Seven settings and Back. Left/right change the row you're on and apply as it
+    // moves, so you hear the volume while you set it, not after closing.
     auto speedWord = [](int v) {
         return std::to_string(v) + "%   " + (v == 0 ? "instant" : v < 80 ? "slow"
                                            : v <= 140 ? "normal" : "fast");
@@ -228,7 +226,7 @@ void Game::loadProgress() {
     if (!in.is_open()) return;
     std::string tag;
     unsigned long long ach = 0, ach2 = 0, sits = 0;
-    int forms = 0, beaten = 0, moonOut = 0;
+    int forms = 0, beaten = 0, moonOut = 0, sitLayout = 1;
     while (in >> tag) {
         if (tag == "CLEARED") in >> clearedMask;
         else if (tag == "SETS") in >> unlockedSets;
@@ -237,8 +235,20 @@ void Game::loadProgress() {
         else if (tag == "FORMS") in >> forms;
         else if (tag == "BEATEN") in >> beaten;
         else if (tag == "SITS") in >> sits;
+        else if (tag == "SITV") in >> sitLayout;
         else if (tag == "MOON") in >> moonOut;
         else if (tag == "MET") in >> metMask[0] >> metMask[1];
+        else if (tag == "LETTERS") in >> lettersRead;   // the camps' letters read, in any run
+        else if (tag == "SCENES") in >> scenesSeen;     // the Lore Book's moments seen
+        else if (tag == "CARDS") {   // the Card Ledger: names held in any run, '|' between them
+            std::string rest, name;
+            std::getline(in, rest);
+            std::istringstream names(rest);
+            while (std::getline(names, name, '|')) {
+                const size_t a = name.find_first_not_of(' ');
+                if (a != std::string::npos) cardsHeld.insert(name.substr(a));
+            }
+        }
     }
     // Clears from before there were achievements still count, quietly.
     if (clearedMask & 1) ach |= 1ULL << Achievements::CLEAR;
@@ -247,6 +257,8 @@ void Game::loadProgress() {
     Achievements::setMask(ach2, 1);
     Achievements::setFormsSeen(forms);
     Achievements::setFormsBeaten(beaten);
+    // Heard before the Mountain's new fire went in: the ones after it move along.
+    if (sitLayout < SIT_LAYOUT) sits = sitsToLayout2(sits);
     Achievements::setSitsHeard(sits);
     // Saves from before the record still put it out if they hold the crimson one.
     Achievements::setFalseMoonBeaten(moonOut != 0 || Achievements::has(Achievements::FALSE_MOON));
@@ -264,8 +276,15 @@ void Game::saveProgress() const {
     out << "FORMS " << Achievements::formsSeen() << "\n";
     out << "BEATEN " << Achievements::formsBeaten() << "\n";
     out << "SITS " << Achievements::sitsHeard() << "\n";
+    out << "SITV " << SIT_LAYOUT << "\n";
     out << "MOON " << (Achievements::falseMoonBeaten() ? 1 : 0) << "\n";
     out << "MET " << metMask[0] << " " << metMask[1] << "\n";
+    out << "LETTERS " << lettersRead << "\n";
+    out << "SCENES " << scenesSeen << "\n";
+    out << "CARDS ";
+    for (auto it = cardsHeld.begin(); it != cardsHeld.end(); ++it)
+        out << (it == cardsHeld.begin() ? "" : "|") << *it;
+    out << "\n";
 }
 
 void Game::earn(int achievement) {
@@ -287,6 +306,7 @@ void Game::updateHeartbeat() {
 }
 
 void Game::checkDeckAchievements() {
+    noteCardsHeld();
     for (const Card& c : playerDeck.getAllCardsOrdered())
         if (c.isLegendary()) { earn(Achievements::LEGEND); return; }
 }
@@ -295,9 +315,8 @@ void Game::checkDeckAchievements() {
 // harder roads can be started with that deck.
 void Game::recordClear() {
     clearedMask |= (runMode == Mode::HARD) ? 2 : (runMode == Mode::RANDOM_HARD) ? 4 : 1;
-    // What you take off the thing you just put down. Finishing the fifty is
-    // the Shadow Knight's own plate and blade; the moon's comes off the hard
-    // road, which is the only place it was ever going to come from.
+    // What you take off the thing you just killed: the Shadow Knight's plate and
+    // blade for finishing the fifty, the moon's set for the hard road.
     if (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD) unlockedSets |= 2;
     else                                                       unlockedSets |= 1;
     if (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD) earn(Achievements::HARD);
@@ -432,8 +451,9 @@ void Game::writeSaveTo(std::ostream& out) const {
     out << "MOONSEEN " << moonZonesSeen << "\n";
     out << "MOONMET " << moonstruckMet << "\n";
     out << "MOONBEATEN " << moonZonesBeaten << "\n";
-    out << "SAT " << satCount << "\n";
+    out << "SAT " << satCount << " " << SIT_LAYOUT << "\n";
     out << "STOPS " << stopsDone << "\n";
+    out << "KEEPSAKES " << keepsakes << "\n";
     out << "RESTED " << (restedThisRun ? 1 : 0) << "\n";
     out << "DISCARDED " << (discardedThisRun ? 1 : 0) << "\n";
     out << "NONDOT " << (playedNonDot ? 1 : 0) << "\n";
@@ -497,10 +517,10 @@ bool Game::loadSaveFrom(std::istream& in) {
     int savedAttune = 0, savedGearInt = 3;
     int savedSeals = 0, savedMoonSeen = 0, savedWornW = -1, savedWornA = -1;
     int savedRelics = 0, savedThread = 0, savedMoonMet = 0, savedSat = 0;
+    int savedSatLayout = 1;   // SAT's second number, written from layout 2 on
     int savedMoonBeaten = 0;   // a save from before it was kept has none beaten this run
-    // A save from before these were written cannot say whether its run rested
-    // or threw a card away, so it counts as having done both: the two clean
-    // clears are for runs that can show they did neither.
+    // Old saves can't say whether the run rested or discarded, so they count as
+    // having done both. The two clean clears are for runs that can prove it.
     int savedRested = 1, savedDiscarded = 1, savedNonDot = 1;
     std::string savedLastDead;   // a save from before Raise Undead remembers none
     int savedMode = 0;
@@ -510,7 +530,7 @@ bool Game::loadSaveFrom(std::istream& in) {
     std::vector<Card> loadedCards, loadedGone;
     Card weldFirst("", "", CardType::ATTACK, 0, 0);   // a weld's first half, until its second is read
     bool haveWeldFirst = false;
-    int savedStops = 0;
+    int savedStops = 0, savedKeepsakes = 0;
 
     while (std::getline(in, line)) {
         if (line.empty()) continue;
@@ -528,8 +548,12 @@ bool Game::loadSaveFrom(std::istream& in) {
             }
             if (f.size() != 13) continue; // corrupted line - skip rather than abort the whole load
             try {
+                // Torch and the other Burn/Poison cards only got their [Fire]/[Poison] tags
+                // later, so an older save's copy gets the tag from the pool.
+                DamageType elem = strToDmg(f[11]);
+                if (elem == DamageType::NONE) elem = rewardPool.elementOf(f[0]);
                 Card c(f[0], f[1], strToCardType(f[2]), std::stoi(f[3]), std::stoi(f[4]),
-                       strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), strToDmg(f[11]),
+                       strToEffect(f[5]), f[6] == "1", strToDmg(f[9]), elem,
                        f[7] == "1", strToDmg(f[10]), f[8] == "1", std::stoi(f[12]));
                 if (weldHalf) { weldFirst = c; haveWeldFirst = true; continue; }
                 if (haveWeldFirst && !gone) { c = Card::weld(weldFirst, c); haveWeldFirst = false; }
@@ -558,8 +582,9 @@ bool Game::loadSaveFrom(std::istream& in) {
         else if (tag == "MOONSEEN")    iss >> savedMoonSeen;
         else if (tag == "MOONMET")     iss >> savedMoonMet;
         else if (tag == "MOONBEATEN")  iss >> savedMoonBeaten;
-        else if (tag == "SAT")         iss >> savedSat;
+        else if (tag == "SAT")         iss >> savedSat >> savedSatLayout;
         else if (tag == "STOPS")       iss >> savedStops;
+        else if (tag == "KEEPSAKES")   iss >> savedKeepsakes;
         else if (tag == "RESTED")      iss >> savedRested;
         else if (tag == "DISCARDED")   iss >> savedDiscarded;
         else if (tag == "NONDOT")      iss >> savedNonDot;
@@ -603,8 +628,10 @@ bool Game::loadSaveFrom(std::istream& in) {
     moonZonesSeen     = savedMoonSeen;
     moonstruckMet     = std::max(0, savedMoonMet);
     moonZonesBeaten   = savedMoonBeaten & 31;
+    if (savedSatLayout < SIT_LAYOUT && savedSat > SIT_ADDED_AT) savedSat++;   // a fire went in before it
     satCount          = std::max(0, savedSat);
     stopsDone         = std::max(0, savedStops);
+    keepsakes         = savedKeepsakes & 31;
     restedThisRun     = savedRested != 0;
     discardedThisRun  = savedDiscarded != 0;
     discardedCards    = loadedGone;

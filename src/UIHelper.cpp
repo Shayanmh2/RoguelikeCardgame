@@ -126,9 +126,9 @@ const char* bannerFor(const std::string& text) {
     return nullptr;
 }
 
-// Shared by the headline and the title: whole-number scaling inside a box,
-// because half a pixel of a two pixel stem is what makes pixel art look like
-// a photograph of pixel art.
+// Shared by the headline and the title: whole number scaling inside a box,
+// because half a pixel of a two pixel stem makes pixel art look like a photo
+// of pixel art.
 bool drawBannerArt(const char* name, int topY, int widthPct, int heightDiv) {
     int bw = 0, bh = 0;
     if (!name || !EnemyArt::wordmarkSize(name, bw, bh) || bw <= 0 || bh <= 0) return false;
@@ -181,9 +181,9 @@ void drawTitleBanner() {
         drawVersionCorner();
         return;
     }
-    // One word, with the second half capitalised: a full space pushed the two
-    // halves apart into two names, and a hyphen joined them into one
-    // hyphenated word. The capital does the same job with nothing between.
+    // One word with the second half capitalised. A space split it into two names
+    // and a hyphen made it look like one hyphenated word. The capital does the
+    // job with nothing in between.
     const std::string title = "MoonStruck";
     const int tracking = std::max(2, Console::titleCellW() / 12);
     const int w = (int)title.size() * (Console::titleCellW() + tracking) - tracking;
@@ -272,9 +272,8 @@ int UIHelper::titleMenu(const std::vector<std::string>& options) {
         else if (k.key == Platform::Key::DOWN || k.key == Platform::Key::RIGHT)
             gTitleSel = (gTitleSel + 1) % n;
         else if (k.key == Platform::Key::ENTER) { Audio::menuSelect(); return gTitleSel; }
-        // Escape here quits. A controller's B is "back" everywhere else, and
-        // pressed here it would close the game, so a controller quits by
-        // choosing Quit.
+        // Escape quits here. A controller's B is "back" everywhere else and would close
+        // the game from this screen, so controllers quit by picking Quit.
         else if (k.key == Platform::Key::ESCAPE && !k.pad) { Audio::menuSelect(true); return -1; }
 
         int cx, cy;
@@ -349,9 +348,8 @@ int UIHelper::visibleLen(const std::string& s) {
 }
 
 void UIHelper::waitForKey(const std::string& prompt) {
-    // The default footer is centred, because every screen that takes it is
-    // centred. A caller passing its own prompt is placing it itself: the
-    // combat log wants its prompt inline with the log text, not in the middle.
+    // The default footer is centred, since every screen that uses it is. A caller
+    // passing its own prompt places it itself (the combat log wants it inline).
     if (prompt == "  (press any key to continue)")
         printCentered(std::string("\033[2m") + "(press any key to continue)" + "\033[0m");
     else
@@ -368,17 +366,17 @@ void UIHelper::waitForKey(const std::string& prompt) {
     std::cout << "\n";
 }
 
-// Centred menus are opt in: the battle and rest menus read better left
-// aligned against their own content, but a full screen menu under a
-// centred title looked detached hugging the left edge.
+// Centred menus are opt in: battle and rest menus read better left aligned
+// against their content, but a full screen menu under a centred title looked
+// weird hugging the left edge.
 
 void UIHelper::typeWrite(const std::string& text, int msPerChar) {
     // Applied here rather than at the call sites, so every piece of typed
     // text in the game answers the setting without knowing about it.
     msPerChar = gTextSpeed <= 0 ? 0 : msPerChar * 100 / gTextSpeed;
-    // Runs off a wall-clock deadline, not a sleep per character: platSleep()
+    // Runs off a wall clock deadline, not a sleep per character: platSleep()
     // always draws a vsynced frame (~16ms), which capped the speed. Several
-    // characters can land in one frame.
+    // characters can land in one frame now.
     Uint32 deadline = SDL_GetTicks();
     auto waitOne = [&]() {
         if (msPerChar <= 0) return;

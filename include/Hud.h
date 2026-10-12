@@ -54,6 +54,12 @@ void setPreview(int hpLoss);
 void setActive(bool on);            // off outside battle - rewards, forge, menus
 int  rowsNeeded();                  // console rows the panel occupies
 
+// How the status tags are shown (Settings, "Status tags"): a symbol in each
+// tag's bracket before its words, the words alone, or the symbols alone.
+// Pointing at a tag says it in full whichever way it is shown.
+enum TagStyle { TAGS_ICONS_AND_TEXT = 0, TAGS_TEXT_ONLY = 1, TAGS_ICONS_ONLY = 2 };
+void setTagStyle(int style);
+
 } // namespace Hud
 
 #endif

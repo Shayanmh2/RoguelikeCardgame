@@ -19,6 +19,7 @@ SDL_Window*   gWindow = nullptr;
 SDL_Renderer* gRenderer = nullptr;
 TTF_Font*     gFont = nullptr;
 TTF_Font*     gFontBold = nullptr;
+TTF_Font*     gFontItalic = nullptr;   // the regular face, slanted (Console::setItalicFont)
 int gCellW = 9, gCellH = 20;
 
 std::deque<KeyEvent> gKeys;
@@ -38,9 +39,9 @@ std::function<void()> gModalRenderer;
 std::function<void()> gToastRenderer;
 SDL_Color gGround{ 13, 13, 15, 255 };
 
-// Font sizing state. The point size is not fixed: a short window has too few
-// rows for both the combat text and a scene worth looking at, so the font is
-// refitted whenever the window height changes.
+// Font sizing. The point size isn't fixed: a short window doesn't have enough
+// rows for the combat text and a decent scene, so the font gets refitted
+// whenever the window height changes.
 std::string gFontPath, gFontBoldPath;
 int gFontPxIdeal = 19;      // the DPI-correct size; never exceeded
 int gFontPx = 0;            // what is currently loaded
@@ -55,9 +56,9 @@ Uint32 gShakeStart = 0, gShakeMs = 0;
 float  gShakeMag = 0.0f;
 int    gShakeX = 0, gShakeY = 0;
 
-// Recomputed once per frame so every consumer in that frame agrees on the
-// offset. Amplitude falls off quadratically, which reads as an impact settling
-// rather than a vibration stopping dead.
+// Worked out once per frame so everything in that frame agrees on the offset.
+// It falls off quadratically, so it feels like an impact settling instead of
+// a vibration just stopping.
 void stepShake() {
     if (gShakeMs == 0) { gShakeX = gShakeY = 0; return; }
     Uint32 t = SDL_GetTicks() - gShakeStart;
@@ -71,6 +72,107 @@ void stepShake() {
 
 Uint32 gLastFrame = 0;
 
+int      gTipSteps = 0;          // tip button presses not yet taken
+unsigned gSerial = 0;            // every other input, counted
+bool     gPointerHidden = false;
+
+// --- controllers ------------------------------------------------------------
+// Any number can be plugged in and any of them drives the game. They feed the
+// key queue, so no screen has to know controllers exist.
+std::vector<SDL_GameController*> gPads;
+
+// A direction held on the d-pad or the left stick repeats the way a held
+// arrow key does: once straight away, then again after a pause, then steadily.
+constexpr Uint32 REPEAT_DELAY = 360, REPEAT_EVERY = 110;
+// How far a stick has to lean to count, and how far back it has to come to
+// let go: the gap keeps a stick resting near the line from flickering.
+constexpr int STICK_ON = 16000, STICK_OFF = 9000;
+Key    gHeldKey = Key::NONE;
+int    gHeldFrom = 0;            // 1 the d-pad, 2 the left stick
+Uint32 gHeldNext = 0;
+Key    gStickDir = Key::NONE;
+int    gScrollY = 0;             // the right stick, which scrolls like the wheel
+Uint32 gScrollNext = 0;
+// The triggers are axes: pressed past STICK_ON, let go under STICK_OFF.
+bool   gTriggerDown[2] = { false, false };   // L2, R2
+
+void padPress(Key k) {
+    KeyEvent e;
+    e.key = k;
+    e.pad = true;
+    gKeys.push_back(e);
+}
+void padHold(Key k, int from) {
+    padPress(k);
+    gHeldKey = k;
+    gHeldFrom = from;
+    gHeldNext = SDL_GetTicks() + REPEAT_DELAY;
+}
+void padRelease(int from, Key k = Key::NONE) {
+    if (gHeldFrom == from && (k == Key::NONE || k == gHeldKey)) { gHeldKey = Key::NONE; gHeldFrom = 0; }
+}
+// Using a controller hides the pointer, so it stops raising tips and
+// highlights wherever it was left; moving the mouse brings it back.
+void padUsed() {
+    if (!gPointerHidden) { gPointerHidden = true; SDL_ShowCursor(SDL_DISABLE); }
+}
+
+Key dpadKey(Uint8 button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:    return Key::UP;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:  return Key::DOWN;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:  return Key::LEFT;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return Key::RIGHT;
+        default:                               return Key::NONE;
+    }
+}
+
+// The left stick's direction now: whichever axis leans furthest, and the
+// one it was already on until it comes back past STICK_OFF.
+Key stickDir(SDL_GameController* c) {
+    const int x = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTX);
+    const int y = SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_LEFTY);
+    Key d = Key::NONE;
+    if (std::abs(x) > std::abs(y)) { if (x > STICK_ON) d = Key::RIGHT; else if (x < -STICK_ON) d = Key::LEFT; }
+    else                           { if (y > STICK_ON) d = Key::DOWN;  else if (y < -STICK_ON) d = Key::UP; }
+    if (d == Key::NONE && gStickDir != Key::NONE) {
+        const bool across = gStickDir == Key::LEFT || gStickDir == Key::RIGHT;
+        if (std::abs(across ? x : y) > STICK_OFF) d = gStickDir;
+    }
+    return d;
+}
+
+void padButton(const SDL_ControllerButtonEvent& b) {
+    padUsed();
+    if (b.button == SDL_CONTROLLER_BUTTON_Y || b.button == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) { gTipSteps++; return; }
+    if (b.button == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) { gTipSteps--; return; }
+    gSerial++;
+    const Key d = dpadKey(b.button);
+    if (d != Key::NONE) { padHold(d, 1); return; }
+    switch (b.button) {
+        case SDL_CONTROLLER_BUTTON_A:
+        case SDL_CONTROLLER_BUTTON_START: padPress(Key::ENTER); break;
+        case SDL_CONTROLLER_BUTTON_B:     padPress(Key::ESCAPE); break;
+        case SDL_CONTROLLER_BUTTON_X:     padPress(Key::DETAILS); break;
+        default: break;
+    }
+}
+
+// Once a frame: a held direction repeats and the right stick scrolls. Nothing
+// piles up while the game is busy, a repeat waits until the queue's been read.
+void padTick() {
+    const Uint32 now = SDL_GetTicks();
+    if (gHeldKey != Key::NONE && (Sint32)(now - gHeldNext) >= 0) {
+        if (gKeys.size() < 2) padPress(gHeldKey);
+        gHeldNext = now + REPEAT_EVERY;
+    }
+    if (std::abs(gScrollY) > STICK_ON) {
+        if ((Sint32)(now - gScrollNext) >= 0) { gWheel += gScrollY < 0 ? 1 : -1; gScrollNext = now + 90; }
+    } else {
+        gScrollNext = now;
+    }
+}
+
 void pumpEvents() {
     SDL_Event ev;
     while (SDL_PollEvent(&ev)) {
@@ -78,8 +180,63 @@ void pumpEvents() {
             case SDL_QUIT:
                 gQuit = true;
                 break;
+            case SDL_CONTROLLERDEVICEADDED:
+                if (SDL_GameController* c = SDL_GameControllerOpen(ev.cdevice.which)) {
+                    gPads.push_back(c);
+                    Audio::logLaunch(std::string("controller: ") + (SDL_GameControllerName(c) ? SDL_GameControllerName(c) : "unnamed"));
+                }
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (SDL_GameController* c = SDL_GameControllerFromInstanceID(ev.cdevice.which)) {
+                    gPads.erase(std::remove(gPads.begin(), gPads.end(), c), gPads.end());
+                    SDL_GameControllerClose(c);
+                    gHeldKey = gStickDir = Key::NONE;
+                    gHeldFrom = 0;
+                    gScrollY = 0;
+                    gTriggerDown[0] = gTriggerDown[1] = false;
+                }
+                break;
+            case SDL_CONTROLLERBUTTONDOWN:
+                padButton(ev.cbutton);
+                break;
+            case SDL_CONTROLLERBUTTONUP:
+                padRelease(1, dpadKey(ev.cbutton.button));
+                break;
+            case SDL_CONTROLLERAXISMOTION: {
+                SDL_GameController* c = SDL_GameControllerFromInstanceID(ev.caxis.which);
+                if (!c) break;
+                if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX || ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
+                    const Key d = stickDir(c);
+                    if (d != gStickDir) {
+                        gStickDir = d;
+                        if (d == Key::NONE) padRelease(2);
+                        else { padUsed(); gSerial++; padHold(d, 2); }
+                    }
+                } else if (ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY) {
+                    gScrollY = ev.caxis.value;
+                    if (std::abs(gScrollY) > STICK_ON) padUsed();
+                } else if (ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT
+                           || ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT) {
+                    // R2 to the buttons next to the cards, L2 back to the cards. Tested on a PS4 pad.
+                    const int t = ev.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT ? 1 : 0;
+                    if (!gTriggerDown[t] && ev.caxis.value > STICK_ON) {
+                        gTriggerDown[t] = true;
+                        padUsed();
+                        gSerial++;
+                        padPress(t ? Key::TO_ACTIONS : Key::TO_CARDS);
+                    } else if (gTriggerDown[t] && ev.caxis.value < STICK_OFF) {
+                        gTriggerDown[t] = false;
+                    }
+                }
+                break;
+            }
             case SDL_KEYDOWN: {
                 KeyEvent k;
+                if (ev.key.keysym.sym == SDLK_TAB) {
+                    gTipSteps += (ev.key.keysym.mod & KMOD_SHIFT) ? -1 : 1;
+                    break;
+                }
+                gSerial++;
                 switch (ev.key.keysym.sym) {
                     case SDLK_UP:     k.key = Key::UP; break;
                     case SDLK_DOWN:   k.key = Key::DOWN; break;
@@ -114,6 +271,7 @@ void pumpEvents() {
                     gMouseDown = true;
                     gClickX = ev.button.x;
                     gClickY = ev.button.y;
+                    gSerial++;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
@@ -122,6 +280,8 @@ void pumpEvents() {
             case SDL_MOUSEMOTION:
                 gMouseX = ev.motion.x;
                 gMouseY = ev.motion.y;
+                gSerial++;
+                if (gPointerHidden) { gPointerHidden = false; SDL_ShowCursor(SDL_ENABLE); }
                 break;
             case SDL_MOUSEWHEEL:
                 // Accumulated rather than latched: a fast flick delivers
@@ -132,11 +292,13 @@ void pumpEvents() {
             default: break;
         }
     }
+    padTick();
 }
 
-// Closing the window has to work even though the game is several blocking
-// calls deep inside Game::run(). Unwinding that by hand would mean threading a
-// quit check through every loop in Game.cpp; instead shut down cleanly here.
+// ahhh this one is annoying. Closing the window has to work even though the
+// game is several blocking calls deep inside Game::run(), and threading a quit
+// check through every loop in Game.cpp was never going to happen. So we just
+// shut down cleanly right here instead.
 void exitIfQuit() {
     if (!gQuit) return;
     Audio::stopBGM();
@@ -144,6 +306,7 @@ void exitIfQuit() {
     Audio::shutdown();
     if (gFont) TTF_CloseFont(gFont);
     if (gFontBold) TTF_CloseFont(gFontBold);
+    if (gFontItalic) TTF_CloseFont(gFontItalic);
     if (gRenderer) SDL_DestroyRenderer(gRenderer);
     if (gWindow) SDL_DestroyWindow(gWindow);
     TTF_Quit();
@@ -151,9 +314,9 @@ void exitIfQuit() {
     std::exit(0);
 }
 
-// Rows the battle screen wants: EnemyArt reserves MIN_TEXT_ROWS (27) for the
-// header, status block and card menu, and the scene lives on what is left. Ask
-// for enough that the scene gets a dozen rows rather than its 3x floor.
+// Rows the battle screen wants: EnemyArt keeps 27 for the header, status and
+// card menu, and the scene gets the rest. Ask for enough that the scene gets a
+// dozen rows, not its 3x minimum.
 constexpr int TARGET_ROWS = 39;
 
 bool openFontsAt(int px) {
@@ -176,6 +339,17 @@ bool openFontsAt(int px) {
     if (gCellH <= 0) gCellH = 20;
     gFontPx = px;
     Console::setFont(gFont, gFontBold, gCellW, gCellH);
+
+    // Italic, for the camps' letters: the regular face slanted, so no third
+    // font file ships for a few paragraphs.
+    Console::setItalicFont(nullptr);
+    if (gFontItalic) TTF_CloseFont(gFontItalic);
+    gFontItalic = TTF_OpenFont(gFontPath.c_str(), px);
+    if (gFontItalic) {
+        TTF_SetFontHinting(gFontItalic, TTF_HINTING_LIGHT);
+        TTF_SetFontStyle(gFontItalic, TTF_STYLE_ITALIC);
+    }
+    Console::setItalicFont(gFontItalic);
 
     // Card-text face, four fifths of the grid, for a card brief too long for
     // its card at the grid size. Never under 11px, past which it is hard to read.
@@ -205,9 +379,9 @@ bool openFontsAt(int px) {
         Console::setBigFont(gFontBig, gFontBigBold, bw > 0 ? bw : bigPx/2,
                             TTF_FontLineSkip(gFontBig));
 
-        // Title face, for the title screen and the headline overlay. Sized off the
-        // grid font (which tracks window height), then capped so an 18-character
-        // headline fits the width; an advance is about 0.6 of the point size.
+        // Title font for the title screen and the headline overlay. Sized off the grid
+        // font, then capped so an 18 character headline fits; an advance is about
+        // 0.6 of the point size.
         const int byHeight = (int)(px * 5.6f + 0.5f);
         const int byWidth  = (screenW() - 44) * 10 / (18 * 6);
         const int dispPx = std::max(px, std::min(byHeight, byWidth));
@@ -255,9 +429,9 @@ bool openFontsAt(int px) {
     return true;
 }
 
-// Only runs when the window height actually changes - reopening a TTF every
-// frame would be wasteful, and the feedback loop (size -> rows -> size) would
-// oscillate by a pixel forever.
+// Only runs when the window height actually changes. Reopening a TTF every
+// frame is wasteful, and the size -> rows -> size loop would wobble by a pixel
+// forever.
 void refitFont(int outH) {
     if (outH == gLastFitH || gFontPath.empty()) return;
     gLastFitH = outH;
@@ -272,8 +446,8 @@ void refitFont(int outH) {
 
 bool init(const char* title) {
     // Before SDL_Init, or Windows bitmap-stretches the window at 125%/150% and
-    // blurs every glyph. Not SDL_WINDOWS_DPI_SCALING: that desyncs mouse events
-    // from the renderer's output size.
+    // blurs every glyph. Not SDL_WINDOWS_DPI_SCALING, that desyncs the mouse from
+    // the renderer.
     SDL_SetHint(SDL_HINT_WINDOWS_DPI_AWARENESS, "permonitorv2");
 
     // Says what went wrong, where the player can see it. Launched from a Dock
@@ -288,9 +462,8 @@ bool init(const char* title) {
         return false;
     };
 
-    // Video only. Audio is asked for separately below, because a Mac with a
-    // busy or missing sound device failed this call and took the whole launch
-    // with it.
+    // Video only. Audio gets asked for separately below, because a Mac with a busy
+    // or missing sound device failed this call and took the whole launch with it.
     if (SDL_Init(SDL_INIT_VIDEO) != 0) return fail("SDL_Init (video)", SDL_GetError());
     Audio::logLaunch("sdl: video up");
     if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
@@ -301,19 +474,24 @@ bool init(const char* title) {
     }
     if (TTF_Init() != 0) return fail("TTF_Init (text)", TTF_GetError());
     Audio::logLaunch("sdl: text engine up");
+    // Controllers asked for on their own like audio, so without them you can still
+    // play on keyboard and mouse. Pads already plugged in show up on frame one.
+    if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
+        Audio::logLaunch(std::string("sdl: no controller support, keyboard and mouse only: ") + SDL_GetError());
+        SDL_ClearError();
+    }
 
-    // Starts maximized. Rows are the scarce resource for this layout (the
-    // battle screen wants about 33 of them), and on a scaled display a fixed
-    // 1600x900 does not have enough once the font is a readable size.
+    // Starts maximised. Rows are the scarce thing in this layout (the battle screen
+    // wants about 33), and on a scaled display a fixed 1600x900 doesn't have
+    // enough once the font's readable.
     gWindow = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                DEFAULT_W, DEFAULT_H,
                                SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
     if (!gWindow) return fail("SDL_CreateWindow", SDL_GetError());
     Audio::logLaunch("sdl: window created");
 
-    // The window's own icon: the title bar, the running taskbar button, and on
-    // Linux the whole story, since there is no compiled-in resource there.
-    // A missing file is not worth failing startup over.
+    // The window icon (title bar, taskbar, and on Linux everything, since there's
+    // no compiled-in resource there). A missing file isn't worth failing over.
     {
         int iw = 0, ih = 0, comp = 0;
         const std::string iconPath = Audio::dataDir() + "assets/icon.png";
@@ -335,17 +513,16 @@ bool init(const char* title) {
     // output size is what keeps the text crisp.
     SDL_SetRenderDrawBlendMode(gRenderer, SDL_BLENDMODE_BLEND);
 
-    // DejaVu Sans Mono, bundled so the build is self-contained and free to
-    // redistribute; it has the block glyphs the bars need. The system paths
-    // below are only a fallback.
+    // DejaVu Sans Mono is bundled so the build is self contained and free to ship,
+    // and it has the block glyphs the bars need. System fonts are only a fallback.
     const std::string base = Audio::dataDir();
     // Looked for in every folder a rearranged .app could leave it in.
     std::vector<std::string> tried;
     for (const std::string& dir : { base, Audio::exeDir(), Audio::exeDir() + "../Resources/" })
         tried.push_back(dir + "assets/DejaVuSansMono.ttf");
-    // Then the system faces, per platform. Menlo lives under /System/Library
-    // on macOS: /Library/Fonts/Menlo.ttc is gone since Catalina, and a missing
-    // font leaves the window with nothing to draw.
+    // Then the system fonts per platform. Menlo lives under /System/Library on
+    // macOS now: /Library/Fonts/Menlo.ttc is gone since Catalina, and a missing
+    // font means a window with nothing in it.
     for (const char* p : {
             "/System/Library/Fonts/Menlo.ttc",
             "/System/Library/Fonts/SFNSMono.ttf",
@@ -406,9 +583,9 @@ bool init(const char* title) {
     gFontPxIdeal = FONT_PX;
     if (!openFontsAt(FONT_PX)) { std::cerr << "Could not open a monospace font" << std::endl; return false; }
 
-    // Establish the real viewport before anything prints. frame() refreshes it
-    // every tick, but the title screen is written before the first frame, and
-    // centring against the stale 1600x900 default put it left of centre.
+    // Get the real viewport before anything prints. frame() refreshes it every
+    // tick, but the title is written before the first frame, and centring against
+    // the stale 1600x900 default put it off to the left.
     {
         int outW = DEFAULT_W, outH = DEFAULT_H;
         SDL_GetRendererOutputSize(gRenderer, &outW, &outH);
@@ -454,9 +631,9 @@ void frame() {
     SDL_RenderClear(gRenderer);
 
     if (gSceneRenderer) gSceneRenderer();
-    // Panels draw BEFORE the text: they are backgrounds, and the log panel sits
-    // directly behind the combat log. Running this after Console::render filled
-    // straight over those lines.
+    // Panels draw BEFORE the text, they're backgrounds (the log panel sits right
+    // behind the combat log). Drawing them after Console::render painted straight
+    // over the log.
     if (gHudRenderer) gHudRenderer();
     Console::render(gRenderer);
     if (gOverlayRenderer) gOverlayRenderer();
@@ -473,9 +650,9 @@ void frame() {
     gLastFrame = SDL_GetTicks();
 }
 
-// Combat pacing: pause() and EnemyArt::hold() route through delay(), which
-// scales by this; typeWrite() keeps its own clock. 150 is the authored
-// rhythm, "Normal" on the Settings screen. Higher is slower.
+// Combat pacing: pause() and EnemyArt::hold() go through delay(), which scales
+// by this. typeWrite() has its own clock. 150 is the authored rhythm, "Normal"
+// in Settings. Higher is slower.
 static int gPacePercent = 150;
 
 void setPacePercent(int pct) { gPacePercent = pct < 10 ? 10 : (pct > 300 ? 300 : pct); }
@@ -494,7 +671,17 @@ KeyEvent pollKey() {
     return k;
 }
 
-void flushKeys() { gKeys.clear(); gHasClick = false; gMouseDown = false; }
+// A held direction keeps repeating on the next screen, as a held key does,
+// but only after the full pause: the new screen does not start scrolling.
+void flushKeys() {
+    gKeys.clear(); gHasClick = false; gMouseDown = false;
+    gTipSteps = 0;
+    if (gHeldKey != Key::NONE) gHeldNext = SDL_GetTicks() + REPEAT_DELAY;
+}
+
+int takeTipSteps() { const int s = gTipSteps; gTipSteps = 0; return s; }
+unsigned inputSerial() { return gSerial; }
+bool pointerHidden() { return gPointerHidden; }
 
 bool takeClick(int& x, int& y) {
     if (!gHasClick) return false;

@@ -6,8 +6,8 @@ namespace StatusIcons {
 namespace {
 
 // '#' is drawn in the tag's colour, 'o' a step lighter, '.' is left clear.
-// The first sixteen are the set the user saw on the Road Ahead page
-// (2026-10-11); the rest are the enemy's tags, drawn to match.
+// The first sixteen were the set I settled on first, the rest are the enemy's
+// tags drawn to match.
 struct Symbol { const char* rows[8]; };
 const Symbol SYMBOLS[] = {
     {{ "...#....", "...##...", "..####..", ".##o###.", ".#o####.", ".######.", "..####..", "........" }}, // droplet: Poison

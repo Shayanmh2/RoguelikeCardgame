@@ -13,6 +13,7 @@ struct Cell {
     char32_t ch = U' ';
     SDL_Color fg{ 205, 205, 215, 255 };
     bool bold = false;
+    bool italic = false;   // SGR 3: the regular face, slanted
 };
 
 // --- writing (the std::cout redirect calls this) ---
@@ -46,12 +47,15 @@ SDL_Rect textRegion();
 
 // Text at a pixel position, for widgets drawn in the reserved bands.
 void drawTextPx(SDL_Renderer* r, int x, int y, const std::string& text,
-                SDL_Color color, bool bold);
+                SDL_Color color, bool bold, bool italic = false);
 
 // Draws text that already carries ANSI colour, keeping it. Returns the x the
 // run ended at, so callers can lay the next thing out after it.
 int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
                SDL_Color base, bool bold);
+// The colour drawAnsiPx would draw the first visible character in: `base`
+// unless an escape before it sets another. A status tag's symbol takes it.
+SDL_Color ansiColorAt(const std::string& text, SDL_Color base);
 
 // Widget-sized face. Its own point size, not a scale-up; see Console.cpp.
 void setBigFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
@@ -91,6 +95,9 @@ void init(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
 // Swap to a different point size. Clears the glyph cache, whose keys carry
 // no size - stale textures would otherwise be drawn at the new cell size.
 void setFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH);
+// The slanted face for italic text (Color::ITALIC). Without one, italic
+// text is drawn upright.
+void setItalicFont(TTF_Font* italic);
 
 // Action history, kept separately because clear() wipes the screen buffer.
 // Capture is opt-in: the battle screen redraws in full every turn, and

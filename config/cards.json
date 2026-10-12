@@ -28,7 +28,8 @@
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 1,
-      "value": 3
+      "value": 3,
+      "elemType": "POISON"
     },
     {
       "name": "Torch",
@@ -36,7 +37,8 @@
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 1,
-      "value": 5
+      "value": 5,
+      "elemType": "FIRE"
     },
     {
       "name": "Weaken",
@@ -288,7 +290,8 @@
       "type": "SPECIAL",
       "effect": "POISON",
       "cost": 2,
-      "value": 8
+      "value": 8,
+      "elemType": "POISON"
     },
     {
       "name": "Inferno",
@@ -296,7 +299,8 @@
       "type": "SPECIAL",
       "effect": "BURN",
       "cost": 2,
-      "value": 8
+      "value": 8,
+      "elemType": "FIRE"
     },
     {
       "name": "Shatter",
@@ -396,7 +400,8 @@
       "effect": "POISON",
       "superRare": true,
       "cost": 3,
-      "value": 14
+      "value": 14,
+      "elemType": "POISON"
     },
     {
       "name": "Hellfire",
@@ -405,7 +410,8 @@
       "effect": "BURN",
       "superRare": true,
       "cost": 3,
-      "value": 12
+      "value": 12,
+      "elemType": "FIRE"
     },
     {
       "name": "Sunder",

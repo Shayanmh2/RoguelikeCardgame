@@ -281,12 +281,11 @@ void Game::moonClockTick() {
     moonPiecesChanged(before, moonClock);
 }
 
-// A turn let go against the False Moon. Half the time it takes one of the
-// shapes it wore as the Moon Shades, the five the knight beat to get here,
-// and uses that shape's own move in place of the light swing: never the same
-// shape twice running, the Gaze only while the clock has more than two turns
-// (it never takes the turn that ends you), the Howl only while its attack can
-// still rise. Returns false when it swings instead.
+// When you end a turn without a card against the False Moon, half the time it
+// takes one of the Moon Shade shapes and uses that shape's move instead of the
+// light swing. Never the same shape twice in a row, the Gaze only while the
+// clock has more than two turns (it never takes the turn that ends you), the
+// Howl only while its attack can still climb. Returns false when it swings.
 bool Game::falseMoonShadeMove() {
     static thread_local std::mt19937 gen(std::random_device{}());
     if (std::uniform_int_distribution<>(0, 99)(gen) >= FALSE_MOON_SHADE_PCT) return false;
@@ -379,9 +378,8 @@ void Game::moonClockWinBack() {
     if (quarters <= moonQuarters) return;
     const int won = quarters - moonQuarters;
     moonQuarters = quarters;
-    // Only under five turns from being its vessel does a quarter win a turn
-    // back; taken earlier, it is just damage, or the clock would never run
-    // down.
+    // A quarter only wins a turn back once you're under five turns from being its
+    // vessel. Earlier it's just damage, otherwise the clock would never run down.
     if (moonClock >= MOON_WINBACK_UNDER) return;
     const int before = moonClock;
     moonClock = std::min(MOON_CLOCK_TURNS, moonClock + won);
@@ -419,7 +417,7 @@ std::string Game::moonTaken() const {
     return s;
 }
 
-// All five Moon Shades beaten in this run, not across runs: the Moonlit
-// Locket makes finding them certain, so a record kept across runs would
-// open the church on every run after the first.
+// All five Moon Shades beaten in THIS run, not across runs: the Moonlit Locket
+// makes finding them certain, so a record across runs would open the church on
+// every run after the first.
 bool Game::churchEarned() const { return trueFormEarned() && moonZonesBeaten == 31; }

@@ -28,9 +28,11 @@ int gTextInsetB = 0;   // bottom
 
 SDL_Color gCurFg{ 205, 205, 215, 255 };
 bool gCurBold = false;
+bool gCurItalic = false;
 
 TTF_Font* gFont = nullptr;
 TTF_Font* gFontBold = nullptr;
+TTF_Font* gFontItalic = nullptr;
 int gCellW = 9, gCellH = 20;
 SDL_Rect gViewport{ 0, 0, 1600, 900 };
 
@@ -86,11 +88,10 @@ void ensureRow(int row) {
 // The columns the text has room for: the window less the log panel's frame.
 int textCols() { return std::max(20, (gViewport.w - 2 * gTextInset) / gCellW); }
 
-// A line that would run past the window's edge goes on in a new row from its
-// last space, indented under where the line's words began, instead of
-// running off the side. Lines with no space to break at are left as they
-// are (a rule drawn the width of the window). The new row is inserted, so
-// anything already drawn below it moves down rather than being written over.
+// A line that would run off the edge carries on in a new row from its last
+// space, indented under where its words started. Lines with no space (a rule
+// the width of the window) are left alone. The new row is inserted, so
+// anything below moves down instead of getting written over.
 bool wrapAt(char32_t ch) {
     if (gCursorRow >= (int)gLines.size()) return false;
     auto& line = gLines[gCursorRow];
@@ -119,7 +120,7 @@ void putChar(char32_t ch) {
     if (gCursorCol >= textCols() && wrapAt(ch) && ch == U' ') return;
     auto& line = gLines[gCursorRow];
     while ((int)line.size() <= gCursorCol) line.push_back(Cell{});
-    line[gCursorCol] = Cell{ ch, gCurFg, gCurBold };
+    line[gCursorCol] = Cell{ ch, gCurFg, gCurBold, gCurItalic };
     gCursorCol++;
 }
 
@@ -136,8 +137,10 @@ void applySgr(const std::string& body) {
     }
     for (size_t k = 0; k < p.size(); k++) {
         int c = p[k];
-        if (c == 0)      { gCurFg = SDL_Color{205,205,215,255}; gCurBold = false; }
+        if (c == 0)      { gCurFg = SDL_Color{205,205,215,255}; gCurBold = false; gCurItalic = false; }
         else if (c == 1) { gCurBold = true; }
+        else if (c == 3) { gCurItalic = true; }
+        else if (c == 23){ gCurItalic = false; }
         else if (c == 2) { gCurFg = SDL_Color{130,130,145,255}; }
         else if (c == 22){ gCurBold = false; }
         else if (c == 39){ gCurFg = SDL_Color{205,205,215,255}; }
@@ -210,12 +213,15 @@ void feed(unsigned char b) {
 
 // --- glyph cache: one texture per (codepoint, color, bold) ---
 struct GlyphKey {
-    char32_t ch; Uint32 rgba; bool bold;
-    bool operator==(const GlyphKey& o) const { return ch == o.ch && rgba == o.rgba && bold == o.bold; }
+    char32_t ch; Uint32 rgba; bool bold; bool italic = false;
+    bool operator==(const GlyphKey& o) const {
+        return ch == o.ch && rgba == o.rgba && bold == o.bold && italic == o.italic;
+    }
 };
 struct GlyphHash {
     size_t operator()(const GlyphKey& k) const {
-        return std::hash<Uint64>()(((Uint64)k.ch << 33) ^ ((Uint64)k.rgba << 1) ^ (Uint64)k.bold);
+        return std::hash<Uint64>()(((Uint64)k.ch << 33) ^ ((Uint64)k.rgba << 2) ^ ((Uint64)k.italic << 1)
+                                   ^ (Uint64)k.bold);
     }
 };
 std::unordered_map<GlyphKey, SDL_Texture*, GlyphHash> gGlyphs;
@@ -294,11 +300,12 @@ SDL_Texture* glyphTextureBig(SDL_Renderer* r, const Cell& cell) {
 
 SDL_Texture* glyphTexture(SDL_Renderer* r, const Cell& cell) {
     Uint32 rgba = ((Uint32)cell.fg.r << 24) | ((Uint32)cell.fg.g << 16) | ((Uint32)cell.fg.b << 8) | 255u;
-    GlyphKey key{ cell.ch, rgba, cell.bold };
+    const bool italic = cell.italic && gFontItalic;
+    GlyphKey key{ cell.ch, rgba, cell.bold, italic };
     auto it = gGlyphs.find(key);
     if (it != gGlyphs.end()) return it->second;
 
-    TTF_Font* font = (cell.bold && gFontBold) ? gFontBold : gFont;
+    TTF_Font* font = italic ? gFontItalic : (cell.bold && gFontBold) ? gFontBold : gFont;
     if (!font) return nullptr;
     SDL_Surface* surf = TTF_RenderUTF8_Blended(font, toUtf8(cell.ch).c_str(), cell.fg);
     SDL_Texture* tex = surf ? SDL_CreateTextureFromSurface(r, surf) : nullptr;
@@ -398,9 +405,9 @@ SDL_Rect textRegion() {
     return SDL_Rect{ gViewport.x, top, gViewport.w, std::max(0, bot - top) };
 }
 
-// The panel sits ABOVE the scene, as in the mock-up - stats first, then the
-// fight below them. Text still starts after both bands, so its origin is
-// unchanged; only these two need to know the order.
+// The panel sits ABOVE the scene like in the mock-up: stats first, then the
+// fight. Text still starts after both bands, so only these two care about the
+// order.
 SDL_Rect hudRegion() {
     return SDL_Rect{ gViewport.x, gViewport.y, gViewport.w, gHudRows * gCellH };
 }
@@ -438,6 +445,12 @@ void setFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH) {
     for (auto& kv : gGlyphs) if (kv.second) SDL_DestroyTexture(kv.second);
     gGlyphs.clear();
     gFont = regular; gFontBold = bold; gCellW = cellW; gCellH = cellH;
+}
+
+void setItalicFont(TTF_Font* italic) {
+    for (auto& kv : gGlyphs) if (kv.second) SDL_DestroyTexture(kv.second);
+    gGlyphs.clear();
+    gFontItalic = italic;
 }
 
 void setBigFont(TTF_Font* regular, TTF_Font* bold, int cellW, int cellH) {
@@ -568,6 +581,57 @@ void drawTextBigPx(SDL_Renderer* r, int x, int y, const std::string& text,
 
 void setViewport(int x, int y, int w, int h) { gViewport = SDL_Rect{ x, y, w, h }; }
 
+// The colour escape (CSI ... m) starting at text[i], an ESC: its numeric
+// parameters go into args. Returns the index just past it, or 0 when it is
+// not one, and the caller skips the ESC alone.
+static size_t readSgrPx(const std::string& text, size_t i, std::vector<int>& args) {
+    size_t j = i + 1;
+    if (j >= text.size() || text[j] != '[') return 0;
+    j++;
+    int acc = -1;
+    while (j < text.size() && text[j] != 'm' &&
+           ((text[j] >= '0' && text[j] <= '9') || text[j] == ';')) {
+        if (text[j] == ';') { args.push_back(acc < 0 ? 0 : acc); acc = -1; }
+        else acc = (acc < 0 ? 0 : acc) * 10 + (text[j] - '0');
+        j++;
+    }
+    if (acc >= 0) args.push_back(acc);
+    return (j < text.size() && text[j] == 'm') ? j + 1 : 0;
+}
+
+// What a colour escape's parameters do to the pen.
+static void applySgrPx(const std::vector<int>& args, SDL_Color& cur, bool& curBold,
+                       SDL_Color base, bool bold) {
+    for (size_t k = 0; k < args.size(); k++) {
+        int v = args[k];
+        if (v == 0)       { cur = base; curBold = bold; }
+        else if (v == 1)  { curBold = true; }
+        else if (v == 2)  { cur = SDL_Color{ 120,120,138,255 }; }
+        else if (v == 38 && k + 2 < args.size() && args[k+1] == 5) {
+            cur = xterm256(args[k+2]); k += 2;
+        } else if ((v >= 30 && v <= 37) || (v >= 90 && v <= 97)) {
+            cur = ansiBasic(v);
+        }
+    }
+}
+
+SDL_Color ansiColorAt(const std::string& text, SDL_Color base) {
+    SDL_Color cur = base;
+    bool bold = false;
+    for (size_t i = 0; i < text.size(); ) {
+        if ((unsigned char)text[i] == 0x1B) {
+            std::vector<int> args;
+            const size_t next = readSgrPx(text, i, args);
+            if (next) { applySgrPx(args, cur, bold, base, false); i = next; }
+            else i++;
+            continue;
+        }
+        if ((unsigned char)text[i] >= 32) return cur;
+        i++;
+    }
+    return cur;
+}
+
 // Same as drawTextPx, but keeps the ANSI colours already in the string, such
 // as the status summaries' poison green and burn orange.
 int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
@@ -581,33 +645,12 @@ int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
         unsigned char ch = (unsigned char)text[i];
         if (ch == 0x1B) {
             // CSI ... m - collect the numeric parameters, ignore anything else
-            size_t j = i + 1;
-            if (j < text.size() && text[j] == '[') {
-                j++;
-                std::vector<int> args;
-                int acc = -1;
-                while (j < text.size() && text[j] != 'm' &&
-                       ((text[j] >= '0' && text[j] <= '9') || text[j] == ';')) {
-                    if (text[j] == ';') { args.push_back(acc < 0 ? 0 : acc); acc = -1; }
-                    else acc = (acc < 0 ? 0 : acc) * 10 + (text[j] - '0');
-                    j++;
-                }
-                if (acc >= 0) args.push_back(acc);
-                if (j < text.size() && text[j] == 'm') {
-                    for (size_t k = 0; k < args.size(); k++) {
-                        int v = args[k];
-                        if (v == 0)       { cur = base; curBold = bold; }
-                        else if (v == 1)  { curBold = true; }
-                        else if (v == 2)  { cur = SDL_Color{ 120,120,138,255 }; }
-                        else if (v == 38 && k + 2 < args.size() && args[k+1] == 5) {
-                            cur = xterm256(args[k+2]); k += 2;
-                        } else if ((v >= 30 && v <= 37) || (v >= 90 && v <= 97)) {
-                            cur = ansiBasic(v);
-                        }
-                    }
-                    i = j + 1;
-                    continue;
-                }
+            std::vector<int> args;
+            const size_t next = readSgrPx(text, i, args);
+            if (next) {
+                applySgrPx(args, cur, curBold, base, bold);
+                i = next;
+                continue;
             }
             i++;
             continue;
@@ -631,13 +674,13 @@ int drawAnsiPx(SDL_Renderer* r, int x, int y, const std::string& text,
 // Text at an arbitrary pixel position, outside the character grid - widgets in
 // the reserved bands need it. Same glyph cache as the grid path.
 void drawTextPx(SDL_Renderer* r, int x, int y, const std::string& text,
-                SDL_Color color, bool bold) {
+                SDL_Color color, bool bold, bool italic) {
     if (!gFont) return;
     int cx = x;
     for (size_t i = 0; i < text.size(); i++) {
         unsigned char ch = (unsigned char)text[i];
         if (ch < 32) continue;                       // control bytes never render
-        Cell cell; cell.ch = (char32_t)ch; cell.fg = color; cell.bold = bold;
+        Cell cell; cell.ch = (char32_t)ch; cell.fg = color; cell.bold = bold; cell.italic = italic;
         SDL_Texture* tex = glyphTexture(r, cell);
         if (tex) {
             int tw = 0, th = 0;

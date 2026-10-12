@@ -1,6 +1,5 @@
-// The enemy's side of a fight: how a regular enemy, a boss and the true
-// form take their turns, their blows on the knight, and the saves that
-// can catch a killing one.
+// The enemy side of a fight: how regular enemies, bosses and the true form take
+// their turns, hit you, and the saves that can catch a killing blow.
 #include "Game.h"
 #include "Achievements.h"
 #include "Audio.h"
@@ -22,9 +21,8 @@
 #include <stdexcept>
 #include "GameShared.h"
 
-// The projectile this enemy throws, looked up by name in the generated
-// table so the art and its index come from one place. No entry falls back
-// to the archetype.
+// The projectile this enemy throws, looked up by name in the generated table so
+// the art and its index live in one place. Falls back to the archetype.
 static const ProjectileTable::Entry* projEntryFor(const std::string& n) {
     for (int i = 0; i < ProjectileTable::kByNameCount; i++)
         if (n.find(ProjectileTable::kByName[i].enemy) != std::string::npos)
@@ -55,9 +53,9 @@ int Game::enemyProjectile() const {
     }
 }
 
-// The eye has one way of reaching you. Without this it fired its beam only on
-// its own move and threw a little bolt across the sky on every shared ranged
-// attack it rolled.
+// The Omneye only gets its beam. Without this it fired the beam on its own move
+// and then threw a tiny bolt across the sky on every shared ranged attack,
+// which looked ridiculous.
 bool Game::enemyFiresBeam() const {
     return enemy.getName().find("Omneye") != std::string::npos;
 }
@@ -80,9 +78,9 @@ bool Game::archetypeIsRanged() const {
     return enemy.getType() == EnemyType::RANGED || enemy.getType() == EnemyType::CASTER;
 }
 
-// One regular-enemy attack against the player: armour, Dodge Reversal and
-// Parry, then damage. weakMult is read once per enemy turn, before Weak
-// ticks. Bosses go through bossStrikesPlayer().
+// One regular enemy attack on you: armour, Dodge Reversal and Parry, then
+// damage. weakMult is read once per enemy turn, before Weak ticks. Bosses go
+// through bossStrikesPlayer().
 void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, bool ranged,
                              bool useAttackFrames, int projectile, bool closeIn,
                              bool fromCompanion, bool ignoreArmor) {
@@ -91,7 +89,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
     atk = (int)(atk * weakMult * enemy.getStrengthMultiplier());
     // What reaches whatever stands in front of you (Raise Undead), before the
     // things only you are weak to.
-    const int blow = atk;
+    int blow = atk;
     // Berserk Stance: you gave up your guard for the swing, and this is the bill.
     if (vulnerableTurns > 0) atk = (int)(atk * vulnerableMult);
     // What your armour makes of this kind of blow, and the Glass Moon's price.
@@ -100,6 +98,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
     atk = atk * (100 + typeMod) / 100;
     if (hasRelic(Relic::GLASS_MOON)) atk = atk * 125 / 100;
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
+    if (!fromCompanion) springSnare();   // the Hunter's Snare, whatever becomes of the blow
     // A blow your raised dead will take is drawn ending on them. Only a stance
     // you hold catches it first.
     EnemyArt::setBlowsAtAlly(raisedAlive && !counterAttackActive && !parryActive);
@@ -135,9 +134,9 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
         int parryCap = playerArmor + parryBonusValue * 3; // current armor + Parry's own bonus - stack armor first to parry bigger hits
         parryActive = false;
         if (atk <= parryCap) {
-            // The same flag the sprite uses. A blow that never closed the distance -
-            // an arrow, a spell, a thrown dagger - can be caught, but there is
-            // nothing standing in front of you to hit back at.
+            // Same flag the sprite uses. A blow that never closed the distance (arrow,
+            // spell, thrown dagger) can be caught, but there's nothing in front of you to
+            // hit back at.
             bool tooFarToRiposte = !enemy.isBoss() && ranged;
             if (tooFarToRiposte) {
                 Audio::playSFXPitched("defend", 1.35f);   // the block rings off the blade
@@ -177,6 +176,8 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
             UIHelper::pause(250);
         }
     }
+    // The Fisher's Net: half of the first blow past your stances.
+    if (keepsakeReady(KEEP_NET)) { blow /= 2; atk = castNet(atk); }
     // Raise Undead: the dead stand in front of you and take the blow whole.
     if (raisedAlive) { raisedTakes(blow); return; }
     int effectiveArmor = ignoreArmor ? 0 : pierceHalfArmor ? (playerArmor / 2) : playerArmor;
@@ -237,18 +238,16 @@ void Game::enemyTurn() {
 
     refreshBattleAuras();
 
-    // Armour from the enemy's own last turn goes now, so a Defend this turn
-    // survives the player's whole next turn. The true form's holding guards
-    // outlast it, the way yours do.
+    // The enemy's armour from last turn goes now, so a Defend this turn lasts
+    // through your whole next turn. The true form's holding guards last longer.
     if (enemyArmorHoldTurns > 0) enemyArmorHoldTurns--;
     else enemy.resetArmor();
     glassUp = false;   // the Glass Templar's glass went with it, and goes back on below
     // Berserk's opening lasts until its turn comes round.
     enemyVulnerableTurns = 0;
 
-    // Tick enemy status effects at the start of their turn. Poison/Burn are
-    // elemental (Poison/Fire respectively), so they get the same weakness (+50%)
-    // and resistance (-50%) treatment as a matching-tagged attack card would.
+    // Tick the enemy's statuses at the start of its turn. Poison and Burn count as
+    // Poison/Fire for weakness and resistance, same as a tagged card would.
     int poisonDmg = enemy.processPoison();
     if (poisonDmg > 0) {
         bool poisonWeak   = enemy.getWeakness()   == DamageType::POISON;
@@ -313,9 +312,9 @@ void Game::enemyTurn() {
         return;
     }
 
-    // The Unchosen's copy of your Strength wears off one of its own turns at
-    // a time, as yours wears off on yours. Nothing else ticks a regular
-    // enemy's Strength but the Moonstruck, which does its own.
+    // The Unchosen's copy of your Strength wears off on its own turns, like yours
+    // does on yours. Nothing else ticks a regular enemy's Strength except the
+    // Moon Shades, which do their own.
     struct TickCopiedStrength {
         Enemy& e; bool on;
         ~TickCopiedStrength() { if (on && e.isAlive() && e.hasStrength()) e.processStrength(); }
@@ -327,16 +326,16 @@ void Game::enemyTurn() {
     // Scholar's Lens drew this turn's rolls at the start of yours, and showed
     // what they pick. Use those, so what was shown is what happens.
     int roll = lensRoll >= 0 ? lensRoll : rollDist(gen);
-    // One reroll when the roll lands in the same tenth as last turn's. Not a
-    // ban on repeating - an enemy that has your number should be able to press
-    // it - but three Howls in a row is not a fight, it is a wall.
+    // One reroll if the roll lands in the same tenth as last turn. It's allowed to
+    // repeat (an enemy that has your number should press it), but three Howls in
+    // a row isn't a fight, it's a wall.
     if (lensRoll < 0 && lastMoveRoll >= 0 && roll / 10 == lastMoveRoll / 10) roll = rollDist(gen);
     lastMoveRoll = roll;
     lensRoll = -1;
 
-    // How often a feared enemy braces instead of taking its turn. Deliberately not
-    // 100: a two-turn guaranteed skip would be far stronger than Taunt, which only
-    // changes WHICH action happens, never whether one happens at all.
+    // How often a scared enemy braces instead of acting. Not 100 on purpose: a
+    // guaranteed two turn skip would be way stronger than Taunt, which only
+    // changes WHICH action happens, never whether one does.
     const int FEAR_BRACE_CHANCE = 60;
 
     // Taunt: force this turn's roll into whichever bucket guarantees an Attack
@@ -360,9 +359,9 @@ void Game::enemyTurn() {
     enemy.processWeak();
 
     bool volleyBroken = false;
-    // doAttack takes its range from the archetype (RANGED and CASTER never
-    // close); a melee enemy with a thrown move calls doAttackAt directly. A
-    // lambda cannot default an argument that touches `this`.
+    // doAttack takes its range from the archetype (RANGED and CASTER never close);
+    // a melee enemy with a thrown move calls doAttackAt directly. Has to be split
+    // because a lambda can't default an argument that touches `this`. Annoying.
     auto doAttackAt = [&](int atk, bool pierceHalfArmor, bool ranged, bool useFrames = true,
                           int projectile = -1, bool closeIn = false, bool ignoreArmor = false) {
         if (enemy.hasStun()) {
@@ -414,9 +413,9 @@ void Game::enemyTurn() {
     int atk = enemy.getBaseAttack() + enemy.getBonusAttack();
     int def = enemy.getBaseDefense();
 
-    // How often this enemy reaches for its own moves. The rest of the time it
-    // runs its archetype template. Rolled separately from `roll`, which the few
-    // enemies with two signature moves use to pick between them.
+    // How often this enemy uses its own moves, the rest of the time it runs its
+    // archetype kit. Rolled separately from `roll`, which the enemies with two
+    // signature moves use to pick between them.
     const int SIGNATURE_CHANCE = ownMoveChance();
     const int sigRoll = lensSigRoll >= 0 ? lensSigRoll : rollDist(gen);
     lensSigRoll = -1;
@@ -437,15 +436,15 @@ void Game::enemyTurn() {
         }
         EnemyArt::printEnemyCast(enemy.getType(), enemy.getBossType(), g, proj, enemyMuzzleX(), enemyMuzzleY());
     };
-    // For a status that RIDES an attack. The blow already crossed the field, so
-    // firing a second bolt after it would read as two separate attacks; this just
-    // washes the knight in the ailment colour.
+    // For a status that rides on an attack. The blow already crossed the field, so
+    // a second bolt after it looked like two attacks; this just washes the
+    // knight in the ailment's colour.
     auto flash = [&](EnemyArt::CastGlow g) {
         EnemyArt::printBattleStatusFlash(enemy.getType(), enemy.getBossType(), g, false);
     };
-    // A status delivered by CONTACT rather than at range: the enemy closes the
-    // gap the way an attack does, then the ailment lands. A chilling touch that
-    // reached across the room without either sprite moving was the odd one out.
+    // A status delivered by touch: the enemy closes in like an attack, then the
+    // ailment lands. A chilling touch from across the room with neither sprite
+    // moving looked really off.
     auto touch = [&](EnemyArt::CastGlow g) {
         EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
                                     /*ranged*/false);
@@ -470,9 +469,9 @@ void Game::enemyTurn() {
         UIHelper::pause(150);
     };
 
-    // Fear resolves here, once, as a flat chance to brace instead of acting:
-    // unlike Taunt there is no defend bucket to force, and several enemies
-    // have no defensive move at all.
+    // Fear resolves here, once, as a flat chance to brace instead of acting.
+    // Unlike Taunt there's no defend bucket to force, and plenty of enemies have
+    // no defensive move at all.
     if (enemyFearTurns > 0 && enemyCanDefend()) {
         enemyFearTurns--;
         if (rollDist(gen) < FEAR_BRACE_CHANCE) {
@@ -486,8 +485,8 @@ void Game::enemyTurn() {
     }
 
     // --- Archetype kits --------------------------------------------------
-    // Three kinds of turn per archetype. MELEE and RANGED have no brace on
-    // purpose: they are what Fear should fail against (see enemyCanDefend).
+    // Three kinds of turn per archetype. MELEE and RANGED have no brace on purpose,
+    // they're what Fear should fail against (see enemyCanDefend).
     auto archetypeTurn = [&](int r) {
         r = kitRoll(r);   // early on, no Weaken bucket
         switch (enemy.getType()) {
@@ -503,9 +502,9 @@ void Game::enemyTurn() {
                 if (r < 45) doDefend(def + 2);
                 else if (r < 85) { themedGeneric("It brings its weapon down hard!"); doAttack(atk + 2, false); }
                 else {
-                    // gainArmor, NOT doDefend: doDefend means "brace instead of attacking"
-                    // and fizzles a pending Parry or Dodge Reversal, but this move braces and
-                    // then swings.
+                    // gainArmor, NOT doDefend. doDefend means "brace instead of attacking" and
+                    // fizzles your pending Parry or Dodge Reversal, but this move braces AND swings.
+                    // Got that wrong the first time.
                     enemy.gainArmor(def);
                     std::cout << Color::ARMOR_CLR << "It raises its guard (+" << def << " armor)."
                               << Color::RESET << "\n";
@@ -515,9 +514,9 @@ void Game::enemyTurn() {
                 }
                 break;
             case EnemyType::RANGED: {
-                // A flyer has no bow. It is RANGED so that Parry closes on empty
-                // air as it climbs away, but a shot and a double shot were the
-                // wrong moves entirely: it dives, rakes and beats its wings.
+                // A flyer doesn't have a bow. It's RANGED so Parry closes on empty air as it
+                // climbs away, but shooting arrows was just wrong for it: it dives, rakes and
+                // beats its wings.
                 if (enemyIsFlyer()) {
                     if (r < 60) { themedGeneric("It folds its wings and dives at you!"); dive(atk); }
                     else if (r < 85) {
@@ -609,12 +608,11 @@ void Game::enemyTurn() {
     };
 
     // --- The ruined church ------------------------------------------------
-    // Each of the nine has a rule that runs on every turn it takes, around or
-    // in place of its moves, so it comes before the signature roll.
+    // Each of the nine has a rule that runs every turn it takes, around or instead
+    // of its moves, so it comes before the signature roll.
     if (enemyIs("Gargoyle")) {
-        // Stone, then awake: it wakes by dropping on you from the roof and
-        // climbs back to its perch on the turn after. Taunted while awake, it
-        // stays down and fights.
+        // Stone, then awake: it wakes by dropping on you from the roof and climbs back
+        // up the turn after. Taunted while awake, it stays down and fights.
         if (gargoyleStone) {
             gargoyleStone = false;
             themedGeneric("The stone cracks open, and the Gargoyle drops on you from the roof!");
@@ -691,14 +689,14 @@ void Game::enemyTurn() {
     }
 
     // The signature fires on its own roll. Taunt skips the gate (every branch
-    // attacks when taunted), and so does the Moonstruck: its three moves are
-    // all it does, so it never falls into the shared archetype kit.
+    // attacks when taunted), and so do the Moon Shades: their three moves are all
+    // they do, so they never fall into the shared kit.
     const bool moonstruck = enemy.getName().find("Moon Shade") != std::string::npos;
     if (!taunted && !moonstruck && sigRoll >= SIGNATURE_CHANCE) { archetypeTurn(roll); skeletonStrike(); return; }
 
     // --- Signature moves ---------------------------------------------------
-    // When the gate opens the move happens, so the odds shown are the odds you
-    // get. A move that cannot be used right now hands the turn to the kit.
+    // When the gate opens the move happens, so the odds shown are the odds you get.
+    // A move that can't be used right now hands the turn to the kit.
     auto nameHas = [&](const char* k){ return enemy.getName().find(k) != std::string::npos; };
     auto themed  = [&](const char* msg){ UIHelper::typeWrite(std::string(Color::MAGENTA) + msg + Color::RESET + "\n"); UIHelper::pause(150); };
 
@@ -784,9 +782,9 @@ void Game::enemyTurn() {
     }
     if (nameHas("Warden"))    { themed("The Warden delivers a SMACKDOWN!"); doAttack(atk + 1, false); return; }
     if (nameHas("Paladin")) {
-        // Two moves, split on the same roll the other two-move enemies use.
-        // Judgement cannot be turtled and Absolution cannot be poisoned, so
-        // the answer to it is to be quick, which nothing else up here asks.
+        // Two moves on the same roll the other two-move enemies use. Judgement can't
+        // be turtled and Absolution can't be poisoned, so the answer is to be quick,
+        // which nothing else up here asks of you.
         if (!taunted && roll < 40) {
             enemy.heal(20 + enemy.getBaseDefense());
             const bool cleansed = enemy.hasAnyStatus();
@@ -848,7 +846,7 @@ void Game::enemyTurn() {
         if (taunted) { doAttack(atk, false); return; }
         if (lowHp && roll < 40) { int h = 8 + def / 2; enemy.heal(h); std::cout << Color::HEAL << "The Sage channels a healing light (+" << h << " HP)." << Color::RESET << "\n"; UIHelper::pause(200); }
         else { cast(EnemyArt::CastGlow::BURN, enemyProjectile()); Audio::playSFX("fire"); std::cout << Color::BURN_CLR << "The Sage hurls a TORCH!" << Color::RESET << "\n";
-               if (applyPlayerStatus(StatusType::BURN, 5)) std::cout << "  You gain " << Color::BURN_CLR << "Burn 5" << Color::RESET << ".\n";
+               if (applyPlayerStatus(StatusType::BURN, 3)) std::cout << "  You gain " << Color::BURN_CLR << "Burn 3" << Color::RESET << ".\n";
                UIHelper::pause(250); }
         return;
     }
@@ -1057,9 +1055,9 @@ void Game::enemyTurn() {
         UIHelper::pause(250);
         return;
     }
-    // The secret fight. Moon Scent when calm, and while the scent lasts its
-    // signature turns become the Maul, so its own moves never go quiet the way
-    // they did when a lapsed-scent check dropped it to a plain attack.
+    // Moon Shades: Moon Scent when calm, and while the scent lasts their signature
+    // turns become the Maul, so their own moves never go quiet. They used to drop
+    // to a plain attack when the scent ran out, which made them weirdly boring.
     if (nameHas("Moon Shade")) {
         // Three moves in every shape: Moon Scent to work itself up, the Maul while
         // the scent lasts, and the one move the shape it copied taught it.
@@ -1154,10 +1152,9 @@ void Game::enemyTurn() {
             themed(MAUL[z]);
             doAttack(atk + 3, false);
         }
-        // The scent wears off one of its own turns at a time: a learning
-        // shape spends all of it on the Maul, the last two hold it for three
-        // turns. Nothing else ticks a regular enemy's Strength, so without this
-        // the last two would stay in their frenzy for the rest of the fight.
+        // The scent wears off on its own turns: the early shapes spend it all on the
+        // Maul, the last two hold it for three turns. Nothing else ticks a regular
+        // enemy's Strength, so without this the last two stayed in frenzy forever.
         if (!calm) enemy.processStrength();
         return;
     }
@@ -1165,9 +1162,9 @@ void Game::enemyTurn() {
         if (taunted) doAttack(atk, false);
         else if (lichAddAlive) archetypeTurn(roll);
         else {
-            // Every undead on the roster except another Lich. A fat one you
-            // have to chew through and a thin one that hurts are different
-            // problems, and the Lich picks which one you get.
+            // Any undead on the roster except another Lich. A fat one you have to chew
+            // through and a thin one that hurts are different problems, and the Lich
+            // picks which you get.
             struct Raised { const char* name; int hp; int atk; };
             static const Raised DEAD[] = {
                 { "Skeleton", 24, 6 },   // the middle of the range
@@ -1275,12 +1272,13 @@ void Game::enemyTurn() {
 void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppable) {
     double weakMult = enemy.getWeakMultiplier() * enemy.getStrengthMultiplier();
     // What reaches whatever stands in front of you (Raise Undead).
-    const int blow = damage;
+    int blow = damage;
     if (vulnerableTurns > 0) damage = (int)(damage * vulnerableMult);
     // Bosses' blows have types too, and the Glass Moon charges here as well.
     damage = damage * (100 + armourTypeMod(enemyAttackType())) / 100;
     if (hasRelic(Relic::GLASS_MOON)) damage = damage * 125 / 100;
     if (tickEnemyRend()) return;   // the tear finished it before the blow landed
+    springSnare();                 // the Hunter's Snare, whatever becomes of the blow
     EnemyArt::setBlowsAtAlly(raisedAlive && !unstoppable && !counterAttackActive && !parryActive);
     struct AimBack { ~AimBack() { EnemyArt::setBlowsAtAlly(false); } } aimBack;
     // Bosses take their range from their archetype - the Undead Dragon is RANGED
@@ -1288,9 +1286,9 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
     EnemyArt::printBattleAttack(enemy.getType(), enemy.getBossType(), playerArmor > 0,
                                 archetypeIsRanged(), /*useAttackFrames*/true,
                                 /*projectile*/-1, enemyMuzzleX(), enemyMuzzleY(), closeIn);
-    // Dodge Reversal fires before Parry when both are active (uncapped, higher priority).
-    // An unstoppable blow (the true form's Truestrike) goes straight through
-    // both, and leaves them standing for whatever comes next.
+    // Dodge Reversal goes before Parry when both are up (uncapped, higher
+    // priority). An unstoppable blow (the true form's Truestrike) goes straight
+    // through both and leaves them up for whatever comes next.
     if (counterAttackActive && !unstoppable) {
         counterAttackActive = false;
         if (counterWasLegendary) Audio::playSFX("legendary");
@@ -1338,6 +1336,8 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
             UIHelper::pause(250);
         }
     }
+    // The Fisher's Net: half of the first blow past your stances.
+    if (keepsakeReady(KEEP_NET)) { blow /= 2; damage = castNet(damage); }
     // Raise Undead: the dead take it whole. Only an unstoppable blow goes past.
     if (raisedAlive && !unstoppable) { raisedTakes(blow); return; }
     if (raw || unstoppable) {
@@ -1630,10 +1630,9 @@ void Game::bossAction() {
                           << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << ")\n";
                 UIHelper::pause(250);
             } else if (roll < 50) {
-                // Fangs, not a spell: it closes, bites, and the venom follows.
-                // Your raised dead stand in front, so the fangs find them
-                // first, as any blow does, and the venom has nothing living
-                // to work on.
+                // Fangs, not a spell: it closes, bites, and the venom follows. Your raised
+                // dead stand in front, so the fangs get them first like any blow, and the
+                // venom has nothing alive to work on.
                 if (raisedAlive && !counterAttackActive && !parryActive) {
                     UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "The Hydra sinks its fangs in with a VENOMOUS BITE!" + Color::RESET + "\n");
                     EnemyArt::setBlowsAtAlly(true);
@@ -1653,9 +1652,9 @@ void Game::bossAction() {
                     std::cout << "  You gain " << Color::POISON_CLR << "Poison 5" << Color::RESET << "!\n";
                 UIHelper::pause(350);
             } else if (roll < 75) {
-                // One bite per head, each at half weight: two heads land one
-                // full bite, nine land four and a half. At full weight, five
-                // heads could take a whole health bar in one turn.
+                // One bite per head at half weight: two heads land one full bite, nine land
+                // four and a half. At full weight five heads could take your whole health
+                // bar in one turn, which was not fun to find out.
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "The Hydra lashes out with "
                     + std::to_string(hydraHeads) + " HEADS AT ONCE!" + Color::RESET + "\n");
                 UIHelper::pause(200);
@@ -1686,7 +1685,8 @@ void Game::bossAction() {
                 bossCast(EnemyArt::CastGlow::WEAK, ProjectileTable::FX_WIND, 70);
                 Audio::playSFXPitched("special", 0.85f);
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA + "The Dragon's WING BUFFET knocks you off balance!" + Color::RESET + "\n");
-                if (applyPlayerStatus(StatusType::WEAK, 3))
+                doAttack(std::max(1, atk / 2), false);   // a blow of the wing, not only the wind
+                if (playerHealth > 0 && applyPlayerStatus(StatusType::WEAK, 3))
                     std::cout << "  You are " << Color::WEAK_CLR << "Weakened 3" << Color::RESET << "!\n";
                 UIHelper::pause(350);
             } else if (roll < 70) {
@@ -1695,9 +1695,9 @@ void Game::bossAction() {
                 // Claws mean closing, even though its breath is a ranged move.
                 doAttack(atk + 5, true, /*closeIn*/true);
             } else {
-                // It had two claw attacks and one of them was just "a direct
-                // attack". A thing that died once and came back should leave
-                // something behind when it bites.
+                // It had two claw attacks and one of them was literally just "a direct
+                // attack". Something that died and came back should leave something behind
+                // when it bites.
                 UIHelper::typeWrite(std::string(Color::BOLD) + Color::MAGENTA
                     + "The Dragon sinks a CURSED BITE into you!" + Color::RESET + "\n");
                 UIHelper::pause(200);
@@ -1721,11 +1721,10 @@ void Game::bossAction() {
                 doAttack(std::max(1, atk * 55 / 100), false);
                 break;
             }
-            // One for one: it answers each card as you play it, so the rest of
-            // its queue goes (playing it here would give it a second turn). A
-            // turn let go without a card is the exception: it swings, lighter
-            // than a real blow, or ending turn after turn to cycle the deck for
-            // a better hand would cost nothing.
+            // One for one: it answers each card as you play it, so the rest of its queue
+            // goes (playing it here would give it a second turn). Ending a turn without a
+            // card is the exception: it swings, lighter than a real blow, otherwise you
+            // could end turn over and over to cycle for a better hand for free.
             knightPreparedMoves.clear();
             if (playerSkippedTurn && mirrorBossIsMoon() && falseMoonShadeMove()) {
                 // it wore a shape instead of swinging

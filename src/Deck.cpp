@@ -82,9 +82,14 @@ std::vector<std::string> Deck::getAllCardNames() const {
         while (!base.empty() && base.back() == '+') base.pop_back();
         names.push_back(base);
     };
-    for (const auto& c : cards)   addBase(c.getName());
-    for (const auto& c : hand)    addBase(c.getName());
-    for (const auto& c : discard) addBase(c.getName());
+    // A weld holds both its cards: neither turns up again as a reward.
+    auto add = [&](const Card& c) {
+        if (!c.isWeld()) { addBase(c.getName()); return; }
+        for (const Card& h : c.getParts()) addBase(h.getName());
+    };
+    for (const auto& c : cards)   add(c);
+    for (const auto& c : hand)    add(c);
+    for (const auto& c : discard) add(c);
     return names;
 }
 
