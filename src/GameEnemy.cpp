@@ -187,6 +187,7 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
     if (playerArmor < 0) playerArmor = 0;
     playerHealth -= actualDamage;
     if (playerHealth < 0) playerHealth = 0;
+    runTally.taken += actualDamage;
     const bool savedByThread = trySecondWind();
     if (actualDamage > 0) {
         EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
@@ -206,6 +207,11 @@ void Game::enemyStrikePlayer(int atk, bool pierceHalfArmor, double weakMult, boo
                   << savedLine("You refuse to fall, and cling on at 1 HP.") << Color::RESET << "\n";
     // The Sexton: every blow of his that reaches you throws earth into your pack.
     if (!fromCompanion && playerHealth > 0 && enemyIs("Sexton")) shovelGraveDirt();
+    if (!fromCompanion && championNow == CHAMP_VENOMOUS && actualDamage > 0 && playerHealth > 0) {
+        playerStatus.apply(StatusType::POISON, 2);
+        std::cout << "  " << Color::YELLOW << "Venomous:" << Color::RESET << Color::POISON_CLR
+                  << " the blow poisons you. Poison 2." << Color::RESET << "\n";
+    }
     UIHelper::pause(200);
 }
 
@@ -234,6 +240,7 @@ void Game::armPerTurnEnemyMechanics() {
 }
 
 void Game::enemyTurn() {
+    championActed = false;
     if (!enemy.isAlive()) return;
 
     refreshBattleAuras();
@@ -301,6 +308,8 @@ void Game::enemyTurn() {
         UIHelper::pause(400);
         return;
     }
+
+    championActed = true;   // past the stun: Swift counts this turn
 
     // Bosses have their own AI
     if (enemy.isBoss()) {
@@ -1342,6 +1351,7 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
     if (raisedAlive && !unstoppable) { raisedTakes(blow); return; }
     if (raw || unstoppable) {
         playerHealth = std::max(0, playerHealth - damage);
+        runTally.taken += damage;
         bool saved = trySecondWind();
         if (damage > 0) {
             EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());
@@ -1362,6 +1372,7 @@ void Game::bossStrikesPlayer(int damage, bool raw, bool closeIn, bool unstoppabl
         int actual = std::max(0, damage - playerArmor);
         playerArmor = std::max(0, playerArmor - damage);
         playerHealth = std::max(0, playerHealth - actual);
+        runTally.taken += actual;
         bool saved = trySecondWind();
         if (actual > 0) {
             EnemyArt::printBattleKnightHit(enemy.getType(), enemy.getBossType());

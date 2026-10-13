@@ -25,6 +25,7 @@ struct State {
     std::string playerTags;         // fortified / bonuses / status summary
 
     std::string enemyName;
+    std::string enemyTitle, enemyTitleTip;   // a champion's trait, beside the name, and what it does
     int  enemyHp = 0, enemyMax = 1, enemyAtk = 0, enemyDef = 0;
     std::string enemyTags;
 

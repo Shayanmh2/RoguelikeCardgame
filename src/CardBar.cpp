@@ -56,6 +56,9 @@ int gCurrent = 0;
 // goes back to that card instead of the first one, because walking back to it
 // every time on a controller was a pain.
 int gResumeAt = -1;
+int gPageSteps = 0;            // PgUp/PgDn while select() waits, for takePageSteps()
+std::string gCorner;           // setNextCorner(): one pick only
+SDL_Color gCornerColor{ 150, 146, 162, 255 };
 bool gActive = false;      // drawing
 bool gPicking = false;     // and accepting input
 
@@ -668,6 +671,8 @@ int select(const std::vector<Card>& cards, const std::vector<Action>& actions,
             int i = k.ch - '1';
             if (i < (int)cards.size() && usable(i)) { result = i; break; }
         }
+        else if (k.key == Platform::Key::PAGE_UP)   gPageSteps++;
+        else if (k.key == Platform::Key::PAGE_DOWN) gPageSteps--;
 
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
@@ -791,6 +796,9 @@ void drawGrid() {
         Console::drawTextBigPx(r, (Platform::screenW() - tw) / 2, ch,
                                gTitle, SDL_Color{ 228,228,238,255 }, true);
     }
+    if (!gCorner.empty())
+        Console::drawTextPx(r, Platform::screenW() - ((int)gCorner.size() + 3) * cw, ch + (Console::bigCellH() - ch) / 2,
+                            gCorner, gCornerColor, false);
     drawCards(r, gCards, gGridRects, gGridPlus, 0);
     drawActions(r, gGridActions, (int)gCards.size());
     (void)cw;
@@ -803,6 +811,8 @@ void setIconRenderer(std::function<void(SDL_Renderer*, int, const SDL_Rect&)> fn
 
 void setNextHandRows(int rows) { gNextHandRows = rows; }
 
+void setNextCorner(const std::string& text, SDL_Color color) { gCorner = text; gCornerColor = color; }
+int takePageSteps() { const int s = gPageSteps; gPageSteps = 0; return s; }
 void setNextHighlight(int i) { gResumeAt = i; }
 
 void setNextGridStyle(bool veil, int cardlessTopPct) {
@@ -819,6 +829,7 @@ int pick(const std::string& title, const std::vector<Card>& cards,
     if (n == 0) return -1;
 
     gTitle = title;
+    struct CornerGoes { ~CornerGoes() { gCorner.clear(); } } cornerGoes;   // one pick only
     gCards = cards; gActions = actions;
     gGridActive = true;
 

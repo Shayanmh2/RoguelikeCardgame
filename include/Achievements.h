@@ -1,6 +1,8 @@
 #ifndef ACHIEVEMENTS_H
 #define ACHIEVEMENTS_H
 
+#include <functional>
+
 // Achievements, kept across runs in progress.dat with the cleared roads.
 // Bronze, silver and gold, plus crimson for the one that means everything's
 // done (its page only shows once you have it). Earning one slides a notice
@@ -65,6 +67,11 @@ bool beatForm(int zone);
 bool falseMoonBeaten();
 void setFalseMoonBeaten(bool on);
 bool crimsonDue();
+
+// How far along an achievement is, for the ones that take many runs. The game
+// answers (it knows the cards, the bestiary and the Lore Book); false means
+// there is nothing to count.
+void setProgress(std::function<bool(int id, int& have, int& need)> fn);
 // The frame in medals.png for a rank: crimson is the fifth, after the dark
 // one for locked.
 int  medalFrame(int rank);

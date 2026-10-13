@@ -107,6 +107,12 @@ void setNextHandRows(int rows);
 // first. A screen that opens a card's page and then asks again keeps its
 // place, which on a controller saves walking back to it.
 void setNextHighlight(int i);
+// PgUp and PgDn pressed while select() waits, up counting as 1, since the
+// last call. A screen with text that scrolls reads them from its idle tick.
+int takePageSteps();
+// For the next pick() only: a short note in the top right corner. The Gallery
+// shows how much of it has been found there.
+void setNextCorner(const std::string& text, SDL_Color color = SDL_Color{ 150, 146, 162, 255 });
 
 // Full-screen picker: a centred grid of cards, prompt above, actions below.
 // `columns` caps the row width (0 fits the window). Returns as select() does,

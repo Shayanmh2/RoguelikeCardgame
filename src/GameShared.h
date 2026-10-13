@@ -66,7 +66,7 @@ const Info INFO[COUNT] = {
     { "Forge Hammer",          "forging heals",      "Forging a card at a rest site also heals 15% of your max HP.", false },
     { "Warden's Lantern",      "armor every turn",   "You start every turn with armor worth 5% of your max HP.", false },
     { "Red Thread",            "revive once",        "Once this run, a blow that would kill you brings you back at half your health instead.", false },
-    { "Scholar's Lens",        "read its next move", "Regular enemies show their next move beside their health, whether it is their own move or one of their basic ones.", false },
+    { "Scholar's Lens",        "read its next move", "Regular enemies show their next move beside their health, whether it is their own move or one of their basic ones. At a rest site, it shows what kind of enemy is next and what it hits with.", false },
     { "Vigil Ember",           "+8% dmg per vigil",  "Your attacks deal 8% more damage for every vigil you have put out.", false },
     { "Moonlit Locket",        "??? every area",     "Whatever it is that follows you will find you in every area from here on.", false },
     { "Glass Moon",            "+25% dealt & taken", "Your attacks deal 25% more damage, and every blow against you lands 25% harder.", true },

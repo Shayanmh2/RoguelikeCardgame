@@ -219,6 +219,7 @@ struct Ledger {
     std::vector<int> ids;     // the open rank's achievements, in DISPLAY_ORDER
 };
 const Ledger* gLedger = nullptr;
+std::function<bool(int, int&, int&)> gProgress;   // setProgress()
 
 struct LedgerLayout {
     std::vector<SDL_Rect> tabs, rows;
@@ -317,14 +318,17 @@ void drawLedger() {
         const int ty = q.y + (q.h - ch) / 2;
         Console::drawTextPx(r, L.nameX, ty, shown ? INFO[id].name : "???", got ? RANK_INK[rank] : LOCKED_INK, true);
         const std::string text = shown ? INFO[id].text : HIDDEN_TEXT;
-        const std::string status = got ? "earned" : "not yet";
+        // The long ones say how far along you are instead of just "not yet".
+        int have = 0, need = 0;
+        const bool counted = !got && shown && gProgress && gProgress(id, have, need) && need > 0;
+        const std::string status = got ? "earned" : counted ? std::to_string(have * 100 / need) + "%" : "not yet";
         const int statusX = q.x + q.w - 14 - (int)status.size() * cw;
         const SDL_Color ink = got ? bright : dim;
         if ((int)text.size() * cw <= statusX - L.textX - cw * 2)
             Console::drawTextPx(r, L.textX, ty, text, ink, false);
         else   // a long one in the card face's smaller letters rather than over the status
             Console::drawTextSmallPx(r, L.textX, q.y + (q.h - Console::smallCellH()) / 2, text, ink);
-        Console::drawTextPx(r, statusX, ty, status, got ? earnedInk : LOCKED_INK, false);
+        Console::drawTextPx(r, statusX, ty, status, got ? earnedInk : counted ? RANK_INK[rank] : LOCKED_INK, counted);
     }
     // Where the list is when there's more than fits: drag it, or click along it.
     const int n = (int)v.ids.size();
@@ -363,6 +367,7 @@ int  medalFrame(int rank) { return rank == CRIMSON ? 4 : rank; }
 static bool gMoonOut = false;
 bool falseMoonBeaten() { return gMoonOut; }
 void setFalseMoonBeaten(bool on) { gMoonOut = on; }
+void setProgress(std::function<bool(int, int&, int&)> fn) { gProgress = std::move(fn); }
 bool crimsonDue() {
     if (!gMoonOut || has(FALSE_MOON)) return false;
     for (int i = 0; i < COUNT; i++)
@@ -454,7 +459,7 @@ void showScreen() {
     gLedger = &v;
     Platform::setModalRenderer(&drawLedger);
     Platform::flushKeys();
-    int lastMx = -1, lastMy = -1;
+    int lastMx = -1, lastMy = -1, lastRow = -1;
     Platform::mousePos(lastMx, lastMy);
     auto inside = [](const SDL_Rect& q, int x, int y) { return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h; };
     DrawUtil::ScrollGrip grip;   // the slider, while it's held
@@ -468,11 +473,19 @@ void showScreen() {
             DrawUtil::scrollDrag(grip, L.track, v.top, maxTop, L.capacity, (int)v.ids.size(), my, Platform::mouseDown());
             v.sel = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
         }
+        // The highlight follows the pointer onto another row, not the pointer
+        // twitching on the row it was already on: after the wheel or the keys moved
+        // the highlight, a nudge of the mouse used to snap it straight back.
         if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !grip.held) {
             lastMx = mx;
             lastMy = my;
+            int row = -1;
             for (size_t i = 0; i < L.rows.size(); ++i)
-                if (inside(L.rows[i], mx, my)) choose(v.top + (int)i);
+                if (inside(L.rows[i], mx, my)) row = (int)i;
+            if (row != lastRow) {
+                lastRow = row;
+                if (row >= 0) choose(v.top + row);
+            }
         }
         const Platform::KeyEvent k = Platform::pollKey();
         const int n = (int)v.ids.size();

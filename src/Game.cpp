@@ -7,6 +7,7 @@
 #include "ProjectileTable.h"
 #include "Console.h"
 #include "CardBar.h"
+#include "DrawUtil.h"
 #include "Hud.h"
 #include "Platform.h"
 #include "GameShared.h"
@@ -405,6 +406,8 @@ std::vector<Card> Game::starterCards() {
 }
 
 void Game::init() {
+    // The achievements page asks how far along the long ones are.
+    Achievements::setProgress([this](int id, int& have, int& need) { return achievementProgress(id, have, need); });
     for (const Card& c : starterCards()) playerDeck.addCard(c);
 
     applyUpgrades();
@@ -707,6 +710,9 @@ void Game::displayEnemyInfo() const {
     std::string flavor = enemyFlavorText(trueFormPhase ? std::string("Moonstruck Shadow Knight") : enemy.getName());
     if (!flavor.empty())
         std::cout << "  " << Color::DIM << flavor << Color::RESET << "\n";
+    if (championNow >= 0)
+        std::cout << "  " << Color::BOLD << Color::YELLOW << "Champion: " << championName(championNow) << "." << Color::RESET
+                  << " " << championRule(championNow) << " " << championRewardNote() << "\n";
     std::cout << "  HP:  " << hpColor(enemy.getHealth(), enemy.getMaxHealth())
               << enemy.getHealth() << "/" << enemy.getMaxHealth() << Color::RESET << "\n";
     // ARM and DEF are both flat damage reduction, so they're shown as one combined
@@ -1339,6 +1345,7 @@ void Game::onPlayerHit(const Card& card, int hpLost) {
         std::cout << "  " << Color::HEAL << "The Ebon Blade drinks. +" << heal << " HP." << Color::RESET << "\n";
     }
     if (!enemy.isAlive()) return;
+    if (championNow == CHAMP_THORNED) churchBackfire(2, "Thorned: its thorns cut you:");
     // The Hydra: a Pierce hit cuts a head off, down to one, and leaves the stump
     // open; a Fire hit sears every open stump shut. Emberlance does both.
     if (enemy.getBossType() == BossType::HYDRA) {
@@ -2011,6 +2018,12 @@ bool Game::applyEnemyStatus(StatusType type, int amount, double weakMultiplier) 
         std::cout << "  " << Color::CYAN << "The shadow's guard blocks the ailment!" << Color::RESET << "\n";
         return false;
     }
+    if (championWardUp) {
+        championWardUp = false;
+        std::cout << "  " << Color::YELLOW << "Warded:" << Color::RESET << " its ward takes the ailment, and breaks.\n";
+        UIHelper::pause(150);
+        return false;
+    }
     enemy.applyStatus(type, amount, weakMultiplier);
     return true;
 }
@@ -2124,6 +2137,7 @@ void Game::playCardFromHand(int index) {
         Card playedCard = playerDeck.playCard(index - 1);
 
         cardsPlayedThisTurn++;
+        runTally.played[playedCard.getBaseName()]++;   // the Chronicle's most played
         // Counted for each card as it is played: a weld counts each half as it
         // plays, below.
         auto countPlay = [this](const Card& c) {
@@ -2387,6 +2401,7 @@ void Game::resolveCardEffect(const Card& playedCard, const std::string& playedAs
                                     : hitsWeakness ? EnemyArt::PopKind::WEAK_HIT
                                                    : EnemyArt::PopKind::DAMAGE);
                 int armorBlocked = damageDealt - hpLost;
+                runTally.biggest = std::max(runTally.biggest, hpLost);
                 if (hpLost >= 200) earn(Achievements::BIG_HIT);
                 if (hpLost >= 500) earn(Achievements::HUGE_HIT);
                 if (hpLost >= 1000) earn(Achievements::THOUSAND);
@@ -2934,6 +2949,7 @@ void Game::endPlayerTurn() {
         UIHelper::typeWrite(std::string("\n") + Color::BOLD + "--- Enemy's Turn ---" + Color::RESET + "\n");
         UIHelper::pause(180);
         enemyTurn();
+        championAfterTurn();
         // The False Moon's clock: a turn nearer, and every two a piece of you.
         moonClockTick();
         // The final boss swings for a turn you let go on this enemy turn only:
@@ -2952,6 +2968,7 @@ void Game::endPlayerTurn() {
         // Warden's Lantern: every turn starts with some armor, not only the first.
         if (hasRelic(Relic::WARDEN_LANTERN)) playerArmor += lanternArmor();
         turnNumber++;
+        runTally.turns++;
         resetEnergy();
 
         // Tick your statuses at the start of your turn. Second wind gets offered here
@@ -3083,6 +3100,8 @@ bool Game::checkGameOver() {
 void Game::displayGameOver() {
     UIHelper::clearScreen();
     if (playerHealth <= 0) {
+        recordFight(2);
+        runResult = 1;
         // In the False Moon's fight he does not fall: it takes him for its vessel.
         if (enemy.isBoss() && enemy.getBossType() == BossType::FALSE_MOON) {
             EnemyArt::printBattleVessel(enemy.getType(), enemy.getBossType());
@@ -3258,6 +3277,8 @@ Hud::State Game::hudState() const {
         h.playerTags = ptags;
 
         h.enemyName = enemy.getName();
+        h.enemyTitle = championNow >= 0 ? championName(championNow) : "";
+        h.enemyTitleTip = championNow >= 0 ? std::string(championRule(championNow)) + " " + championRewardNote() : "";
         h.enemyHp = enemy.getHealth(); h.enemyMax = enemy.getMaxHealth();
         // Both readouts show what the enemy has right now: ATK includes its self buffs,
         // DEF the armour it's raised. ATK used to leave buffs out, so a wind-up
@@ -3581,10 +3602,72 @@ void Game::handleInput() {
 // middle of the band, at the size every other screen's choices are.
 static const int INFO_BUTTON_ROWS = 4;
 
+// A long info screen's text, kept so it can be shown a window at a time.
+namespace {
+struct InfoText {
+    std::vector<std::string> lines;   // as printed, colour codes and all
+    std::vector<int> rows;            // the rows each one wraps to
+    int top = 0, maxTop = 0, view = 0, whole = 0;
+    DrawUtil::ScrollGrip grip;
+    bool wasDown = false;
+};
+InfoText gInfo;
+
+// The slider, down the right of the text.
+SDL_Rect infoTrack() {
+    const SDL_Rect t = Console::textRegion();
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    const int w = std::max(6, cw * 2 / 3);
+    return SDL_Rect{ t.x + t.w - w - cw, t.y + ch / 4, w, gInfo.view * ch };
+}
+
+// Rows blanked first, then the lines that fit from `top`. No newline after the
+// last one, or the console would scroll the window up a row.
+void printInfoWindow() {
+    std::ostringstream out;
+    out << "\033[H";
+    for (int r = 0; r < gInfo.view; ++r) out << "\033[2K" << (r + 1 < gInfo.view ? "\n" : "");
+    out << "\033[H";
+    int used = 0;
+    for (size_t i = (size_t)gInfo.top; i < gInfo.lines.size(); ++i) {
+        if (used + gInfo.rows[i] > gInfo.view) break;
+        out << (used > 0 ? "\n" : "") << gInfo.lines[i];
+        used += gInfo.rows[i];
+    }
+    std::cout << out.str() << std::flush;
+}
+
+// Runs while the buttons wait: the wheel, PgUp and PgDn, and the slider.
+void infoScrollTick() {
+    if (gInfo.maxTop <= 0) return;
+    int top = gInfo.top;
+    top -= Platform::takeWheel() * 2;
+    top -= CardBar::takePageSteps() * std::max(1, gInfo.view - 2);
+    int mx, my;
+    Platform::mousePos(mx, my);
+    const bool down = Platform::mouseDown();
+    const SDL_Rect track = infoTrack();
+    if (down && !gInfo.wasDown)
+        DrawUtil::scrollPress(gInfo.grip, track, top, gInfo.maxTop, gInfo.view, gInfo.whole, mx, my);
+    DrawUtil::scrollDrag(gInfo.grip, track, top, gInfo.maxTop, gInfo.view, gInfo.whole, my, down);
+    gInfo.wasDown = down;
+    top = std::max(0, std::min(gInfo.maxTop, top));
+    if (top != gInfo.top) { gInfo.top = top; printInfoWindow(); }
+}
+
+void drawInfoSlider() {
+    if (gInfo.maxTop <= 0) return;
+    DrawUtil::drawScroll(Platform::renderer(), infoTrack(), gInfo.top, gInfo.maxTop, gInfo.view, gInfo.whole,
+                         SDL_Color{ 28, 26, 32, 255 }, SDL_Color{ 104, 100, 118, 255 });
+}
+} // namespace
+
 // Info screens get the whole window. Mid-fight the combat panel, the scene and
 // the hand left it about eight rows, so you only saw the last few lines and
-// it looked like everything above was gone. Now the text gets measured first
-// and the portrait gets whatever's left (or nothing if that's too little).
+// it looked like everything above was gone. The text gets measured first, and
+// when it fits, the portrait gets whatever's left. When it doesn't, the
+// portrait keeps two fifths of the window and the text scrolls under a slider,
+// instead of the knight shrinking to nothing (it used to, with a full kit).
 void Game::infoScreen(void (Game::*print)() const) {
     Hud::setActive(false);
     CardBar::setEnergy(0, 0);   // no pips by the buttons; the battle menu sets them again
@@ -3592,15 +3675,46 @@ void Game::infoScreen(void (Game::*print)() const) {
     std::streambuf* shown = std::cout.rdbuf(text.rdbuf());
     (this->*print)();
     std::cout.rdbuf(shown);
-    int lines = 0;
+    gInfo = InfoText{};
     const int width = std::max(1, Console::cols());
     std::istringstream in(text.str());
-    for (std::string line; std::getline(in, line); )
-        lines += std::max(1, (UIHelper::visibleLen(line) + width - 1) / width);
-    const int room = Console::totalRows() - lines - INFO_BUTTON_ROWS - 1;
-    EnemyArt::setPortraitRows(room >= 8 ? room : 0);
+    for (std::string line; std::getline(in, line); ) {
+        gInfo.lines.push_back(line);
+        gInfo.rows.push_back(std::max(1, (UIHelper::visibleLen(line) + width - 1) / width));
+        gInfo.whole += gInfo.rows.back();
+    }
+    const int room = Console::totalRows() - gInfo.whole - INFO_BUTTON_ROWS - 1;
+    const int keep = std::max(8, Console::totalRows() * 2 / 5);
+    if (room >= keep) {
+        EnemyArt::setPortraitRows(room);
+        UIHelper::clearScreen();
+        (this->*print)();
+        return;
+    }
+    EnemyArt::setPortraitRows(keep);
     UIHelper::clearScreen();
-    (this->*print)();
+    std::ostringstream unused;
+    shown = std::cout.rdbuf(unused.rdbuf());
+    (this->*print)();   // for the portrait it puts up; the words go out a window at a time
+    std::cout.rdbuf(shown);
+    gInfo.view = std::max(1, Console::rows() - INFO_BUTTON_ROWS - 1);
+    for (int left = 0; gInfo.maxTop < (int)gInfo.lines.size(); ++gInfo.maxTop) {
+        left = 0;
+        for (size_t i = (size_t)gInfo.maxTop; i < gInfo.rows.size(); ++i) left += gInfo.rows[i];
+        if (left <= gInfo.view) break;
+    }
+    printInfoWindow();
+}
+
+// The buttons under an info screen, with the text scrolling while they wait.
+int Game::infoButtons(const std::vector<CardBar::Action>& acts) {
+    CardBar::setNextHandRows(INFO_BUTTON_ROWS);
+    CardBar::takePageSteps();
+    Platform::setModalRenderer(&drawInfoSlider);
+    const int c = CardBar::select({}, acts, &infoScrollTick, 16);
+    Platform::setModalRenderer(nullptr);
+    gInfo = InfoText{};
+    return c;
 }
 
 // View Player: everything the run has given you, and the achievements a
@@ -3610,8 +3724,7 @@ void Game::showPlayerScreen() {
                                              CardBar::Action{ "Back", false } };
     while (true) {
         infoScreen(&Game::displayPlayerInfo);
-        CardBar::setNextHandRows(INFO_BUTTON_ROWS);
-        if (CardBar::select({}, acts) != 0) break;
+        if (infoButtons(acts) != 0) break;
         Achievements::showScreen();
     }
     EnemyArt::setPortraitRows(-1);
@@ -3649,8 +3762,7 @@ bool Game::pauseMenu() {
 // View Enemy: what it is and what it can do this fight.
 void Game::showEnemyScreen() {
     infoScreen(&Game::displayEnemyInfo);
-    CardBar::setNextHandRows(INFO_BUTTON_ROWS);
-    CardBar::select({}, { CardBar::Action{ "Back", false } });
+    infoButtons({ CardBar::Action{ "Back", false } });
     EnemyArt::setPortraitRows(-1);
     UIHelper::clearScreen();
     EnemyArt::printBattle(enemy.getType(), enemy.getBossType());
@@ -3964,6 +4076,12 @@ namespace {
         "It has nothing of his left to wear: his armor and his sword stayed on the peak. All "
         "that is left is its own malformed shape, red with the moon's light, and it has come "
         "down into the ruin to stop him from finishing it off."
+    };
+    // Only ever in the Lore Book, after the true ending. The first fire says he
+    // means to give the wooden sword back, and this is him doing it.
+    const Lines EPILOGUE = {
+        "When the long night is over, he goes back down to the pond.",
+        "He leaves the wooden sword in the reeds by the pond, where he found it."
     };
     const Lines ENDING_TRUE = {
         "The False Moon comes apart in the nave, and there is no one left in the valley to "
@@ -4303,6 +4421,7 @@ void Game::beginSecretEncounter() {
     int defense = (int)(currentRun.getEnemyDefense() * 1.2) + 1;
     enemy = Enemy(form.name, health, attack, defense, form.type);
     markMet(enemy.getName());
+    recordFight(0);
 
     // By full name, so the form's own sheet wins over the forest's werewolf.
     EnemyArt::setEnemyVariant(enemy.getName());
@@ -4341,6 +4460,7 @@ void Game::beginSecretEncounter() {
 void Game::beginTrueForm() {
     trueFormPhase = true;
     markMet("Moonstruck Shadow Knight");   // it keeps the Shadow Knight's name in the fight
+    recordFight(0);
     // A hundred more than the knight it came out of: this is the real fight.
     const int hp  = enemy.getMaxHealth() + 100;
     // Bonus attack included: the knight may have been buffed on its way down,
@@ -4509,7 +4629,7 @@ std::vector<std::string> plainLines(const Lines& lines) {
 }
 } // namespace
 
-std::vector<Game::LoreEntry> Game::loreEntries() const {
+std::vector<Game::LoreEntry> Game::loreEntries(bool all) const {
     namespace A = Achievements;
     const bool boss[5] = { A::has(A::COLOSSUS), A::has(A::WITCH), A::has(A::THUNDER), A::has(A::HYDRA),
                            A::has(A::DRAGON) };
@@ -4519,7 +4639,7 @@ std::vector<Game::LoreEntry> Game::loreEntries() const {
     const bool church = churchFound();
     std::vector<LoreEntry> out;
     auto story = [&](const char* title, const Lines& lines, bool seen, bool listed = true) {
-        if (listed) out.push_back(LoreEntry{ 0, title, plainLines(lines), seen, -1 });
+        if (listed || all) out.push_back(LoreEntry{ 0, title, plainLines(lines), seen, -1 });
     };
     story("The night at the pond", INTRO, true);
     static const char* const BEAT[5][3] = {
@@ -4541,6 +4661,7 @@ std::vector<Game::LoreEntry> Game::loreEntries() const {
     story("The ruined church", CHURCH_ENTER, church, church);
     story("The False Moon", CHURCH_APPROACH, met("False Moon"), church);
     story("The long night ends", ENDING_TRUE, A::falseMoonBeaten(), church);
+    story("The wooden sword", EPILOGUE, A::falseMoonBeaten(), church);
     // The fires, each where it was sat by.
     static const char* const PLACE[7] = { "The Dungeon", "The Dark Dungeon", "The Wicked Forest", "The Dark Lake",
                                           "The Mountain", "Before the peak", "The ruined church" };
@@ -4552,7 +4673,7 @@ std::vector<Game::LoreEntry> Game::loreEntries() const {
         const std::string title = st == 5 ? std::string("The last fire")
                                 : std::string(PLACE[st]) + ", the " + NTH[std::min(3, nth[st]++)] + " fire";
         const bool sat = ((heard >> i) & 1ULL) != 0;
-        if (st == 6 && !church && !sat) continue;   // the church's fires, once it is found
+        if (st == 6 && !church && !sat && !all) continue;   // the church's fires, once it is found
         out.push_back(LoreEntry{ 1, title, plainLines(SIT[i].lines), sat, -1 });
     }
     // The letters from the camps, each once it has been read (GameStops.cpp).
@@ -4560,7 +4681,7 @@ std::vector<Game::LoreEntry> Game::loreEntries() const {
     // The cutscenes, plus the moments that only play once in a run, in the order
     // the climb gets to them.
     auto scene = [&](const char* title, const char* line, bool seen, int which, bool listed = true) {
-        if (listed) out.push_back(LoreEntry{ 3, title, { line }, seen, which });
+        if (listed || all) out.push_back(LoreEntry{ 3, title, { line }, seen, which });
     };
     scene("The night at the pond", "The crimson moon over the pond, and the night it struck him.", true, 0);
     scene("A vigil goes out", "One of the flames the moon set in a boss's chest, put out.", A::has(A::VIGIL), 4);
@@ -4577,6 +4698,31 @@ std::vector<Game::LoreEntry> Game::loreEntries() const {
     scene("The long night ends", "The moon let go, and the morning through the hole in the church wall.",
           A::falseMoonBeaten(), 2, church);
     return out;
+}
+
+// How far along the achievements that take many runs are, for their rows on
+// the achievements page. The rest have nothing to count.
+bool Game::achievementProgress(int id, int& have, int& need) const {
+    namespace A = Achievements;
+    have = need = 0;
+    switch (id) {
+        case A::ALL_FORMS:
+            for (int z = 0; z < 5; ++z) have += (A::formsSeen() >> z) & 1;
+            need = 5;
+            return true;
+        case A::EVERY_SIT:
+            for (int i = 0; i < SIT_COUNT; ++i)
+                if (SIT[i].stage <= 5) { ++need; have += ((A::sitsHeard() >> i) & 1ULL) ? 1 : 0; }
+            return true;
+        case A::EVERY_CARD:
+            for (const Card& c : allCards()) { ++need; have += cardsHeld.count(c.getBaseName()) ? 1 : 0; }
+            return true;
+        case A::LOREKEEPER:
+            loreProgress(have, need);
+            return true;
+        default:
+            return false;
+    }
 }
 
 // Replays a cutscene from the Lore Book: same shots, lines and sounds, just
@@ -4817,6 +4963,7 @@ std::vector<Card> Game::moonShadePrize(int beatenThisRun) {
 // fight it interrupted happens anyway. You come back at half health. It used
 // to be 1 HP, and the next fight killed basically every run that lost one.
 void Game::handleSecretDefeat() {
+    recordFight(2);
     inSecretEncounter = false;
     endEncounterEffects();
     Hud::setActive(false);
@@ -4887,6 +5034,9 @@ static const RosterEntry ROSTER[53] = {
 };
 
 void Game::startEncounter() {
+    championNow = -1;   // a Moon Shade or a boss is never one
+    championWardUp = false;
+    championTurns = 0;
 
     if (rollSecretEncounter()) { beginSecretEncounter(); return; }
 
@@ -4905,6 +5055,8 @@ void Game::startEncounter() {
             if (zone >= 0 && zone < 5) showStoryBeat(ZONE_STORY[zone].enter);
         }
     }
+    // The quick road's forks: the next fight is picked before it starts.
+    if (!currentRun.isBossEncounter()) offerCrossroads(currentRun.getRegularIndex());
     UIHelper::clearScreen();
     EnemyArt::setBattleBackdrop(currentRun.getRoadPosition());
     // The False Moon comes out of the eclipse in silence, and its music
@@ -4975,10 +5127,14 @@ void Game::startEncounter() {
                               : (etype == EnemyType::BEAST)  ? "Beast" : "Undead";
         name += " (" + typeLabel + ")";
         enemy = Enemy(name, health, attack, defense, etype);
+        const int area = r < ROAD_REGULARS ? std::min(4, r / 9) : 5;
+        if (championRoster[area] == r) championNow = championTraitOf[area];
+        championWardUp = championNow == CHAMP_WARDED;
     }
 
     EnemyArt::setEnemyVariant(enemy.getName());
     markMet(enemy.getName());
+    recordFight(0);
     prepareShadowKnightMoves(); // no-op unless this fight is the Shadow Knight
 
     // Divider in the run-long log, so scrolling back through a whole run stays
@@ -4989,6 +5145,9 @@ void Game::startEncounter() {
         + "=== " + (currentRun.isBossEncounter() ? "BOSS" : "Encounter "
             + std::to_string(currentRun.shownEncounter()))
         + ": " + enemy.getName() + " ===" + Color::RESET);
+    if (championNow >= 0)
+        Console::pushHistory(std::string(Color::YELLOW) + "A champion: " + championName(championNow) + ". "
+                             + championRule(championNow) + Color::RESET);
 
     // Fresh fight: clear every per-enemy signature mechanic from the last one.
     playerAttackOnly = false;
@@ -5287,12 +5446,16 @@ void Game::restSite() {
                         CardBar::Action{ "Sit a while", "by the fire, and remember something", false });
     const int skipChoice = (int)siteActs.size() - 1;
     const int sitChoice  = sitNext >= 0 ? skipChoice - 1 : -2;
+    // The Scholar's Lens reads the next fight from here too, so the rest and the
+    // armor can be picked for it.
+    if (hasRelic(Relic::SCHOLAR_LENS)) CardBar::setNextCorner(lensNextFight(), SDL_Color{ 97, 214, 214, 255 });
     int siteChoice = CardBar::pick("Rest site", {}, siteActs, 0);
     if (siteChoice < 0) siteChoice = skipChoice;   // ESC leaves without resting
 
     if (siteChoice == sitChoice) {
         // Free, and the rest site is still there afterwards.
         satCount = sitNext + 1;
+        runTally.sits++;
         earn(Achievements::SIT);
         if (SIT[sitNext].stage == 5) earn(Achievements::LAST_FIRE);   // the night before the peak
         // Heard in any run counts, so they are kept with the achievements.
@@ -5310,12 +5473,14 @@ void Game::restSite() {
         if (playerHealth >= maxPlayerHealth) earn(Achievements::FULL_REST);
         playerHealth = maxPlayerHealth;
         restedThisRun = true;
+        runTally.rests++;
         Audio::playSFX("heal");
         earn(Achievements::REST);
         notice("You rest and fully recover to " + std::to_string(maxPlayerHealth) + " HP.");
         break; // committed - progress as normal
     } else if (siteChoice == 1) {
         if (forgeMenu("Forge   pick a card to upgrade")) {    // committed - progress as normal
+            runTally.forges++;
             if (playerHealth * 10 <= maxPlayerHealth) earn(Achievements::WALK_IT_OFF);
             break;
         }
@@ -5574,6 +5739,7 @@ void Game::handleEncounterWin() {
     // Poison, burn and rend took every point: nothing you swung, turned back
     // or chipped ever landed.
     if (enemy.hitDamageTaken() == 0) earn(Achievements::DOT_ONLY);
+    recordFight(1);   // before the true form takes over, so the knight's own win counts
     if (inSecretEncounter) { handleSecretWin(); return; }
     // The knight goes down and the moon stands up in it. Checked before the
     // encounter is counted as won, because it has not been.
@@ -5830,6 +5996,12 @@ void Game::startRunInMode(Mode m, bool carryWinningRun) {
     currentRun.setDifficulty(difficultyFor(m));
     currentRun.setQuick(m == Mode::QUICK);
     buildRandomOrder();
+    crossDone = 0;
+    crossPicks.clear();
+    pickChampions();
+    runTally = RunTally{};
+    runClock = SDL_GetTicks();
+    runResult = 0;
     moonZonesSeen = 0;
     moonZonesBeaten = 0;
     EnemyArt::setGearTiers(wornWeapon, wornArmor);
@@ -5882,6 +6054,160 @@ void Game::buildRandomOrder() {
     }
     for (int i = 0; i < 44; i++) randomOrder.push_back(i);
     std::shuffle(randomOrder.begin(), randomOrder.end(), gen);
+}
+
+// The quick road's forks: each area's first and third fights (the Mountain has
+// three, so its first and last). The full road stays the story's, in its order.
+bool Game::crossroadsAt(int i) const {
+    if (!onQuick() || i < 0 || i >= (int)randomOrder.size()) return false;
+    const int inArea = i < 16 ? i % 4 : i - 16;
+    return inArea == 0 || inArea == 2;
+}
+
+// One of the area's fights the road left out. Seeded by the road and the fork,
+// so a saved run offers the same one again.
+int Game::crossroadsOther(int i) const {
+    static const int FIRST[5] = { 0, 9, 18, 27, 36 }, SIZE[5] = { 9, 9, 9, 9, 8 };
+    const int area = std::min(4, randomOrder[(size_t)i] / 9);
+    std::vector<int> left;
+    for (int k = FIRST[area]; k < FIRST[area] + SIZE[area]; ++k)
+        if (std::find(randomOrder.begin(), randomOrder.end(), k) == randomOrder.end()) left.push_back(k);
+    if (left.empty()) return -1;
+    std::mt19937 gen(randomSeed ^ (0x9E3779B9u * (unsigned)(i + 1)));
+    return left[(size_t)std::uniform_int_distribution<>(0, (int)left.size() - 1)(gen)];
+}
+
+// An enemy as a card at the fork: its sprite, its type, and what it is weak
+// to and resists, so the bestiary is worth reading before you pick. A champion
+// says so.
+CardBar::Card Game::crossroadsCard(int r) const {
+    CardBar::Card w;
+    const RosterEntry& e = ROSTER[r];
+    const Enemy kind(e.name, 1, 1, 0, e.type);
+    const char* type = e.type == EnemyType::MELEE ? "Melee" : e.type == EnemyType::RANGED ? "Ranged"
+                     : e.type == EnemyType::TANK ? "Tank" : e.type == EnemyType::CASTER ? "Caster"
+                     : e.type == EnemyType::BEAST ? "Beast" : "Undead";
+    w.name = e.name;
+    w.elemTag = std::string("[") + type + "]";
+    w.effect = "weak to " + kind.getWeaknessLabel();
+    const int area = std::min(4, r / 9);
+    w.note = championRoster[area] == r ? std::string("champion: ") + championName(championTraitOf[area])
+                                       : "resists " + kind.getResistanceLabel();
+    w.icon = bestiaryIcon(e.name);
+    w.item = true;
+    w.tint = SDL_Color{ 200, 86, 86, 255 };
+    return w;
+}
+
+// Picked before the fight starts; Esc keeps to the road it drew.
+void Game::offerCrossroads(int i) {
+    if (!crossroadsAt(i) || ((crossDone >> i) & 1u)) return;
+    crossDone |= 1u << i;
+    const int other = crossroadsOther(i);
+    if (other < 0) return;
+    const int paths[2] = { randomOrder[(size_t)i], other };
+    std::vector<CardBar::Card> widgets{ crossroadsCard(paths[0]), crossroadsCard(paths[1]) };
+    UIHelper::clearScreen();
+    Hud::setActive(false);
+    int c = 0;
+    while (true) {
+        c = CardBar::pick("The road forks. Which way?", widgets, {}, 2);
+        if (c <= -2) {   // "+": its bestiary entry, if you've met it
+            const int k = -2 - c;
+            const int id = bestiaryIndexOf(ROSTER[paths[k]].name);
+            CardBar::showDetail(widgets[(size_t)k], id >= 0 ? bestiaryEntryText(id) : std::string(), "ENEMY", "", 0);
+            continue;
+        }
+        break;
+    }
+    if (c == 1) {
+        randomOrder[(size_t)i] = other;
+        crossPicks.push_back({ i, other });
+    }
+}
+
+// The Scholar's Lens at a rest site: what kind of enemy is next and what it
+// hits with. A fork on the quick road shows both ways.
+std::string Game::lensNextFight() const {
+    Run next = currentRun;
+    next.nextEncounter();
+    auto type = [](EnemyType t) {
+        return t == EnemyType::MELEE ? "Melee" : t == EnemyType::RANGED ? "Ranged" : t == EnemyType::TANK ? "Tank"
+             : t == EnemyType::CASTER ? "Caster" : t == EnemyType::BEAST ? "Beast" : "Undead";
+    };
+    if (next.isBossEncounter()) {
+        static const struct { const char* name; EnemyType type; } BOSS[7] = {
+            { "Stone Colossus", EnemyType::TANK }, { "Vile Witch", EnemyType::CASTER },
+            { "Thunder Beast", EnemyType::MELEE }, { "Hydra", EnemyType::BEAST }, { "Undead Dragon", EnemyType::RANGED },
+            { "Shadow Knight", EnemyType::UNDEAD }, { "False Moon", EnemyType::CASTER } };
+        const auto& b = BOSS[std::max(0, std::min(6, next.getBossIndex()))];
+        return std::string("Scholar's Lens, next fight: the boss, ") + type(b.type) + ", hits with "
+             + typeWord(blowTypeOf(b.name, b.type));
+    }
+    const int i = next.getRegularIndex();
+    const RosterEntry& e = ROSTER[rosterIndexFor(i)];
+    const int other = crossroadsAt(i) && !((crossDone >> i) & 1u) ? crossroadsOther(i) : -1;
+    if (other >= 0)
+        return std::string("Scholar's Lens, next fight: ") + type(e.type) + " (" + typeWord(blowTypeOf(e.name, e.type))
+             + ") or " + type(ROSTER[other].type) + " (" + typeWord(blowTypeOf(ROSTER[other].name, ROSTER[other].type)) + ")";
+    return std::string("Scholar's Lens, next fight: ") + type(e.type) + ", hits with " + typeWord(blowTypeOf(e.name, e.type));
+}
+
+// One ordinary enemy in each area becomes its champion, from the ones this
+// road will actually fight (the quick road only meets four of each area's).
+void Game::pickChampions() {
+    static thread_local std::mt19937 gen(std::random_device{}());
+    std::vector<int> pool[6];
+    const int regulars = runMode == Mode::QUICK ? (int)randomOrder.size() : ROAD_REGULARS;
+    for (int i = 0; i < regulars; ++i) {
+        const int r = rosterIndexFor(i);
+        pool[std::min(4, r / 9)].push_back(r);
+    }
+    for (int r = ROAD_REGULARS; r < 53; ++r) pool[5].push_back(r);   // the church's nine
+    for (int a = 0; a < 6; ++a) {
+        championRoster[a] = championTraitOf[a] = -1;
+        if (pool[a].empty()) continue;
+        championRoster[a] = pool[a][(size_t)std::uniform_int_distribution<>(0, (int)pool[a].size() - 1)(gen)];
+        championTraitOf[a] = std::uniform_int_distribution<>(0, CHAMP_TRAITS - 1)(gen);
+    }
+}
+
+const char* Game::championName(int trait) {
+    static const char* const NAME[CHAMP_TRAITS] = { "Hardened", "Swift", "Venomous", "Warded", "Thorned" };
+    return trait >= 0 && trait < CHAMP_TRAITS ? NAME[trait] : "";
+}
+
+const char* Game::championRule(int trait) {
+    static const char* const RULE[CHAMP_TRAITS] = {
+        "It gains 6 armor every turn.",
+        "Every third turn it strikes twice.",
+        "Its blows poison you.",
+        "The first ailment you put on it does nothing.",
+        "Each of your hits that lands deals 2 damage back to you.",
+    };
+    return trait >= 0 && trait < CHAMP_TRAITS ? RULE[trait] : "";
+}
+
+// What its card reward will be, for the tips: forged uncommons while rares are
+// still shut, rare and up once the first boss has opened them.
+const char* Game::championRewardNote() const {
+    return rarityGate() == 0 ? "Its card reward comes already forged." : "Its card reward starts at rare.";
+}
+
+// After the enemy's turn, what its trait adds: Hardened sets itself for your
+// next turn, and Swift strikes again every third turn it got to act.
+void Game::championAfterTurn() {
+    if (championNow < 0 || !enemy.isAlive() || playerHealth <= 0) return;
+    if (championNow == CHAMP_HARDENED) {
+        enemy.gainArmor(6);
+        std::cout << "  " << Color::YELLOW << "Hardened:" << Color::RESET << Color::ARMOR_CLR
+                  << " it sets itself, +6 armor." << Color::RESET << "\n";
+        UIHelper::pause(150);
+    } else if (championNow == CHAMP_SWIFT && championActed && ++championTurns % 3 == 0) {
+        std::cout << "  " << Color::YELLOW << "Swift:" << Color::RESET << " it strikes again.\n";
+        enemyStrikePlayer(enemy.getBaseAttack() + enemy.getBonusAttack(), false, enemy.getWeakMultiplier(),
+                          archetypeIsRanged(), true, enemyProjectile(), false, false, false);
+    }
 }
 
 int Game::rosterIndexFor(int regularIndex) const {
@@ -5957,6 +6283,7 @@ void Game::offerSeal() {
 }
 
 void Game::handleGameVictory() {
+    runResult = 2;
     UIHelper::waitForKey();
     // The music lets go and the peak is left to the wind, until the sun
     // comes up over the hills and the wind dies under it.
@@ -6160,6 +6487,7 @@ void Game::leftWithTheArmor() {
 // The False Moon put out: the true ending. Its heart is a legendary of its
 // own, and the run ends here.
 void Game::handleTrueVictory() {
+    runResult = 3;
     UIHelper::waitForKey();
     Audio::fadeOutBGM(1800);
     // The sunrise the peak never got this run (the true form ran at 50), so the
@@ -6266,6 +6594,7 @@ void Game::offerContinueOrEndRun(bool justWonEncounter) {
         if (justWonEncounter) nextEncounter();
         else startEncounter(); // the loaded encounter hasn't been fought yet - don't skip past it
     } else {
+        if (choice == 2) runResult = 4;   // ended early, for the Chronicle
         if (choice == 1) {
             const int slot = chooseSaveSlot("Save this run", /*forSaving*/true);
             if (slot == 0) return offerContinueOrEndRun(justWonEncounter);  // backed out
@@ -6310,28 +6639,51 @@ void Game::offerExhaustedReward() {
                       "Skip this reward, take none of the three?");
 }
 
+// Rarity gate: Uncommon only, +Rare after the 1st boss, +Super Rare after the
+// 2nd. The harder roads skip it: you've already been through it once, and
+// gating it again just makes the first ten fights worse.
+int Game::rarityGate() const {
+    return (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD)
+         ? 2 : std::min(2, currentRun.getRoadPosition() / 10);
+}
+
 void Game::offerCardReward() {
     UIHelper::clearScreen();
     bool rarityBoost = upgrades.isActive(4);
-    // Rarity gate: Uncommon only, +Rare after the 1st boss, +Super Rare after the
-    // 2nd. The harder roads skip it: you've already been through it once, and
-    // gating it again just makes the first ten fights worse.
-    int maxRarityUnlocked = (runMode == Mode::HARD || runMode == Mode::RANDOM_HARD)
-                          ? 2 : std::min(2, currentRun.getRoadPosition() / 10);
+    const int maxRarityUnlocked = rarityGate();
+    // A champion's starts at rare, like the church's: no uncommons, and super
+    // rares only once the road has opened them. Before the first boss opens
+    // rares it stays uncommon, but every card in it comes forged.
+    const bool champion = championNow >= 0;
+    const bool forgedPick = champion && maxRarityUnlocked == 0;
     // The church gives nothing below rare.
-    const bool noUncommon = currentRun.inChurch();
-    std::vector<Card> rewards = rewardPool.generateWeightedRewards(
-        3 + rewardChoiceBonus, rarityBoost, maxEnergy,
-        playerDeck.getAllCardNames(), maxRarityUnlocked, luckBonus(), noUncommon);
+    const bool noUncommon = currentRun.inChurch() || (champion && !forgedPick);
+    // A forged pick asks for the whole uncommon pool, which comes back shuffled,
+    // and keeps the first few the forge can work. Weaken, Taunt, Fear and Blood
+    // Price have nothing to forge, so they'd just be a plain card in a better reward.
+    const int count = forgedPick ? 99 : 3 + rewardChoiceBonus;
+    auto forged = [=](std::vector<Card> cards) {
+        if (!forgedPick) return cards;
+        std::vector<Card> out;
+        for (Card& c : cards) {
+            if ((int)out.size() == 3 + rewardChoiceBonus) break;
+            if (c.getUpgradeCount() < c.getMaxUpgrades()) { c.upgrade(); out.push_back(c); }
+        }
+        return out;
+    };
+    std::vector<Card> rewards = forged(rewardPool.generateWeightedRewards(
+        count, rarityBoost, maxEnergy,
+        playerDeck.getAllCardNames(), maxRarityUnlocked, luckBonus(), noUncommon));
 
     if (rewards.empty()) { offerExhaustedReward(); return; }
 
-    presentCardChoice(rewards, "Pick a card to add to your deck",
+    presentCardChoice(rewards, champion ? "A champion's reward: pick a card to add to your deck"
+                                        : "Pick a card to add to your deck",
                       "Skip this reward, take none of the three?",
                       [=]() {
-                          return rewardPool.generateWeightedRewards(
-                              3 + rewardChoiceBonus, rarityBoost, maxEnergy,
-                              playerDeck.getAllCardNames(), maxRarityUnlocked, luckBonus(), noUncommon);
+                          return forged(rewardPool.generateWeightedRewards(
+                              count, rarityBoost, maxEnergy,
+                              playerDeck.getAllCardNames(), maxRarityUnlocked, luckBonus(), noUncommon));
                       });
 }
 
@@ -7249,6 +7601,9 @@ void Game::abandonToMenu() {
 
 void Game::finishRun() {
     Audio::stopLoop();
+    // A run that really ended goes in the Chronicle. Saving and quitting is
+    // not an end: that run is still to finish.
+    if (!leftBySaving) writeChronicle();
     // A run lost mid-fight: the cards that fight set aside are offered to
     // carry over like the rest, and its Grave Dirt never is.
     endEncounterEffects();

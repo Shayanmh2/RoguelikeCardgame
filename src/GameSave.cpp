@@ -238,6 +238,12 @@ void Game::loadProgress() {
         else if (tag == "SITV") in >> sitLayout;
         else if (tag == "MOON") in >> moonOut;
         else if (tag == "MET") in >> metMask[0] >> metMask[1];
+        else if (tag == "REC") {
+            int id = -1;
+            BeastRecord rec;
+            in >> id >> rec.fought >> rec.won >> rec.lost >> rec.fastest;
+            if (id >= 0 && id < 128) beastRecords[id] = rec;
+        }
         else if (tag == "LETTERS") in >> lettersRead;   // the camps' letters read, in any run
         else if (tag == "SCENES") in >> scenesSeen;     // the Lore Book's moments seen
         else if (tag == "CARDS") {   // the Card Ledger: names held in any run, '|' between them
@@ -280,6 +286,11 @@ void Game::saveProgress() const {
     out << "SITV " << SIT_LAYOUT << "\n";
     out << "MOON " << (Achievements::falseMoonBeaten() ? 1 : 0) << "\n";
     out << "MET " << metMask[0] << " " << metMask[1] << "\n";
+    for (int i = 0; i < 128; ++i) {
+        const BeastRecord& rec = beastRecords[i];
+        if (rec.fought || rec.won || rec.lost)
+            out << "REC " << i << " " << rec.fought << " " << rec.won << " " << rec.lost << " " << rec.fastest << "\n";
+    }
     out << "LETTERS " << lettersRead << "\n";
     out << "SCENES " << scenesSeen << "\n";
     out << "CARDS ";
@@ -456,6 +467,20 @@ void Game::writeSaveTo(std::ostream& out) const {
     out << "SAT " << satCount << " " << SIT_LAYOUT << "\n";
     out << "STOPS " << stopsDone << "\n";
     out << "KEEPSAKES " << keepsakes << "\n";
+    out << "CHAMPS";
+    for (int a = 0; a < 6; ++a) out << " " << championRoster[a] << " " << championTraitOf[a];
+    out << "\n";
+    // The Chronicle's numbers so far, the clock folded in without touching it.
+    out << "TALLY " << runTally.turns << " " << runTally.dealt << " " << runTally.taken << " " << runTally.biggest
+        << " " << runTally.rests << " " << runTally.forges << " " << runTally.sits << " "
+        << runTally.seconds + (int)((SDL_GetTicks() - runClock) / 1000) << "\n";
+    out << "PLAYED ";
+    for (auto it = runTally.played.begin(); it != runTally.played.end(); ++it)
+        out << (it == runTally.played.begin() ? "" : "|") << it->first << "=" << it->second;
+    out << "\n";
+    out << "CROSS " << crossDone;
+    for (const auto& p : crossPicks) out << " " << p.first << " " << p.second;
+    out << "\n";
     out << "RESTED " << (restedThisRun ? 1 : 0) << "\n";
     out << "DISCARDED " << (discardedThisRun ? 1 : 0) << "\n";
     out << "NONDOT " << (playedNonDot ? 1 : 0) << "\n";
@@ -533,6 +558,10 @@ bool Game::loadSaveFrom(std::istream& in) {
     Card weldFirst("", "", CardType::ATTACK, 0, 0);   // a weld's first half, until its second is read
     bool haveWeldFirst = false;
     int savedStops = 0, savedKeepsakes = 0;
+    bool savedChamps = false;
+    unsigned savedCrossDone = 0;
+    RunTally savedTally;
+    std::vector<std::pair<int, int>> savedCross;
 
     while (std::getline(in, line)) {
         if (line.empty()) continue;
@@ -587,6 +616,19 @@ bool Game::loadSaveFrom(std::istream& in) {
         else if (tag == "SAT")         iss >> savedSat >> savedSatLayout;
         else if (tag == "STOPS")       iss >> savedStops;
         else if (tag == "KEEPSAKES")   iss >> savedKeepsakes;
+        else if (tag == "CHAMPS")      { savedChamps = true; for (int a = 0; a < 6; ++a) iss >> championRoster[a] >> championTraitOf[a]; }
+        else if (tag == "CROSS")       { iss >> savedCrossDone; int f = 0, r = 0; while (iss >> f >> r) savedCross.push_back({ f, r }); }
+        else if (tag == "TALLY")       iss >> savedTally.turns >> savedTally.dealt >> savedTally.taken >> savedTally.biggest
+                                           >> savedTally.rests >> savedTally.forges >> savedTally.sits >> savedTally.seconds;
+        else if (tag == "PLAYED") {
+            std::string rest;
+            std::getline(iss, rest);
+            std::stringstream parts(rest.size() > 1 ? rest.substr(1) : std::string());
+            for (std::string p; std::getline(parts, p, '|'); ) {
+                const size_t eq = p.rfind('=');
+                if (eq != std::string::npos) savedTally.played[p.substr(0, eq)] = std::atoi(p.c_str() + eq + 1);
+            }
+        }
         else if (tag == "RESTED")      iss >> savedRested;
         else if (tag == "DISCARDED")   iss >> savedDiscarded;
         else if (tag == "NONDOT")      iss >> savedNonDot;
@@ -646,6 +688,16 @@ bool Game::loadSaveFrom(std::istream& in) {
     currentRun.setDifficulty(difficultyFor(runMode));
     currentRun.setQuick(runMode == Mode::QUICK);
     buildRandomOrder();
+    runTally = savedTally;
+    runClock = SDL_GetTicks();
+    runResult = 0;
+    // The forks it already took, put back on the road the seed rebuilt.
+    crossDone = savedCrossDone;
+    crossPicks = savedCross;
+    for (const auto& p : crossPicks)
+        if (p.first >= 0 && p.first < (int)randomOrder.size() && p.second >= 0 && p.second < 44)
+            randomOrder[(size_t)p.first] = p.second;
+    if (!savedChamps) pickChampions();   // a save from before champions gets its own now
     // A save from before the equipment tab wears the newest of everything.
     // Clamped to what the save found, which runs past six with a trophy set.
     const int cap = maxGearTier();

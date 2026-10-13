@@ -9,6 +9,7 @@
 #include "StatusEffect.h"
 #include "UpgradeSystem.h"
 #include "Hud.h"
+#include <map>
 #include <set>
 #include <vector>
 #include <functional>
@@ -16,7 +17,7 @@
 
 struct SDL_Renderer;
 struct SDL_Rect;
-namespace CardBar { struct Card; }
+namespace CardBar { struct Card; struct Action; }
 
 class Game {
 public:
@@ -404,6 +405,51 @@ private:
     std::set<std::string> cardsHeld;
     void noteCardsHeld();                  // the deck's cards go in; all of them earns A Full Ledger
     void noteLorekeeper();                 // every enemy met and every Lore Book page earns Lorekeeper
+    // The bestiary's record of each enemy, across runs (progress.dat REC), by
+    // its place in the bestiary like MET.
+    struct BeastRecord { int fought = 0, won = 0, lost = 0, fastest = 0; };
+    BeastRecord beastRecords[128];
+    int  recordIdNow() const;               // the one in front of you, as the bestiary knows it
+    // Champions: one ordinary enemy in each area (the church's too), picked when
+    // a run starts and saved with it, comes with a trait and a rarer reward.
+    enum ChampionTrait { CHAMP_HARDENED, CHAMP_SWIFT, CHAMP_VENOMOUS, CHAMP_WARDED, CHAMP_THORNED, CHAMP_TRAITS };
+    int  championRoster[6] = { -1, -1, -1, -1, -1, -1 };   // per area, which of the roster
+    int  championTraitOf[6] = { -1, -1, -1, -1, -1, -1 };
+    int  championNow = -1;           // this fight's trait, or -1
+    bool championWardUp = false;     // Warded, until the first ailment breaks it
+    bool championActed = false;      // the enemy got to act this turn, not stunned
+    int  championTurns = 0;          // Swift's count
+    void pickChampions();
+    // The Chronicle: this run's numbers as it goes (saved with the run), and
+    // every finished run's record in saves/chronicle.dat.
+    struct RunTally {
+        int turns = 0, dealt = 0, taken = 0, biggest = 0, rests = 0, forges = 0, sits = 0, seconds = 0;
+        std::map<std::string, int> played;   // each card's plays, for the most played
+    };
+    RunTally runTally;
+    unsigned runClock = 0;   // SDL ticks when this stretch of the run began
+    int runResult = 0;       // how it ended: 1 died, 2 cleared the road, 3 the true ending, 4 ended early
+    void tallySeconds();
+    std::string chroniclePath() const;
+    void writeChronicle();
+    void showChronicle();
+    // Crossroads, on the quick road only: the forks passed so far (a bit per
+    // regular fight) and the ones that went the other way (fight, roster).
+    unsigned crossDone = 0;
+    std::vector<std::pair<int, int>> crossPicks;
+    bool crossroadsAt(int regularIndex) const;
+    int  crossroadsOther(int regularIndex) const;
+    void offerCrossroads(int regularIndex);
+    std::string lensNextFight() const;   // the Scholar's Lens at a rest site
+    CardBar::Card crossroadsCard(int rosterIndex) const;
+    int  bestiaryIcon(const std::string& enemyName) const;
+    void championAfterTurn();
+    static const char* championName(int trait);
+    static const char* championRule(int trait);
+    const char* championRewardNote() const;
+    int rarityGate() const;   // 0 uncommons only, 1 adds rares, 2 adds super rares
+    void recordFight(int outcome);          // 0 a fight starts, 1 you won it, 2 it beat you
+    std::vector<std::string> recordLines(int id, int id2) const;   // its record page
     std::vector<Card> allCards() const;    // every card in the game: the starters, then the pool
     CardBar::Card printedWidget(const Card& c) const;   // a card at its printed numbers
     void writeWinSave() const;
@@ -443,7 +489,12 @@ private:
     // The Gallery (GameBestiary.cpp): the bestiary, the Lore Book and the Card
     // Ledger. The Lore Book reads every story beat and fire from Game.cpp and can
     // replay the cutscenes.
-    std::vector<LoreEntry> loreEntries() const;
+    // `all` lists every page, found or not: for counting, so the secret ones
+    // keep the Gallery short of 100% until they are found.
+    std::vector<LoreEntry> loreEntries(bool all = false) const;
+    void loreProgress(int& have, int& need) const;      // bestiary entries met and pages found, of all of them
+    int  galleryPercent() const;                        // the Gallery's corner: entries, pages and cards found
+    bool achievementProgress(int id, int& have, int& need) const;
     void replayCutscene(int which);   // 0 the pond, 1 the morning on the peak, 2 the long night ending, 3 the Hard ending
     void showGallery();
     void showLoreBook();
@@ -638,6 +689,7 @@ public:
     void showPlayerScreen();
     void showEnemyScreen();
     void infoScreen(void (Game::*print)() const);
+    int  infoButtons(const std::vector<CardBar::Action>& acts);   // scrolls a long one while they wait
 };
 
 #endif

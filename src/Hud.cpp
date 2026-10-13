@@ -408,7 +408,8 @@ std::string foeStatText(const State& s) {
 // pushes it right.
 int foeBarX(const State& s, int x, int cw) {
     int bx = x + 6 * cw;
-    if ((int)s.enemyName.size() + 1 > 6) bx += ((int)s.enemyName.size() + 1 - 6) * cw;
+    const int nameLen = (int)s.enemyName.size() + (s.enemyTitle.empty() ? 0 : (int)s.enemyTitle.size() + 1);
+    if (nameLen + 1 > 6) bx += (nameLen + 1 - 6) * cw;
     return bx;
 }
 
@@ -599,6 +600,14 @@ void draw() {
     // --- row 3: the enemy -------------------------------------------------
     y += ch + 4;
     Console::drawTextPx(r, x, y, gState.enemyName, ink, true);
+    // A champion's trait beside its name, in its own shade, with what it does
+    // a point away.
+    if (!gState.enemyTitle.empty()) {
+        const int tx0 = x + ((int)gState.enemyName.size() + 1) * cw;
+        Console::drawTextPx(r, tx0, y, gState.enemyTitle, SDL_Color{ 232, 196, 84, 255 }, false);
+        gTips.push_back(Tip{ SDL_Rect{ tx0, y, (int)gState.enemyTitle.size() * cw, ch },
+                             "Champion: " + gState.enemyTitle, gState.enemyTitleTip });
+    }
     SDL_Rect eb{ foeBarX(gState, x, cw), y + 1, barW, barH };
     const float pv = (gPreview > 0 && gState.enemyMax > 0)
                    ? std::min(ef, (float)gPreview / gState.enemyMax) : 0.0f;
