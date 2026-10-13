@@ -50,7 +50,7 @@ const Info INFO[COUNT] = {
     { "Something Out There", "Meet a Moon Shade.",                                   BRONZE },
 
     { "Before It Moves",     "Win a fight on your first turn.",                      SILVER },
-    { "By a Hair",           "Win a fight on a tenth of your health or less.",       SILVER },
+    { "By a Hair",           "Win a fight with a tenth of your health or less.",       SILVER },
     { "All Four Out",        "Put out all four vigils in one run.",                  SILVER },
     { "Pockets Full",        "Hold five relics at once.",                            SILVER },
     { "One Head Left",       "Cut the Hydra down to one head.",                      SILVER },
@@ -82,8 +82,8 @@ const Info INFO[COUNT] = {
 
     { "How did you even-",   "Die to the tutorial slime.",                           BRONZE },
 
-    { "Just Resting My Eyes", "Rest while already at full health.",                  BRONZE },
-    { "Walk It Off",         "Skip resting on a tenth of your health or less.",      BRONZE },
+    { "Just Resting My Eyes", "Rest when you are already at full health.",                  BRONZE },
+    { "Walk It Off",         "Skip resting with a tenth of your health or less.",      BRONZE },
     { "Mind the Edge",       "Die to your own Scrap Shield.",                        BRONZE },
     { "It Was Right There",  "Die with Sacrifice still in your hand.",               BRONZE },
     { "Stop Hitting Yourself", "Let the true form turn your own blow on you.",       BRONZE },
@@ -93,7 +93,7 @@ const Info INFO[COUNT] = {
     { "It Said Cursed",      "Take the cursed relic.",                               BRONZE },
     { "Tickle",              "Hit an enemy for no damage at all.",                   BRONZE },
     { "Down to One",         "Discard every card but one.",                          BRONZE },
-    { "Sentimental",         "Beat a boss in starter gear while owning better.",     BRONZE },
+    { "Sentimental",         "Beat a boss in your starter gear when you own better.",     BRONZE },
     { "Having a Bad Day",    "Suffer three ailments at once.",                       BRONZE },
     { "Buyer's Remorse",     "Die to your own Blood Price.",                         BRONZE },
     { "Wide Open",           "Die while Berserk Stance has you exposed.",            BRONZE },
@@ -105,6 +105,8 @@ const Info INFO[COUNT] = {
     { "The Short Way",       "Clear the quick road.",                                SILVER },
     { "Grave Mistake",       "Die to your own Raise Undead.",                        BRONZE },
     { "Moonstruck",          "Put out the False Moon, with every other achievement earned.", CRIMSON },
+    { "A Full Ledger",       "Hold every card in the game, over any number of runs.", GOLD },
+    { "Lorekeeper",          "Meet every enemy in the Bestiary and find every page of the Lore Book.", GOLD },
 };
 
 // The order each rank's page lists them in: grouped by what they are rather
@@ -122,7 +124,7 @@ const int DISPLAY_ORDER[COUNT] = {
     LEGEND, COLLECTOR, EVERY_VIGIL, LAST_FIRE, EVERY_SIT, SHORT_WAY, HEAD_START, NO_DISCARD, NO_BOONS, NO_RELICS,
     // gold: the clears, then the long hauls
     CLEAR, TRUE_FORM, HARD, RANDOM_HARD, NO_LEGENDS, NO_REST, ONE_TRICK, MAGICIAN, ALL_FORMS, TROPHY,
-    THOUSAND,
+    THOUSAND, EVERY_CARD, LOREKEEPER,
     // crimson: everything
     FALSE_MOON,
 };
@@ -150,14 +152,27 @@ constexpr Uint32 SLIDE_MS = 280, HOLD_MS = 3200;
 
 int rad() { return std::max(4, Platform::cellH() / 3); }
 
-// Slides in from the right edge, holds, and slides back out; the next one in
-// the queue follows it.
+// Slides in from the right, holds, slides out, and the next one follows.
+// Each toast has its own chime pitched above every reward sound (those run
+// 0.8 to 1.15), and waits a moment after a reward's chime instead of landing
+// on top of it.
+const Uint32 CHIME_GAP_MS = 450;
+Uint32 gChimeAt = 0;
+bool gChimed = true;
+
 void drawToast() {
     if (gShowing < 0) {
         if (gQueue.empty()) return;
         gShowing = gQueue.front();
         gQueue.pop_front();
         gShownAt = SDL_GetTicks();
+        const Uint32 last = Audio::lastPlayed("upgrade");
+        gChimeAt = std::max(gShownAt, last ? last + CHIME_GAP_MS : 0u);
+        gChimed = false;
+    }
+    if (!gChimed && SDL_GetTicks() >= gChimeAt) {
+        Audio::playSFXPitched("upgrade", 1.3f);
+        gChimed = true;
     }
     const Uint32 t = SDL_GetTicks() - gShownAt;
     if (t >= SLIDE_MS * 2 + HOLD_MS) { gShowing = -1; return; }
@@ -193,61 +208,132 @@ void drawToast() {
 const char* HIDDEN_TEXT = "Hidden until you clear the game.";
 bool revealed() { return has(CLEAR); }
 
-// One rank's achievements as cards: its medal when earned, the dark one when
-// not. Two rows at most to a screen, in pages of even size: a whole rank on
-// one screen squeezed the cards until the medals and the words fell off them.
-void showRank(int rank) {
-    std::vector<int> ids;
-    for (int i = 0; i < COUNT; i++)
-        if (INFO[DISPLAY_ORDER[i]].rank == rank) ids.push_back(DISPLAY_ORDER[i]);
-    std::vector<CardBar::Card> cards;
-    for (int id : ids) {
-        const bool got = has(id);
-        const bool shown = got || revealed();
-        CardBar::Card c;
-        c.name      = shown ? INFO[id].name : "???";
-        c.elemTag   = std::string("[") + RANK_NAME[rank] + "]";
-        c.effect    = shown ? INFO[id].text : HIDDEN_TEXT;
-        c.note      = got ? "earned" : "not yet";
-        c.noteColor = got ? SDL_Color{ 79, 214, 214, 255 } : LOCKED_INK;
-        c.icon      = EnemyArt::MEDAL_ICON0 + (got ? medalFrame(rank) : EnemyArt::MEDAL_LOCKED);
-        c.tint      = got ? RANK_STRIPE[rank] : SDL_Color{ 70, 70, 80, 255 };
-        c.nameColor = got ? RANK_INK[rank] : LOCKED_INK;
-        c.item      = true;
-        cards.push_back(c);
-    }
-    const int COLUMNS = 5, MOST = 2 * COLUMNS;
-    const int total = (int)cards.size();
-    const int pages = std::max(1, (total + MOST - 1) / MOST);
-    const int perPage = std::max(1, (total + pages - 1) / pages);
-    int page = 0;
-    while (true) {
-        const int first = page * perPage;
-        const int last = std::min(total, first + perPage);
-        const std::vector<CardBar::Card> shown(cards.begin() + first, cards.begin() + last);
-        std::string title = std::string(RANK_NAME[rank]) + "   "
-            + std::to_string(earnedCount((Rank)rank)) + " of " + std::to_string(total) + " earned";
-        if (pages > 1)
-            title += "   page " + std::to_string(page + 1) + " of " + std::to_string(pages);
-        std::vector<CardBar::Action> acts;
-        int prevAt = -1, nextAt = -1;
-        if (page > 0)         { prevAt = (int)acts.size(); acts.push_back(CardBar::Action{ "Previous page", false }); }
-        if (page < pages - 1) { nextAt = (int)acts.size(); acts.push_back(CardBar::Action{ "Next page", false }); }
-        acts.push_back(CardBar::Action{ "Back", false });
+// --- the ledger --------------------------------------------------------------
+// One rank at a time, a row each: medal, name, what it asks, earned or not,
+// with the ranks as tabs along the top with their counts. I mocked up three
+// layouts and this one won. Crimson's tab only shows once it's earned, and
+// until you've cleared the game the unearned ones stay ???.
+struct Ledger {
+    int tab = 0, sel = 0, top = 0;
+    std::vector<int> ranks;   // the tabs shown
+    std::vector<int> ids;     // the open rank's achievements, in DISPLAY_ORDER
+};
+const Ledger* gLedger = nullptr;
 
-        const int choice = CardBar::pick(title, shown, acts, COLUMNS);
-        const int ci = choice <= -2 ? -2 - choice : choice;
-        if (ci < 0) return;
-        if (ci < (int)shown.size()) {
-            CardBar::showDetail(shown[ci], shown[ci].effect, "ACHIEVEMENT",
-                                has(ids[first + ci]) ? "EARNED" : "NOT YET", 0);
-            continue;
+struct LedgerLayout {
+    std::vector<SDL_Rect> tabs, rows;
+    int capacity = 1, pad = 16, titleY = 0, countY = 0, hintY = 0, nameX = 0, textX = 0;
+    SDL_Rect track{ 0, 0, 0, 0 };   // the slider, when a rank has more than fit
+};
+
+LedgerLayout layoutLedger(const Ledger& v) {
+    LedgerLayout L;
+    const int W = Platform::screenW(), H = Platform::screenH();
+    const int ch = std::max(1, Platform::cellH());
+    L.pad = std::max(16, W / 48);
+    const int left = L.pad, width = W - L.pad * 2;
+    L.titleY = L.pad;
+    L.countY = L.titleY + ch + 4;
+    int y = L.countY + Console::bigCellH() + L.pad;
+    const int n = std::max(1, (int)v.ranks.size());
+    const int gap = L.pad / 2;
+    const int tabW = (width - gap * (n - 1)) / n, tabH = ch * 2;
+    for (int i = 0; i < n; ++i) L.tabs.push_back(SDL_Rect{ left + i * (tabW + gap), y, tabW, tabH });
+    y += tabH + L.pad;
+    L.hintY = H - L.pad - ch;
+    const int rowH = ch * 2, rowGap = 6;
+    const int room = L.hintY - L.pad / 2 - y;
+    L.capacity = std::max(1, (room + rowGap) / (rowH + rowGap));
+    const int count = std::min(L.capacity, (int)v.ids.size());
+    // More than fit: the rows give up a strip on the right for the slider.
+    const int trackW = std::max(6, std::max(1, Platform::cellW()) * 2 / 3);
+    const bool more = (int)v.ids.size() > L.capacity;
+    const int rowW = more ? width - trackW - L.pad / 2 : width;
+    for (int i = 0; i < count; ++i) L.rows.push_back(SDL_Rect{ left, y + i * (rowH + rowGap), rowW, rowH });
+    if (more) L.track = SDL_Rect{ left + width - trackW, y, trackW, L.capacity * (rowH + rowGap) - rowGap };
+    L.nameX = left + rowH + L.pad;      // after the medal
+    L.textX = left + width * 34 / 100;  // what it asks
+    return L;
+}
+
+void drawLedger() {
+    if (!gLedger) return;
+    const Ledger& v = *gLedger;
+    SDL_Renderer* r = Platform::renderer();
+    const int W = Platform::screenW(), H = Platform::screenH();
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    const LedgerLayout L = layoutLedger(v);
+    const SDL_Color panel{ 28, 26, 32, 255 }, raised{ 40, 37, 46, 255 }, line{ 58, 54, 66, 255 },
+                    lime{ 166, 226, 46, 255 }, earnedInk{ 79, 214, 214, 255 }, bright{ 214, 214, 226, 255 },
+                    dim{ 150, 150, 168, 255 };
+    SDL_SetRenderDrawColor(r, 10, 9, 12, 255);
+    SDL_Rect full{ 0, 0, W, H };
+    SDL_RenderFillRect(r, &full);
+
+    // What this is, and how many of the ones the player knows of are earned.
+    Console::drawTextPx(r, L.pad, L.titleY, "ACHIEVEMENTS", RANK_INK[GOLD], true);
+    Console::drawTextBigPx(r, L.pad, L.countY, std::to_string(earnedCount()) + " of " + std::to_string(knownCount())
+                           + " earned", SDL_Color{ 232, 232, 240, 255 }, true);
+
+    // The ranks, each with its count and a bar.
+    for (size_t i = 0; i < L.tabs.size(); ++i) {
+        const int rank = v.ranks[i];
+        const SDL_Rect& t = L.tabs[i];
+        const bool on = (int)i == v.tab;
+        DrawUtil::fillRound(r, t, rad(), on ? raised : panel);
+        DrawUtil::frameRound(r, t, rad(), on ? lime : line);
+        const int icon = std::max(8, t.h - 12);
+        EnemyArt::drawMedal(medalFrame(rank), SDL_Rect{ t.x + 8, t.y + (t.h - icon) / 2, icon, icon });
+        const int got = earnedCount((Rank)rank), all = totalCount((Rank)rank);
+        const std::string label = std::string(RANK_NAME[rank]) + "  " + std::to_string(got) + " / "
+                                + std::to_string(all);
+        const int tx = t.x + 8 + icon + 10;
+        Console::drawTextPx(r, tx, t.y + (t.h - ch) / 2, label, RANK_INK[rank], on);
+        const int bx = tx + ((int)label.size() + 2) * cw, bw = t.x + t.w - 14 - bx;
+        if (bw > 20) {
+            const SDL_Rect back{ bx, t.y + t.h / 2 - 3, bw, 6 };
+            SDL_SetRenderDrawColor(r, 18, 17, 22, 255);
+            SDL_RenderFillRect(r, &back);
+            SDL_Rect fill = back;
+            fill.w = all > 0 ? bw * got / all : 0;
+            SDL_SetRenderDrawColor(r, RANK_STRIPE[rank].r, RANK_STRIPE[rank].g, RANK_STRIPE[rank].b, 255);
+            if (fill.w > 0) SDL_RenderFillRect(r, &fill);
         }
-        const int ai = ci - (int)shown.size();
-        if (ai == prevAt)      page--;
-        else if (ai == nextAt) page++;
-        else return;
     }
+
+    // A row each: the medal (dark until earned), the name, what it asks, and
+    // whether it is earned.
+    const int rank = v.ranks[(size_t)v.tab];
+    for (size_t i = 0; i < L.rows.size(); ++i) {
+        const int at = v.top + (int)i;
+        if (at >= (int)v.ids.size()) break;
+        const int id = v.ids[(size_t)at];
+        const SDL_Rect& q = L.rows[i];
+        const bool sel = at == v.sel, got = has(id), shown = got || revealed();
+        DrawUtil::fillRound(r, q, rad(), sel ? raised : panel);
+        DrawUtil::frameRound(r, q, rad(), sel ? lime : line);
+        const int icon = std::max(8, q.h - 10);
+        EnemyArt::drawMedal(got ? medalFrame(rank) : EnemyArt::MEDAL_LOCKED, SDL_Rect{ q.x + 10, q.y + 5, icon, icon });
+        const int ty = q.y + (q.h - ch) / 2;
+        Console::drawTextPx(r, L.nameX, ty, shown ? INFO[id].name : "???", got ? RANK_INK[rank] : LOCKED_INK, true);
+        const std::string text = shown ? INFO[id].text : HIDDEN_TEXT;
+        const std::string status = got ? "earned" : "not yet";
+        const int statusX = q.x + q.w - 14 - (int)status.size() * cw;
+        const SDL_Color ink = got ? bright : dim;
+        if ((int)text.size() * cw <= statusX - L.textX - cw * 2)
+            Console::drawTextPx(r, L.textX, ty, text, ink, false);
+        else   // a long one in the card face's smaller letters rather than over the status
+            Console::drawTextSmallPx(r, L.textX, q.y + (q.h - Console::smallCellH()) / 2, text, ink);
+        Console::drawTextPx(r, statusX, ty, status, got ? earnedInk : LOCKED_INK, false);
+    }
+    // Where the list is when there's more than fits: drag it, or click along it.
+    const int n = (int)v.ids.size();
+    DrawUtil::drawScroll(r, L.track, v.top, std::max(0, n - L.capacity), L.capacity, n, panel,
+                         SDL_Color{ 104, 100, 118, 255 });
+
+    const std::string hint = std::string("up and down to choose     left and right, or L2 and R2, for another rank")
+                           + (n > L.capacity ? "     PgUp and PgDn to scroll" : "") + "     Esc to close";
+    Console::drawTextPx(r, (W - (int)hint.size() * cw) / 2, L.hintY, hint, SDL_Color{ 120, 116, 132, 255 }, false);
 }
 
 } // namespace
@@ -260,10 +346,9 @@ bool earn(int id) {
     if (id < 0 || id >= COUNT || has(id)) return false;
     gMask[id / 64] |= 1ULL << (id % 64);
     gQueue.push_back(id);
-    // The reward sound, pitched above every reward (they run 0.8 to 1.15), so
-    // an achievement is its own thing. The legendary cue would read as a hit
-    // landing.
-    Audio::playSFXPitched("upgrade", 1.3f);
+    // The chime plays when the toast comes in (drawToast), not here. Earned along
+    // with a reward, or several at the end of a run, they all landed at once as
+    // one muddy noise.
     return true;
 }
 
@@ -330,30 +415,93 @@ void install() { Platform::setToastRenderer(&draw); }
 void draw() { drawToast(); }
 
 void showScreen() {
+    Ledger v;
+    v.ranks = { BRONZE, SILVER, GOLD };
+    if (earnedCount(CRIMSON) > 0) v.ranks.push_back(CRIMSON);   // crimson keeps its secret
+    int selFor[4] = { 0, 0, 0, 0 }, topFor[4] = { 0, 0, 0, 0 };
+    auto open = [&](int tab) {
+        v.tab = tab;
+        v.ids.clear();
+        for (int i = 0; i < COUNT; i++)
+            if (INFO[DISPLAY_ORDER[i]].rank == v.ranks[(size_t)tab]) v.ids.push_back(DISPLAY_ORDER[i]);
+        v.sel = std::max(0, std::min(selFor[tab], (int)v.ids.size() - 1));
+        v.top = topFor[tab];
+    };
+    // The list scrolls to keep the chosen one in view.
+    auto keepInView = [&]() {
+        const LedgerLayout L = layoutLedger(v);
+        if (v.sel < v.top) v.top = v.sel;
+        if (v.sel >= v.top + L.capacity) v.top = v.sel - L.capacity + 1;
+        v.top = std::max(0, std::min(v.top, std::max(0, (int)v.ids.size() - L.capacity)));
+    };
+    auto turn = [&](int to) {
+        const int n = (int)v.ranks.size();
+        to = (to % n + n) % n;
+        if (to == v.tab) return;
+        selFor[v.tab] = v.sel;
+        topFor[v.tab] = v.top;
+        open(to);
+        keepInView();
+        Audio::menuHover();
+    };
+    auto choose = [&](int i) {
+        if (i < 0 || i >= (int)v.ids.size() || i == v.sel) return;
+        v.sel = i;
+        keepInView();
+        Audio::menuHover();
+    };
+    open(0);
+    gLedger = &v;
+    Platform::setModalRenderer(&drawLedger);
+    Platform::flushKeys();
+    int lastMx = -1, lastMy = -1;
+    Platform::mousePos(lastMx, lastMy);
+    auto inside = [](const SDL_Rect& q, int x, int y) { return x >= q.x && x < q.x + q.w && y >= q.y && y < q.y + q.h; };
+    DrawUtil::ScrollGrip grip;   // the slider, while it's held
     while (true) {
-        std::vector<CardBar::Card> ranks;
-        // Crimson keeps its secret: its page is only there once it is earned.
-        std::vector<int> shownRanks{ BRONZE, SILVER, GOLD };
-        if (earnedCount(CRIMSON) > 0) shownRanks.push_back(CRIMSON);
-        for (int r : shownRanks) {
-            CardBar::Card c;
-            c.name      = RANK_NAME[r];
-            c.effect    = std::to_string(earnedCount((Rank)r)) + " of "
-                        + std::to_string(totalCount((Rank)r)) + " earned";
-            c.icon      = EnemyArt::MEDAL_ICON0 + medalFrame(r);
-            c.tint      = RANK_STRIPE[r];
-            c.nameColor = RANK_INK[r];
-            c.item      = true;
-            ranks.push_back(c);
+        const LedgerLayout L = layoutLedger(v);
+        const int maxTop = std::max(0, (int)v.ids.size() - L.capacity);
+        int mx, my;
+        Platform::mousePos(mx, my);
+        // A held slider moves the list, and the highlight keeps to a row in view.
+        if (grip.held) {
+            DrawUtil::scrollDrag(grip, L.track, v.top, maxTop, L.capacity, (int)v.ids.size(), my, Platform::mouseDown());
+            v.sel = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
         }
-        const std::string title = "Achievements   " + std::to_string(earnedCount()) + " of "
-                                + std::to_string(knownCount()) + " earned";
-        const std::vector<CardBar::Action> back{ CardBar::Action{ "Back", false } };
-        const int choice = CardBar::pick(title, ranks, back, 3);
-        const int ri = choice <= -2 ? -2 - choice : choice;
-        if (ri < 0 || ri >= (int)shownRanks.size()) return;
-        showRank(shownRanks[ri]);
+        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !grip.held) {
+            lastMx = mx;
+            lastMy = my;
+            for (size_t i = 0; i < L.rows.size(); ++i)
+                if (inside(L.rows[i], mx, my)) choose(v.top + (int)i);
+        }
+        const Platform::KeyEvent k = Platform::pollKey();
+        const int n = (int)v.ids.size();
+        if (k.key == Platform::Key::UP && n > 0)        choose((v.sel - 1 + n) % n);
+        else if (k.key == Platform::Key::DOWN && n > 0) choose((v.sel + 1) % n);
+        else if (k.key == Platform::Key::LEFT || k.key == Platform::Key::TO_CARDS)    turn(v.tab - 1);
+        else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::TO_ACTIONS) turn(v.tab + 1);
+        else if (k.key == Platform::Key::PAGE_UP && n > 0)   choose(std::max(0, v.sel - L.capacity));
+        else if (k.key == Platform::Key::PAGE_DOWN && n > 0) choose(std::min(n - 1, v.sel + L.capacity));
+        else if (k.key == Platform::Key::ESCAPE) break;
+        const int wheel = Platform::takeWheel();
+        if (wheel && n > 0) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
+        int cx, cy;
+        if (Platform::takeClick(cx, cy)) {
+            if (DrawUtil::scrollPress(grip, L.track, v.top, maxTop, L.capacity, n, cx, cy)) {
+                v.sel = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
+                Platform::frame();
+                continue;
+            }
+            for (size_t t = 0; t < L.tabs.size(); ++t)
+                if (inside(L.tabs[t], cx, cy)) turn((int)t);
+            for (size_t i = 0; i < L.rows.size(); ++i)
+                if (inside(L.rows[i], cx, cy)) choose(v.top + (int)i);
+        }
+        Platform::frame();
     }
+    Platform::setModalRenderer(nullptr);
+    gLedger = nullptr;
+    Audio::menuSelect(true);
 }
 
 } // namespace Achievements

@@ -246,6 +246,8 @@ void pumpEvents() {
                     case SDLK_KP_ENTER:
                     case SDLK_SPACE:  k.key = Key::ENTER; break;
                     case SDLK_ESCAPE: k.key = Key::ESCAPE; break;
+                    case SDLK_PAGEUP:   k.key = Key::PAGE_UP; break;
+                    case SDLK_PAGEDOWN: k.key = Key::PAGE_DOWN; break;
                     case SDLK_F11:
                         // Borderless-desktop fullscreen toggle; logical-size
                         // scaling handles the rest.

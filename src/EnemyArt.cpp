@@ -229,11 +229,12 @@ enum : int { F_LETGO = 14, F_LEFT_SWORD = 15, F_TURNED = 16 };
 // The False Moon's own twelfth frame: its hands held up with the moon's fire
 // in them, shown while it casts.
 enum : int { F_SPELL = 11 };
-// The true form going as the armour goes in the intro (a sheet with them
-// gets this escape): the dark over it, all dark, sunk partway, sunk to the
-// shoulders, a pool, and the pool running off. And the False Moon's arrival:
-// the moon's eye where it will stand, shut into a dark moon, the ring, and
-// it climbing out.
+// The False Moon's lunge (boss_false_moon.png frame 20, when the sheet has it):
+// leaned into a dive at him, one claw out. The vessel scene's dash.
+enum : int { F_LUNGE = 20 };
+// Extra frames some sheets have: the true form sinking away like the empty
+// armour in the intro (dark over it, sinking, a pool, the pool running off),
+// and the False Moon's arrival (the eye, the dark moon, the ring, climbing out).
 enum : int { F_SINK1 = 17, F_POOL = 21, F_POOL_SMALL = 22 };
 enum : int { F_ARRIVE1 = 12, F_RISING = 18, F_ARRIVE8 = 19 };
 
@@ -278,10 +279,9 @@ struct Library {
     // was standing in for all of them, so an archer's shot read as a spell.
     Sheet projFx;   // see include/ProjectileTable.h for what each frame is
     Sheet bg[5], tutorialBg, titleBg, bloodMoonBg;
-    // The ruined church past the peak, the same ruin under the eclipsed moon
-    // for the False Moon's fight, and the ruin with the moon gone, which the
-    // eclipse fades into when the False Moon dies.
-    Sheet churchBg, churchEclipseBg, churchGoneBg;
+    // The church backdrops: the ruin, the ruin under the eclipse for the False
+    // Moon, and the eclipse fading back out when it dies.
+    Sheet churchBg, churchEclipseBg, churchFreedBg;
     // The church's moon waking before the False Moon's fight: its eye opens,
     // looks down at the knight and shuts into the eclipse, a frame a step.
     Sheet churchWakeBg;
@@ -315,9 +315,9 @@ struct Library {
         castFx  = loadSheet(basePath() + "assets/sprites/player_cast_fx.png", 30);
         projFx  = loadSheet(basePath() + "assets/sprites/projectiles.png", 30);
         const char* bgFiles[5] = {
-            // TODO: the two dungeon sheets are one layout recoloured, with a torch on a
-            // strict 16-column period and no variation across 512px, so the first
-            // twenty fights read as the same corridor twice.
+            // TODO: the two dungeon sheets are the same layout recoloured, with a torch
+            // every 16 columns and no variation across 512px, so the first twenty fights
+            // look like the same corridor twice. Bugs me every time I see it.
             "assets/sprites/bg_dungeon.png",        // 1-10
             "assets/sprites/bg_dungeon_purple.png", // 11-20
             "assets/sprites/bg_forest_night.png",   // 21-30
@@ -332,7 +332,7 @@ struct Library {
         bloodMoonBg = loadSheet(basePath() + "assets/sprites/bg_forest_bloodmoon.png", 256);
         churchBg        = loadSheet(basePath() + "assets/sprites/bg_church.png", 256);
         churchEclipseBg = loadSheet(basePath() + "assets/sprites/bg_church_eclipse.png", 256);
-        churchGoneBg    = loadSheet(basePath() + "assets/sprites/bg_church_moonless.png", 256);
+        churchFreedBg   = loadSheet(basePath() + "assets/sprites/bg_church_freed.png", 256);
         churchWakeBg    = loadSheet(basePath() + "assets/sprites/bg_church_wake.png", 256);
         const char* crimsonFiles[5] = {
             "assets/sprites/bg_dungeon_crimson.png",
@@ -352,10 +352,9 @@ Library& lib() {
     return L;
 }
 
-// Per-name sheets, matched against the enemy's name at encounter start. A
-// name whose PNG is missing falls through to its type's generic sprite. A
-// sheet drawn bigger than the standard 30x32 says its frame width and where
-// the standard box sits in it, as the true form's does (loadNamed).
+// Per-name sheets, matched against the enemy's name at encounter start. No PNG
+// means it falls back to its type's sprite. A sheet bigger than 30x32 says its
+// frame width and where the normal box sits inside it (the true form does).
 struct NamedEntry { const char* key; const char* file; int frameW = 30, boxX = 0, boxY = 0; };
 const NamedEntry NAMED_TABLE[] = {
     {"Bandit","melee_bandit"}, {"Warrior","melee_warrior"}, {"Raider","melee_raider"},
@@ -385,10 +384,9 @@ const NamedEntry NAMED_TABLE[] = {
 };
 const int NAMED_COUNT = (int)(sizeof(NAMED_TABLE) / sizeof(NAMED_TABLE[0]));
 
-// The sheets a summon is drawn from, the Lich's add or your own raised dead,
-// cached by key so a repeated summon never reloads the PNG.
-// A named sheet, in its own frame size; one still the standard 32 tall loads
-// the standard way, so an old sheet keeps working until its bigger one is in.
+// Summon sheets (the Lich's add, your raised dead), cached by key so a repeat
+// summon never reloads the PNG. A sheet that's still 32 tall loads the old
+// way, so an old sheet keeps working until its bigger one is in.
 ArtSet loadNamed(const NamedEntry& e) {
     const std::string path = std::string("assets/sprites/") + e.file + ".png";
     ArtSet s = loadSet(path.c_str(), e.frameW, e.boxX, e.boxY);
@@ -416,9 +414,9 @@ const ArtSet* gNamedVariant = nullptr;
 // Set by name, like the named variants: bosses do not go through the name
 // table (the plain Shadow Knight would match the regular Knight).
 bool gTrueForm = false;
-// The fights where a raised undead can stand on each side - the Lich's, and
-// the Shadow Knight's in both its phases - stand the fighters further apart
-// for the whole fight, so nothing jumps when a summon arrives.
+// Fights where a summon can stand on either side (the Lich, both Shadow Knight
+// phases) spread the fighters out for the whole fight, so nothing jumps when
+// the summon shows up.
 bool gWideField = false;
 // The summoned add, if the fight has one standing.
 const ArtSet* gCompanion = nullptr;
@@ -481,14 +479,12 @@ int spriteScale() {
     int byWidth  = Platform::screenW() / 108; // leaves margins beside the 94px backdrop
     return std::max(3, std::min(16, std::min(byHeight, byWidth)));
 }
-// The backdrop keeps the scene scale; the two characters are drawn one step
-// smaller so they sit in the environment rather than filling it. They're
-// bottom-aligned to the backdrop's floor line, same as the terminal scene.
+// The backdrop keeps the scene scale; the two fighters are one step smaller so
+// they sit in the environment instead of filling it.
 int charScale() { return std::max(3, spriteScale() - 1); }
-// The raised dead, on either side: two thirds of the fighters, rounded, so
-// they read as followers at every window size. One step down would be 14
-// against 15 in a full window, as tall as the knight. Whole steps only, like
-// the rest.
+// Summons are two thirds the size of the fighters, rounded, so they read as
+// followers at any window size. One step down was nearly as tall as the
+// knight in a full window. Whole steps only, like everything else.
 int summonScale() { return std::max(2, (charScale() * 2 + 1) / 3); }
 // How much further a summon steps to land a blow than it did at one step
 // down: its body is narrower, so its front edge starts further back.
@@ -511,6 +507,7 @@ int  gEnemyFrame = F_IDLE_A;
 int  gPlayerFrame = F_IDLE_A;
 Tint gEnemyTint, gPlayerTint;
 int  gEnemyNudge = 0;   // lunge toward the player
+int  gDashGhost = 0;    // a dash (the vessel scene): its afterimages, this far apart behind it
 int  gEnemyAlpha = 255; // the enemy fading out of the scene (the true form running)
 int  gEnemyLeft = -1;   // a frame of its own left standing where it was (the true form's sword)
 int  gPlayerNudge = 0;  // and the knight stepping in to meet them
@@ -550,9 +547,9 @@ bool gPortraitOnly = false;
 bool gPortraitKnight = false;   // portrait mode, but of the player
 int  gPortraitCap = -1;         // setPortraitRows(): -1 for the scene's own height
 Sheet* gBgSheet = nullptr;
-// The backdrop being crossfaded out, and how far through that is. Only the
-// transformation uses these: every other backdrop change is a cut, because
-// every other one happens on a screen nobody is looking at.
+// The backdrop being crossfaded out, and how far along it is. Only the
+// transformation crossfades: every other backdrop change happens on a screen
+// nobody's looking at, so it's just a cut.
 Sheet* gBgPrev = nullptr;
 float  gBgFade = 1.0f;
 // A backdrop frame held still instead of the shimmer (-1: shimmer), for
@@ -562,9 +559,8 @@ int gBgFrame = -1, gBgPrevFrame = -1;
 // fight is on screen (prepareArrival), so the first draw must not show it.
 bool gArrivalPending = false;
 
-// Rescale the backdrop's own dark tone to a chosen brightness, keeping its hue.
-// Sampling alone gives something so near black the tint is invisible, which
-// defeats the point; the brightness is set explicitly instead.
+// Rescale the backdrop's dark tone to a set brightness, keeping its hue. Just
+// sampling it gave something so close to black the tint was invisible.
 SDL_Color groundFromBackdrop(const Sheet* bg, int targetLuma) {
     if (!bg) return SDL_Color{ 13, 13, 15, 255 };
     const SDL_Color& c = bg->darkAvg;
@@ -646,9 +642,9 @@ void blitMirrored(const Sheet& s, int frame, SDL_Rect dst, const Tint& tint) {
     }
 }
 
-// An enemy frame, given the box it stands in. Most sheets are exactly the box.
-// A bigger frame is laid out around it and reaches out of it, and whatever
-// reaches above the scene is cut off there rather than drawn over the HUD.
+// Draws an enemy frame in its box. Most sheets are exactly the box; bigger
+// ones reach out of it, and anything above the scene gets cut off instead of
+// drawing over the HUD.
 void blitInBox(const ArtSet& a, int frame, const SDL_Rect& box, const Tint& tint, Uint8 alpha,
                int scale, int sceneTop, int sceneH) {
     const bool bigger = a.boxX || a.boxY || a.sheet.frameW != 30 || a.sheet.frameH != 32;
@@ -722,23 +718,28 @@ struct Spark {
 std::vector<Popup> gPopups;
 std::vector<Spark> gSparks;
 
-// The moon's new vessel (printBattleVessel): the knight's frames as it takes
-// him, made then from whatever he is wearing; while gVesselShown is set they
-// are drawn in place of him (its last two are him standing as the vessel,
-// breathing). gVesselMote is the last piece of him on its way up into the
-// moon, 0 to 1, and gVesselPulse the moon's ring flaring as it takes it; -1
-// when there is none. gVesselChestX/Y: where in his frame the dark comes in
-// (% of the frame), which is where the piece leaves and the wisp arrives.
+// State for the vessel scene (printBattleVessel). While gVesselShown is set,
+// these frames (built from whatever he's wearing) replace the knight.
+// gVesselMote is the last piece of him floating up into the moon (0 to 1),
+// gVesselPulse the ring flaring as it takes it, -1 when off. gVesselChestX/Y
+// is where in his frame the dark comes in, as a % of the frame.
 std::vector<SDL_Texture*> gVesselTex;
 int   gVesselShown = -1;
 float gVesselMote = -1.0f;
 float gVesselPulse = -1.0f;
 float gVesselChestX = 50.0f, gVesselChestY = 45.0f;
 
-// The church's moon on screen: the eclipse's disc in bg_church_eclipse.png,
-// where bg_church.png has its moon too (centre measured in backdrop pixels),
-// placed the way drawScene places the backdrop, a centred crop at the
-// scene's scale.
+// State for the Moonstruck cast (printBattleMoonstruck), each -1 when off:
+// gMoonOrb is the little eclipse forming in front of the False Moon (0 to 1),
+// gMoonBeam the red beam to the knight (0 to 1 reaching, 1 to 2 thinning out),
+// gMoonImpact the burst where it hits. The eclipse forms just in front of it
+// and low, because frame 11 has both hands up at the top corners and anything
+// bigger ran off the scene. Low enough that a level beam hits his chest.
+float gMoonOrb = -1.0f, gMoonBeam = -1.0f, gMoonImpact = -1.0f;
+const float MOON_ORB_X = -4.0f, MOON_ORB_Y = 11.5f;
+
+// Where the church's moon sits on screen (centre measured in backdrop pixels,
+// placed the way drawScene places the backdrop).
 SDL_Point churchMoonOnScreen() {
     const float MOON_X = 141.5f, MOON_Y = 7.0f;
     const int sc = spriteScale(), screenW = Platform::screenW();
@@ -820,11 +821,11 @@ const SceneDef SCENES[] = {
 int gScene = 0, gSceneShot = -1;
 Uint32 gSceneStart = 0;
 int gSceneSounded = -1;
-// The church's run ends with no moon in the sky: the False Moon went out in
-// the nave, so the morning has nothing to watch go down. The same frames,
-// numbered as ending_scene.png's, so EndingTable serves both.
-const char* ENDING_MOONLESS = "assets/sprites/ending_scene_moonless.png";
-bool gEndingMoonless = false;
+// The church ending's last shot: the moon let go, pale and full, going down
+// (ending_scene_freed.png). Same frame numbering as ending_scene.png so
+// EndingTable serves both.
+const char* ENDING_FREED = "assets/sprites/ending_scene_freed.png";
+bool gEndingFreed = false;
 
 // A whole image as one texture, loaded on first use and kept: each is only
 // wanted at the start or the end of a run. Null when the file is missing.
@@ -848,10 +849,10 @@ SDL_Texture* wholeTexture(const std::string& rel) {
 
 const SceneDef& sceneDef() { return SCENES[gScene]; }
 
-// The sheet a scene is drawn from: the ending's moonless one when the run
-// came through the church and the file is there, else its own.
+// The sheet a scene is drawn from: the ending's freed one when the run came
+// through the church and the file is there, else its own.
 const char* sceneFile() {
-    if (gScene == 1 && gEndingMoonless && wholeTexture(ENDING_MOONLESS)) return ENDING_MOONLESS;
+    if (gScene == 1 && gEndingFreed && wholeTexture(ENDING_FREED)) return ENDING_FREED;
     return sceneDef().file;
 }
 const CutsceneShot& shotDef() { return sceneDef().shots[gSceneShot]; }
@@ -938,9 +939,8 @@ void drawOverlay() {
 
     if (gSceneShot >= 0) drawCutscene(now);
 
-    // The fire scene sits in the top of the screen and the words go under it.
-    // One strip, three flame frames per armour, baked by
-    // tools/make_campfire_scene.py with the knight and the light already in.
+    // The campfire scene sits at the top with the words underneath. One strip,
+    // three flame frames per armour, baked by tools/make_campfire_scene.py.
     if (gRestTier >= 0) {
         static bool tried = false;
         static Sheet scene;
@@ -986,11 +986,9 @@ void drawOverlay() {
         blit(lib().seal, std::min(gSealFrame, lib().seal.count - 1), d, Tint{});
     }
 
-    // The last piece of him going up into the moon: a white point with a soft
-    // cross of glow, out of his chest and over into the eclipse, the points it
-    // has just left fading behind it, slow to leave him and slow to go in,
-    // smaller as it nears and gone into its dark. Then the moon's ring flares
-    // once, a pixel ring of its red going out from the disc and fading.
+    // The last piece of him going up into the moon: a white point with a little
+    // cross of glow, leaving a fading trail, slow out of him and slow into the
+    // eclipse, shrinking as it goes. Then the moon's ring flares once.
     if ((gVesselMote >= 0.0f || gVesselPulse >= 0.0f) && gPlayerRect.w > 0) {
         const int sz = std::max(1, charScale());
         const SDL_Point moon = churchMoonOnScreen();
@@ -1042,6 +1040,111 @@ void drawOverlay() {
         }
     }
 
+    // The Moonstruck cast: the beam first (under the eclipse it comes out of),
+    // then the eclipse, then the burst on him. Drawn on the sprites' own pixel
+    // grid in flat steps of the moon's reds.
+    if ((gMoonOrb >= 0.0f || gMoonBeam >= 0.0f || gMoonImpact >= 0.0f) && gEnemyRect.w > 0 && gPlayerRect.w > 0) {
+        const int sz = std::max(1, charScale());
+        SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        auto cell = [&](float px, float py, Uint8 cr, Uint8 cg, Uint8 cb, Uint8 ca) {
+            SDL_SetRenderDrawColor(r, cr, cg, cb, ca);
+            SDL_Rect q{ (int)std::floor(px), (int)std::floor(py), sz, sz };
+            SDL_RenderFillRect(r, &q);
+        };
+        // The eclipse's centre on the enemy's grid, and the row the beam runs along.
+        // It's level on purpose: on a slope the pixel grid cut it into ugly little
+        // steps, a band dropping a pixel at a time.
+        const float ox = gEnemyRect.x + MOON_ORB_X * sz, oy = gEnemyRect.y + MOON_ORB_Y * sz;
+        const float tx = gPlayerRect.x + gPlayerRect.w * 0.55f;
+        const float by = gEnemyRect.y + std::round((oy - gEnemyRect.y) / sz) * sz;
+        const float orbK = std::max(0.0f, gMoonOrb);
+        const float R = 1.5f + 4.0f * orbK;                      // its radius, in sprite pixels
+        if (gMoonBeam >= 0.0f) {
+            const float reach = std::min(1.0f, gMoonBeam);
+            const float thin  = gMoonBeam <= 1.0f ? 0.0f : std::min(1.0f, gMoonBeam - 1.0f);
+            const float x0 = ox - R * sz;                         // its near edge
+            const float x1 = x0 + (tx - x0) * reach;              // how far it has got
+            const int cols = (int)std::ceil(std::fabs(x0 - x1) / sz);
+            const Uint32 flick = SDL_GetTicks() / 70;
+            for (int c = 0; c <= cols; ++c) {
+                const float u = cols > 0 ? (float)c / cols : 0.0f;        // 0 at the eclipse, 1 at the front
+                const float x = x0 - c * sz;
+                const float yc = by;
+                // half thickness in sprite pixels: full in the middle, thinning
+                // as it goes out; a soft glow one step outside the edge
+                const float full = 3.0f * (1.0f - thin);
+                const int edge  = (int)std::round(full);
+                const int outer = (int)std::round(2.0f * (1.0f - thin));
+                const int inner = (int)std::round(1.0f * (1.0f - thin));
+                for (int dy = -edge - 1; dy <= edge + 1; ++dy) {
+                    const int a = std::abs(dy);
+                    const float yy = yc + dy * sz - sz / 2;
+                    if (a == 0 && thin < 0.95f) cell(x - sz, yy, 255, 196, 168, 255);
+                    else if (a <= inner)       cell(x - sz, yy, 240, 84, 64, 255);
+                    else if (a <= outer)       cell(x - sz, yy, 200, 36, 40, 235);
+                    else if (a <= edge)        cell(x - sz, yy, 120, 20, 30, 190);
+                    else if (edge > 0)         cell(x - sz, yy, 120, 20, 30, 70);
+                }
+                // motes of it coming off, a few columns in every dozen, drifting
+                // out from the edge as they go
+                const Uint32 h = (Uint32)(c * 2654435761u) ^ (flick * 40503u);
+                if (edge > 0 && (h % 11) == 0) {
+                    const int side = (h & 64) ? 1 : -1;
+                    const int off = edge + 2 + (int)((flick + c) % 3);
+                    cell(x - sz, yc + side * off * sz - sz / 2, 230, 70, 56, 200);
+                }
+                (void)u;
+            }
+            if (reach < 1.0f) {                                   // its head, a little wider
+                const float hx = x1, hy = by;
+                for (int dy = -4; dy <= 4; ++dy)
+                    for (int dx = -2; dx <= 1; ++dx) {
+                        const float d = std::hypot((float)dx + 0.5f, (float)dy);
+                        if (d > 4.2f) continue;
+                        const bool hot = d < 1.6f;
+                        cell(hx + dx * sz, hy + dy * sz - sz / 2, hot ? 255 : 230, hot ? 214 : 70, hot ? 190 : 56, d < 3.0f ? 255 : 170);
+                    }
+            }
+        }
+        if (gMoonOrb >= 0.0f) {
+            // a dark disc in a burning ring, a corona round it
+            const int n = (int)std::ceil(R + 2.5f);
+            for (int j = -n; j <= n; ++j)
+                for (int i = -n; i <= n; ++i) {
+                    const float d = std::hypot(i + 0.5f, j + 0.5f);
+                    const float px = ox + i * sz, py = oy + j * sz;
+                    if (d <= R - 1.0f)        cell(px, py, 12, 6, 9, 255);
+                    else if (d <= R)          cell(px, py, (i + j < 0) ? 255 : 214, (i + j < 0) ? 120 : 46, (i + j < 0) ? 90 : 44, 255);
+                    else if (d <= R + 1.0f)   cell(px, py, 120, 28, 31, 230);
+                    else if (d <= R + 2.2f)   cell(px, py, 92, 16, 26, (Uint8)(120 * orbK));
+                }
+            // the moon's red drawn into it from all round
+            if (gMoonBeam < 0.0f) {
+                for (int m = 0; m < 9; ++m) {
+                    const float ph = std::fmod(orbK * 2.6f + m * 0.37f, 1.0f);
+                    const float rad = R + 1.5f + (1.0f - ph) * 11.0f;
+                    const float ang = m * 0.698f + 0.4f;
+                    cell(ox + std::round(std::cos(ang) * rad) * sz, oy + std::round(std::sin(ang) * rad) * sz,
+                         230, 70, 56, (Uint8)(255 * std::min(1.0f, ph * 3.0f)));
+                }
+            }
+        }
+        if (gMoonImpact >= 0.0f) {
+            // a ring of the moon's red going out from where it struck, fading
+            const float k = gMoonImpact;
+            const float rr = 2.0f + 7.0f * k;
+            const int n = (int)std::ceil(rr) + 1;
+            const float cx = gPlayerRect.x + std::round(gPlayerRect.w * 0.5f / sz) * sz;
+            const float cy = by;                                  // where the beam met him
+            for (int j = -n; j <= n; ++j)
+                for (int i = -n; i <= n; ++i) {
+                    const float d = std::hypot((float)i, (float)j);
+                    if (std::fabs(d - rr) > 0.6f) continue;
+                    cell(cx + i * sz, cy + j * sz, 240, 84, 64, (Uint8)(230 * (1.0f - k)));
+                }
+        }
+    }
+
     for (size_t i = 0; i < gSparks.size();) {
         Spark& s = gSparks[i];
         float t = (float)(now - s.born) / (float)s.ms;
@@ -1080,9 +1183,8 @@ void drawTitleScene() {
     const int W = Platform::screenW(), H = Platform::screenH();
     const int f = (SDL_GetTicks() / 700) % (Uint32)std::max(1, s.count);
 
-    // Cover the window and crop the overflow, rather than stretching to fit.
-    // Stretching a 16:9 image onto an arbitrary window is what made this look
-    // wrong; cropping keeps the pixels square.
+    // Cover the window and crop the overflow instead of stretching. Stretching a
+    // 16:9 image onto any old window is what made it look wrong.
     const float sx = (float)W / (float)s.frameW;
     const float sy = (float)H / (float)s.frameH;
     const float sc = std::max(sx, sy);
@@ -1224,9 +1326,8 @@ void drawScene() {
 
     if (gPortraitOnly) {
         const SDL_Rect dst = portraitDst;
-        // Breathe on the same 600ms cadence the battle scene uses. View Enemy
-        // was picking one idle frame and holding it, so the portrait sat there
-        // as a still image while everything else in the game moved.
+        // Breathe on the same 600ms beat as the battle scene. View Enemy used to hold
+        // one idle frame, so the portrait was the only thing in the game not moving.
         int pframe2 = gEnemyFrame;
         if (es.animated && (pframe2 == F_IDLE_A || pframe2 == F_IDLE_B))
             pframe2 = ((SDL_GetTicks() / 600) % 2) ? F_IDLE_B : F_IDLE_A;
@@ -1301,6 +1402,18 @@ void drawScene() {
         home.x += gEnemyNudge;
         blitInBox(es, gEnemyLeft, home, Tint{}, 255, scale, originY, sceneH);
     }
+    // A dash: three afterimages in the moon's red behind it, fainter the
+    // further back, spaced by how fast it is going.
+    if (gDashGhost > 0) {
+        Tint gt;
+        gt.mulR = 0.95f; gt.mulG = 0.22f; gt.mulB = 0.24f; gt.addR = 30;
+        for (int g = 3; g >= 1; --g) {
+            SDL_Rect gd = edst;
+            gd.x += g * gDashGhost;
+            blitInBox(es, eframe, gd, gt, (Uint8)(std::min(255, gEnemyAlpha) * (0.46f - 0.12f * g)),
+                      scale, originY, sceneH);
+        }
+    }
     blitInBox(es, eframe, edst, et, (Uint8)std::min(gGhost ? 110 : 255, gEnemyAlpha), scale, originY, sceneH);
 
     // The bolt, drawn last so it passes in front of both fighters.
@@ -1309,9 +1422,9 @@ void drawScene() {
         const SDL_Rect& from = gProjReverse ? pdst : edst;
         const SDL_Rect& to   = gProjReverse ? edst
                              : (gBlowsAtAlly && gAllyRect.w > 0) ? gAllyRect : pdst;
-        // Drawn at a fraction of the sprite, not stretched across the whole rect -
-        // a full-rect blit put the bolt wherever the orb happened to sit inside
-        // its 30x32 frame, which read as "always near the top" for every enemy.
+        // Drawn at a fraction of the sprite, not stretched over the whole rect. A full
+        // rect blit put the bolt wherever the orb happened to sit in its 30x32 frame,
+        // which was "near the top" for basically every enemy.
         SDL_Rect r;
         // A cast orb is a small mark inside its frame, so it flies at full sprite
         // size and matches the orb in the hand. Projectile art fills its frame, so
@@ -1323,9 +1436,9 @@ void drawScene() {
         const int x1 = to.x   + to.w   * gProjDstXPct / 100;
         const int y0 = from.y + from.h * gProjSrcPct  / 100;
         const int y1 = to.y   + to.h   * gProjDstPct  / 100;
-        // A falling spell keeps a steady horizontal pace but drops as t*t, so it
-        // leaves the hand level and comes down onto the target. A straight line
-        // from a raised hand read as flying over the enemy's head.
+        // A falling spell keeps a steady horizontal pace but drops by t*t, so it
+        // leaves the hand level and comes down onto the target. A straight line from
+        // a raised hand flew right over the enemy's head.
         const float ty = gProjFall ? t * t : t;
         r.x = x0 + (int)((x1 - x0) * t)  - r.w / 2;
         r.y = y0 + (int)((y1 - y0) * ty) - r.h / 2;
@@ -1431,6 +1544,8 @@ void resetPose() {
     gVesselShown = -1;
     gVesselMote = -1.0f;
     gVesselPulse = -1.0f;
+    gMoonOrb = gMoonBeam = gMoonImpact = -1.0f;
+    gDashGhost = 0;
     gPlayerFrame = F_IDLE_A;
     gEnemyFrame = F_IDLE_A;
     gPlayerTint = Tint{};
@@ -1453,9 +1568,9 @@ void resetPose() {
     gAllyTint = Tint{};
 }
 
-// TODO: the slash sheets are still mostly empty - 0, 7 and 12 opaque pixels
-// across the three frames. The swing reads from the knight's pose and the
-// impact spark, not from any actual trail. Needs redrawing.
+// TODO: the slash sheets are basically empty (0, 7 and 12 opaque pixels across
+// three frames). The swing only reads because of the knight's pose and the
+// impact spark. Needs redrawing at some point, I keep putting it off.
 size_t slashVariant(DamageType elem) {
     switch (elem) {
         case DamageType::FIRE:   return 1;
@@ -1491,7 +1606,7 @@ void setCutsceneShot(Cutscene scene, int shot) {
     gSceneSounded = -1;
 }
 
-void setEndingMoonless(bool on) { gEndingMoonless = on; }
+void setEndingFreed(bool on) { gEndingFreed = on; }
 
 bool cutsceneReady(Cutscene scene) {
     ensureInstalled();
@@ -1521,6 +1636,26 @@ void drawItemIcon(SDL_Renderer* r, int index, const SDL_Rect& dst) {
     blit(lib().items, index, dst, Tint{});
 }
 
+// The bestiary's pictures, loaded on first use and kept like the medals: the
+// gallery opens from the title, before any fight has loaded the library. At
+// the largest whole scale that fits, so the pixels stay square.
+void drawSheetFrame(const std::string& file, int frameW, int frame, const SDL_Rect& dst, bool dark) {
+    static std::map<std::string, Sheet> cache;
+    auto it = cache.find(file);
+    if (it == cache.end())
+        it = cache.emplace(file, loadSheet(basePath() + "assets/sprites/" + file + ".png", frameW)).first;
+    const Sheet& s = it->second;
+    if (!s.ok() || frame < 0 || frame >= s.count) return;
+    const int k = std::max(1, std::min(dst.w / s.frameW, dst.h / s.frameH));
+    const SDL_Rect to{ dst.x + (dst.w - s.frameW * k) / 2, dst.y + (dst.h - s.frameH * k) / 2,
+                       s.frameW * k, s.frameH * k };
+    const SDL_Rect src{ frame * s.frameW, 0, s.frameW, s.frameH };
+    // One not met yet is only its shape, nearly black against the card.
+    if (dark) SDL_SetTextureColorMod(s.tex, 10, 8, 12);
+    SDL_RenderCopy(Platform::renderer(), s.tex, &src, &to);
+    SDL_SetTextureColorMod(s.tex, 255, 255, 255);
+}
+
 // Loaded on first use, like the wordmarks: the title screen's achievement list
 // can want one before any fight has loaded the library.
 void drawMedal(int frame, const SDL_Rect& dst) {
@@ -1531,9 +1666,9 @@ void drawMedal(int frame, const SDL_Rect& dst) {
     if (medals.ok()) blit(medals, frame < medals.count ? frame : 2, dst, Tint{});
 }
 
-// Loaded the first time something asks for it, and kept. These are not in
-// the Library because they are wanted before a fight loads any of that, and
-// a missing one has to be a normal answer rather than a failure.
+// Loaded the first time something asks and kept. Not in the Library because
+// they're needed before a fight loads any of that, and a missing one just
+// has to be a normal answer, not a failure.
 const Sheet& wordmarkSheet(const std::string& name) {
     static std::map<std::string, Sheet> cache;
     auto it = cache.find(name);
@@ -1726,9 +1861,9 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard, bool ran
     const int gap   = restingGap();
     const int step2 = holdsGround ? 0 : gap * 35 / 100;
     const int step3 = holdsGround ? 0 : gap * 85 / 100;
-    // A shot we draw is released on atk3 and let go almost at once. Most firing
-    // sheets paint their own projectile into that frame, so holding it for the
-    // full beat and only then launching ours put two on screen together.
+    // Our projectile gets released on atk3 and let go almost straight away. Most
+    // firing sheets paint their own shot into that frame, so holding the full beat
+    // before launching ours put two shots on screen at once. Classic.
     const bool launches = ranged && projectile >= 0;
     if (s.animated && useAttackFrames) {
         gEnemyFrame = F_ATK1; hold(90);
@@ -1741,9 +1876,9 @@ void printBattleAttack(EnemyType type, BossType boss, bool knightGuard, bool ran
         if (!holdsGround) { gEnemyNudge = gap * 85 / 100; hold(130); }
     }
 
-    // A ranged attack sends its projectile across (negative: nothing crosses,
-    // as for the Wyvern and the Falcon). Not an early return: the resets below
-    // must run, or a flyer stays frozen mid-lunge.
+    // A ranged attack sends its projectile across (negative means nothing crosses,
+    // like the Wyvern and the Falcon). Not an early return: the resets below have
+    // to run or a flyer stays frozen mid lunge.
     if (ranged && projectile >= 0) {
         // Drop to idle as it leaves: the painted shot disappears from the hand
         // on the same frame ours appears at that spot, so it reads as one
@@ -1779,9 +1914,9 @@ void printBattleHit(EnemyType type, BossType boss, DamageType trailElem, bool co
     // because the enemy holds its pose.
     if (connected) { Platform::shake(180, 9.0f);
                      popSparksIn(onCompanion ? gCompanionRect : gEnemyRect, true); }
-    // The swing always plays - the knight committed to it. Only the enemy's
-    // reaction is conditional: armor or defense soaking the blow entirely leaves
-    // nothing to flinch at, so it holds its pose while the blade goes by.
+    // The swing always plays, the knight committed to it. Only the enemy's
+    // reaction depends on the hit: if armour or defence soaked it all, there's
+    // nothing to flinch at, so it holds its pose.
     if (connected) {
         if (onCompanion) {
             gCompanionFrame = F_HIT;
@@ -2118,16 +2253,6 @@ static Tint moonTint(float k) {
     return t;
 }
 
-// The moon's crimson wisp: the Vampire's, the one red wisp on the projectile
-// sheet. It flies from that sheet (isCast false); the cast sheet has five
-// frames, so asked of it, this frame drew nothing.
-static int moonWisp() {
-    int wisp = ProjectileTable::GEN_UNDEAD;
-    for (int i = 0; i < ProjectileTable::kByNameCount; i++)
-        if (std::string(ProjectileTable::kByName[i].enemy) == "Vampire") wisp = ProjectileTable::kByName[i].frame;
-    return wisp;
-}
-
 void printBattleMoonstruck(EnemyType type, BossType boss) {
     ensureInstalled();
     gPortraitOnly = false;
@@ -2136,21 +2261,40 @@ void printBattleMoonstruck(EnemyType type, BossType boss) {
     Audio::playSFX("moonstruck");
     const bool hands = castsWithHands(artSet(type, boss), boss);
     if (hands) gEnemyFrame = F_SPELL;      // the moon's fire held up in its hands
-    // It flares: two pulses of the moon's red through it, the second harder.
-    for (int pulse = 0; pulse < 2; ++pulse) {
-        const float peak = pulse == 0 ? 0.7f : 1.0f;
-        for (int i = 0; i <= 6; ++i) { gEnemyTint = moonTint(peak * i / 6.0f); hold(28); }
-        for (int i = 6; i >= 0; --i) { gEnemyTint = moonTint(peak * i / 6.0f); hold(28); }
+    // It gathers: a small eclipse forms in front of it, the moon's red drawn
+    // into it, and the ring of the eclipse in the sky flares while it does.
+    for (int i = 0; i <= 26; ++i) {
+        const float k = i / 26.0f;
+        gMoonOrb = k;
+        gEnemyTint = moonTint(0.3f + 0.7f * k);
+        gVesselPulse = (i >= 6 && i <= 22) ? (i - 6) / 16.0f : -1.0f;
+        hold(30);
     }
-    gEnemyTint = Tint{};
-    // A crimson wisp crosses to him, out of the fire in its near hand when it
-    // holds it up (frame 11's flame sits at about (22, 2) of the 56x36 frame:
-    // a fifth into the sprite box, at its top).
-    flyProjectile(moonWisp(), Tint{}, 34, /*reverse*/false, /*isCast*/false,
-                  hands ? 20 : -1, hands ? 0 : -1);
-    // And the moon's red takes him, then sinks in and stays as his aura.
-    Platform::shake(320, 5.0f);
+    gVesselPulse = -1.0f;
+    hold(120);
+    // It lets go: a beam of the moon's red, across to him.
+    Audio::playSFXPitched("fire", 0.7f);
+    for (int i = 0; i <= 7; ++i) {
+        gMoonBeam = i / 7.0f;
+        gMoonOrb = 1.0f - 0.3f * i / 7.0f;
+        hold(24);
+    }
+    // And it lands: a flash, the burst, the ground shaking.
+    Platform::shake(380, 6.5f);
+    Audio::playSFXPitched("hit", 0.55f);
+    gPlayerTint = HIT_FLASH;
     popSparks(false);
+    for (int i = 0; i <= 12; ++i) {
+        const float k = i / 12.0f;
+        gMoonImpact = k;
+        gMoonBeam = 1.0f + k;
+        gMoonOrb = std::max(0.0f, 0.7f - 0.9f * k);
+        if (i == 2) gPlayerTint = moonTint(1.0f);
+        hold(32);
+    }
+    gMoonImpact = -1.0f; gMoonBeam = -1.0f; gMoonOrb = -1.0f;
+    gEnemyTint = Tint{};
+    // And the moon's red takes him, then sinks in and stays as his aura.
     for (int i = 10; i >= 0; --i) { gPlayerTint = moonTint(i / 10.0f); hold(36); }
     gPlayerTint = Tint{};
     if (hands) gEnemyFrame = F_IDLE_A;
@@ -2170,9 +2314,9 @@ void setGearTiers(int weaponTiers, int armorTiers) {
     gArmorTiers  = armorTiers;
 }
 
-// Force the lazy Library to build now: it decodes roughly twenty PNGs and
-// creates two GPU textures for each. Called from the title screen, where a
-// pause is expected, rather than inside the opening beat of the first fight.
+// Force the lazy Library to build now (about twenty PNGs, two textures each).
+// Called from the title screen where a pause is fine, instead of in the
+// opening beat of the first fight.
 void preload() { (void)lib(); ensureInstalled(); }
 
 
@@ -2206,9 +2350,9 @@ void setSecretBackdrop(int zone) {
     if (s->ok()) { gBgSheet = s; gBgPrev = nullptr; gBgFade = 1.0f; applyGround(); }
 }
 
-// The knight burns white, the moon comes up inside it, and the peak turns
-// into the last arena behind it. One continuous shot: the fight never cuts
-// away, because it is still the same fight and still the same body.
+// The Shadow Knight burns white, the true form comes up inside it, and the
+// peak turns into the last arena behind it. One continuous shot, no cuts,
+// since it's still the same fight and the same body.
 void transformToTrueForm(int zone, const std::string& trueName) {
     ensureInstalled();
     gPortraitOnly = false;
@@ -2242,9 +2386,9 @@ void transformToTrueForm(int zone, const std::string& trueName) {
     }
     setEnemyVariant(trueName);
     gTrueForm = true;   // it keeps the Shadow Knight's name, so not found by it
-    // Inside the glare the knight bends into the new shape: stooping, something
-    // between the two, the true form coming together. Each one shakes the
-    // screen, and the white hides everything but shape.
+    // Inside the glare it bends into the new shape (stooping, halfway, then the
+    // true form), each step shaking the screen. The white hides everything but
+    // the silhouette.
     {
         const ArtSet& t = artSet(gType, gBoss);
         if (t.sheet.count > F_MORPH3) {
@@ -2329,31 +2473,39 @@ void setEnemyVariant(const std::string& enemyName) {
     }
 }
 
-// The False Moon was the moon: when it dies, the eclipse in the church's sky
-// goes out with it, fading from the breach over about a second and taking its
-// light off the stone, so the ruin is left under the stars. The ground turns
-// with the sky, as it does when the peak becomes the true form's arena. Only
-// from the eclipse itself, so nothing else that dies there touches the sky.
-void moonGoesOut() {
-    Library& L = lib();
-    if (!L.churchGoneBg.ok() || gBgSheet != &L.churchEclipseBg) return;
+// One backdrop into another over `steps` holds of `ms`, the ground turning
+// with the sky.
+static void skyTurns(Sheet* to, int steps, int ms) {
     const SDL_Color groundFrom = groundFromBackdrop(gBgSheet, 26);
-    const SDL_Color groundTo = groundFromBackdrop(&L.churchGoneBg, 26);
+    const SDL_Color groundTo = groundFromBackdrop(to, 26);
     gBgPrev = gBgSheet;
-    gBgSheet = &L.churchGoneBg;
-    const int STEPS = 24, MS = 45;
-    for (int i = 0; i <= STEPS; ++i) {
-        const float k = (float)i / STEPS;
+    gBgSheet = to;
+    for (int i = 0; i <= steps; ++i) {
+        const float k = (float)i / steps;
         gBgFade = k;
         Platform::setGroundColor(SDL_Color{
             (Uint8)(groundFrom.r + (groundTo.r - groundFrom.r) * k),
             (Uint8)(groundFrom.g + (groundTo.g - groundFrom.g) * k),
             (Uint8)(groundFrom.b + (groundTo.b - groundFrom.b) * k), 255 });
-        hold(MS);
+        hold(ms);
     }
     gBgPrev = nullptr;
     gBgFade = 1.0f;
     Platform::setGroundColor(groundTo);
+}
+
+// When the False Moon dies, the eclipse in the church sky opens back to the
+// red moon, then the red drains out and leaves it pale and full. Only the
+// False Moon does this, so nothing else dying there touches the sky.
+void moonGoesOut() {
+    Library& L = lib();
+    if (gBgSheet != &L.churchEclipseBg) return;
+    if (!L.churchFreedBg.ok() || !L.churchBg.ok()) return;
+    skyTurns(&L.churchBg, 12, 40);       // its eye opens: the red moon again
+    hold(350);
+    Audio::playSFXPitched("church_bell", 0.75f);
+    skyTurns(&L.churchFreedBg, 28, 45);  // and the red drains out of it
+    hold(500);                           // a moment under it before the victory
 }
 
 void printBattleDeath(EnemyType type, BossType boss) {
@@ -2386,11 +2538,9 @@ void printBattleDeath(EnemyType type, BossType boss) {
     if (boss == BossType::FALSE_MOON) moonGoesOut();
 }
 
-// The true form in the run the church is open: it does not die at the peak,
-// it runs, so it is spared its cracked death. It reels from the last blow,
-// lets go of its sword, turns and runs back into the dark, fading as it
-// goes. The sword stays standing where it was planted (the False Moon has
-// none), and both stay as they are until the next fight sets the scene.
+// The true form on the church run doesn't die at the peak, it runs, so it
+// skips the cracked death: it reels, drops its sword, and sinks off into the
+// dark. The sword stays stuck in the ground until the next fight resets things.
 void printBattleFlee(EnemyType type, BossType boss) {
     ensureInstalled();
     gPortraitOnly = false;
@@ -2403,9 +2553,8 @@ void printBattleFlee(EnemyType type, BossType boss) {
     hold(160);
     gEnemyTint = Tint{};
     hold(320);
-    // It goes as the empty armour went in the intro: the dark comes over it,
-    // it sinks into the ground it stands on, and the pool it leaves runs off
-    // into the dark behind it.
+    // It goes like the empty armour in the intro: dark over it, it sinks into
+    // the ground, and the pool it leaves runs off into the dark.
     if (s.sheet.count > F_POOL_SMALL) {
         gEnemyLeft = F_LEFT_SWORD;                // the sword stays planted
         gEnemyFrame = F_LETGO;
@@ -2457,10 +2606,9 @@ void printBattleFlee(EnemyType type, BossType boss) {
     hold(letsGo ? 560 : 240);          // the peak empty but for the sword
 }
 
-// Whether the False Moon comes out of the eclipse: its sheet has the
-// arrival frames and the church has its moon's waking. Called as the fight's
-// backdrop goes up, before anything is drawn: the ruin under its plain moon,
-// and the False Moon not there yet.
+// Whether the False Moon gets its arrival: its sheet needs the arrival frames
+// and the church needs the waking moon. Called as the backdrop goes up, before
+// anything's drawn: the ruin under a plain moon, no False Moon yet.
 bool prepareArrival(BossType boss) {
     ensureInstalled();
     Library& L = lib();
@@ -2475,12 +2623,11 @@ bool prepareArrival(BossType boss) {
     return true;
 }
 
-// The False Moon comes out of the eclipse. The church's moon opens the
-// intro's eye, looks down at the knight, and its pupil opens until it fills
-// the moon: the eclipse, a bell going low as it does. Then the eye opens
-// again where the False Moon will stand, shuts into a dark moon, widens into
-// its ring, and it climbs out. The fight's music starts as it takes shape
-// (`track`, nothing until then). Only after prepareArrival.
+// The False Moon's arrival. The church's moon opens the intro's eye, looks at
+// the knight, and the pupil grows until it IS the eclipse (bell goes low). Then
+// the eye opens again where the False Moon will stand, shuts into a dark moon,
+// widens into its ring, and it climbs out. The music starts as it takes shape.
+// Only after prepareArrival.
 void printBattleArrival(EnemyType type, BossType boss, const char* track) {
     ensureInstalled();
     gPortraitOnly = false;
@@ -2549,9 +2696,9 @@ void printBattleKnightHit(EnemyType type, BossType boss) {
 }
 
 // ---- the moon takes its vessel --------------------------------------------------------------
-// The knight's own pixels for a pose, his armour tier with his blade over it,
-// read from the gear sheets themselves (the textures keep none), so the moon
-// takes him as he is dressed.
+// The knight's pixels for a pose (armour tier plus blade), read straight from
+// the gear sheets since the textures don't keep them, so it takes him as he's
+// dressed.
 namespace {
 struct Rgba { std::vector<unsigned char> px; int w = 0, h = 0; };
 
@@ -2603,9 +2750,8 @@ std::vector<unsigned char> knightPixels(const KnightSheets& k, int frame) {
 
 float lumOf(const unsigned char* p) { return 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2]; }
 
-// Him as the moon wears him: black, the moon's red round the outside of him
-// brighter where the light finds it, its red flecks through him; the moon's
-// own armour (tools/trophy_moon_style.py), so the vessel looks like it.
+// Him as the moon wears him: black, the moon's red round the edges and
+// flecked through him, in the moon armour's style (tools/trophy_moon_style.py).
 std::vector<unsigned char> asVessel(const std::vector<unsigned char>& src) {
     static const unsigned char BODY[3] = { 12, 6, 10 }, BODY_LIT[3] = { 24, 10, 16 };
     static const unsigned char RIM[3] = { 214, 46, 44 }, RIM_DIM[3] = { 76, 15, 21 };
@@ -2678,12 +2824,11 @@ SDL_Texture* textureOf(std::vector<unsigned char>& px) {
     return t;
 }
 
-// The frames: the dark spreading through him from his chest, where it came
-// into him, as it took him at the pond in the intro: a red edge where it is
-// still taking him and the outline of it boiling a little from one frame to
-// the next, slow to begin, reaching his far edge on the last frame; his visor
-// lighting as it finishes; then him standing as the vessel, both breaths.
-// What it has not reached yet is him as the piece left him: EMPTIED.
+// The frames: the dark spreads through him from his chest (where it came in,
+// like at the pond in the intro), with a red edge that boils a bit frame to
+// frame, reaching his far edge on the last one. Then his visor lights and he
+// stands as the vessel, two breaths. Anything it hasn't reached yet is him as
+// the piece left him (EMPTIED).
 const int VESSEL_STEPS = 14;
 Tint emptiedTint() {
     Tint t;
@@ -2766,12 +2911,11 @@ void eclipseEnds() {
 }
 } // namespace
 
-// The moon takes its vessel. The last piece of him goes up out of him and
-// into the moon, and he greys without it; the False Moon holds up its fire,
-// goes dark and comes apart, and what it is crosses to him as the crimson
-// wisp; the dark spreads through him from his chest, his visor lights the
-// moon's red, and he stands as the moon wears him, in its own armour's look.
-// The eclipse ends: it has its body.
+// The vessel scene, what plays instead of your death in the False Moon fight:
+// the last piece of him goes up into the moon and he greys out, the False Moon
+// dashes across and sinks into him, the dark spreads from his chest, his visor
+// lights red, and he stands there as it wears him. The eclipse ends.
+// This one took forever to get looking right.
 void printBattleVessel(EnemyType type, BossType boss) {
     ensureInstalled();
     gPortraitOnly = false;
@@ -2799,34 +2943,55 @@ void printBattleVessel(EnemyType type, BossType boss) {
     for (int i = 0; i <= 10; ++i) { gVesselPulse = i / 10.0f; hold(30); }
     gVesselPulse = -1.0f;
     hold(250);
-    // it holds up its fire, goes dark, and comes apart into what it is
+    // it holds up its fire
     const bool hands = castsWithHands(s, boss);
     if (hands) gEnemyFrame = F_SPELL;
     for (int i = 0; i <= 6; ++i) { gEnemyTint = moonTint(i / 6.0f); hold(30); }
-    Audio::stopBGM();                       // its music began as it took shape; it ends as it lets go
+    Audio::stopBGM();                       // its music began as it took shape; it ends as it takes him
     Audio::playSFX("moonstruck");
-    for (int i = 0; i <= 10; ++i) {
-        const float k = i / 10.0f;
+    hold(200);
+    // and comes for him: a dash across the floor, low and fast, its near claw
+    // out (frame 4), its red streaming off behind it as afterimages, until its
+    // body is over his
+    if (s.animated) gEnemyFrame = F_ATK1;
+    hold(110);
+    if (s.animated) gEnemyFrame = s.sheet.count > F_LUNGE ? F_LUNGE : F_ATK3;   // the lunge, or its rake
+    Audio::playSFXPitched("wind", 1.6f);
+    // its body centre (60% across its box) over his chest, measured from where
+    // both were last drawn: a fraction of the gap stopped it in front of him
+    const int reach = std::max(restingGap(), (int)((gEnemyRect.x + gEnemyRect.w * 0.6f)
+                      - (gPlayerRect.x + gPlayerRect.w * gVesselChestX / 100.0f)));
+    const int DASH = 10;
+    int was = 0;
+    for (int i = 1; i <= DASH; ++i) {
+        const float u = i / (float)DASH;
+        gEnemyNudge = (int)(reach * u * u);
+        gDashGhost = std::max(0, (gEnemyNudge - was) * 2 / 3);
+        was = gEnemyNudge;
+        hold(20);
+    }
+    // Into him: it goes dark as it sinks in, a burst where it meets him, and
+    // the dark is already starting at his chest as the last of it goes.
+    gDashGhost = 0;
+    Platform::shake(400, 6.5f);
+    Audio::playSFXPitched("hit", 0.5f);
+    int taken = -1;
+    for (int i = 0; i <= 8; ++i) {
+        const float k = i / 8.0f;
         Tint t;
         t.mulR = 1.0f - 0.80f * k; t.mulG = 1.0f - 0.92f * k; t.mulB = 1.0f - 0.88f * k;
-        t.addR = (int)(70 * (1.0f - k)); t.addB = (int)(10 * (1.0f - k));
+        t.addR = (int)(70 * (1.0f - k));
         gEnemyTint = t;
-        gEnemyAlpha = (int)(255 * (1.0f - k * k));
-        hold(34);
+        gEnemyAlpha = (int)(255 * (1.0f - k));
+        gMoonImpact = k;
+        if (i >= 4) gVesselShown = taken = i - 4;
+        hold(32);
     }
-    gEnemyAlpha = 0;
-    // What it is crosses to him: the moon's crimson wisp, from where its heart
-    // was to his chest, slower than a shot.
-    gProjSrcXPct = 50; gProjSrcPct = 45;
-    gProjDstXPct = (int)(gVesselChestX + 0.5f); gProjDstPct = (int)(gVesselChestY + 0.5f);
-    gProjIsCast = false; gProjReverse = false; gProjFall = false;
-    gProjScalePct = 36; gProjTint = Tint{};
-    gProjFrame = moonWisp();
-    for (int i = 0; i <= 16; ++i) { gProjT = i / 16.0f; hold(28); }
-    gProjFrame = -1; gProjT = 0.0f; gProjIsCast = true; gProjScalePct = 30;
+    gEnemyAlpha = 0; gEnemyNudge = 0; gMoonImpact = -1.0f;
+    gEnemyTint = Tint{};
+    if (s.animated) gEnemyFrame = F_IDLE_A;
     // and it takes him
-    Platform::shake(300, 3.5f);
-    for (int k = 0; k < VESSEL_STEPS; ++k) { gVesselShown = k; hold(75); }
+    for (int k = taken + 1; k < VESSEL_STEPS; ++k) { gVesselShown = k; hold(75); }
     gVesselShown = VESSEL_STEPS;
     gPlayerTint = Tint{};
     Audio::playSFXPitched("church_bell", 0.45f);

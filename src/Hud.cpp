@@ -2,6 +2,7 @@
 #include "Console.h"
 #include "Platform.h"
 #include "DrawUtil.h"
+#include "StatusIcons.h"
 
 #include <algorithm>
 #include <cctype>
@@ -18,10 +19,10 @@ std::function<State()> gSource;   // the live fight, read every frame
 int   gPreview = 0;   // hovered card's damage, drawn on the enemy bar
 bool  gActive = false;
 bool  gInstalled = false;
+int   gTagStyle = TAGS_ICONS_AND_TEXT;
 
-// Lagging values for the "damage ghost": the bar drops immediately, a pale
-// trail follows it down over a few hundred ms so you can see how big the hit
-// was rather than just where it left you.
+// The "damage ghost": the bar drops straight away and a pale trail follows it
+// down over a few hundred ms, so you can see how big the hit was.
 float gPlayerLag = -1.0f, gEnemyLag = -1.0f;
 Uint32 gLastTick = 0;
 
@@ -93,9 +94,9 @@ void bar(SDL_Renderer* r, SDL_Rect q, float frac, float lag, SDL_Color col,
 }
 
 // ---- what a status does -------------------------------------------------
-// Point at a tag in the panel, or click it, and a box says what it does. The
-// panel records where each tag landed as it draws, and the tip layer, drawn
-// over the log and the hand, puts the box up under the one the mouse is on.
+// Point at a tag (or click it) and a box says what it does. The panel records
+// where each tag landed as it draws, and the tip layer puts the box under
+// whichever one the mouse is on.
 struct Tip { SDL_Rect at; std::string title, text; };
 std::vector<Tip> gTips;
 
@@ -182,14 +183,14 @@ std::string describeTag(const std::string& t, bool you) {
              + ". The third toll is the Great Toll, a huge blow. "
                "A stun or a taunt makes it miss one.";
     if (starts("Marked"))
-        return "Its marks on you. The bolt after the third ignores your armor. A turn it does not fire clears them.";
+        return "Its marks on you. The bolt after the third mark ignores your armor. Any turn it does not fire clears them.";
     if (starts("Glass"))
         return "Its armor is glass. Break it with an attack and the shards cut you for half of it. "
-               "Pierce hits go round it.";
+               "Pierce hits go around it.";
     if (starts("Rises once"))
         return "When it falls it gets back up once, at half its health, unless Fire finishes it or it is burning.";
     if (starts("Risen"))
-        return "It has got up once already. Next time it stays down.";
+        return "It has gotten up once already. Next time it stays down.";
     if (starts("Lost:"))
         return "What the False Moon has taken back. Strength: your blows land a quarter softer. Wits: a card "
                "fewer. Speed: one energy fewer. The way you move: your guard half as strong.";
@@ -201,9 +202,9 @@ std::string describeTag(const std::string& t, bool you) {
     if (starts("Parry stance"))
         return "Your next attack is caught: it lands for half, and it hits you back.";
     if (has("heads"))
-        return "It bites once per head, each bite at half weight. A Pierce hit cuts a head off, and a Rend tear does half the time.";
+        return "It bites once per head, each bite at half weight. Each Pierce hit cuts off a head, and each Rend tear has an even chance to.";
     if (has("stump"))
-        return "When it regrows, two heads come back from each open stump. A Fire hit or a Burn on it sears them shut.";
+        return "When it regrows, it grows two new heads for every open stump. A Fire hit or a Burn on it seals the stumps first.";
     if (starts("Taunt"))
         return "It is taunted: it can only make a plain attack, for " + turns(at(0)) + ".";
     if (starts("Fear"))
@@ -221,9 +222,9 @@ std::string describeNotice(const std::string& t) {
     if (t.rfind("BOUND", 0) == 0)
         return "You can play only one card this turn.";
     if (t.rfind("MOONSTRUCK", 0) == 0)
-        return "Every two turns it takes back a piece of you, and at zero you are its vessel. Under five "
-               "turns left, every quarter of its health you take wins a turn back. Sacrifice and Last "
-               "Stand each win a turn back.";
+        return "Every two turns it takes back a piece of you, and at zero you are its vessel. Once you "
+               "have fewer than five turns left, every quarter of its health you take wins a turn back. "
+               "Sacrifice and Last Stand each win a turn back.";
     if (t.rfind("CONFESSED", 0) == 0)
         return "Playing that card heals the Confessor instead of hurting it. Hold it back this turn.";
     if (t.rfind("STONE", 0) == 0)
@@ -235,28 +236,195 @@ std::string describeNotice(const std::string& t) {
     return "";
 }
 
-// Records where each [tag] of a coloured tag line lands, drawn from x. The
-// escapes take no room, so only the visible characters are counted.
-void recordTags(const std::string& ansi, int x, int y, bool you) {
-    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
-    int col = 0, open = -1;
-    std::string inner;
+// A coloured tag line cut into tags (each "[...]" with its colour codes), so a
+// row can break between two of them. The row puts the gaps back itself.
+std::vector<std::string> splitTags(const std::string& ansi) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool inTag = false, visible = false;
     for (size_t i = 0; i < ansi.size(); i++) {
-        if (ansi[i] == '\x1b') {                 // an escape: skip to its final letter
-            while (i < ansi.size() && !std::isalpha((unsigned char)ansi[i])) i++;
+        if (ansi[i] == '\x1b') {                 // an escape: keep it whole
+            size_t j = i;
+            while (j < ansi.size() && !std::isalpha((unsigned char)ansi[j])) j++;
+            cur += ansi.substr(i, j - i + 1);
+            i = j;
             continue;
         }
         const char c = ansi[i];
-        if (c == '[') { open = col; inner.clear(); }
-        else if (c == ']' && open >= 0) {
-            const std::string text = describeTag(inner, you);
-            if (!text.empty())
-                gTips.push_back(Tip{ SDL_Rect{ x + open * cw, y, (col - open + 1) * cw, ch }, inner, text });
-            open = -1;
+        if (!inTag && c == ' ') continue;
+        cur += c;
+        visible = true;
+        if (c == '[') inTag = true;
+        else if (c == ']' && inTag) {
+            inTag = false;
+            out.push_back(cur);
+            cur.clear();
+            visible = false;
         }
-        else if (open >= 0) inner += c;
-        col++;
     }
+    if (visible) out.push_back(cur);
+    return out;
+}
+
+int visibleLen(const std::string& ansi) {
+    int n = 0;
+    for (size_t i = 0; i < ansi.size(); i++) {
+        if (ansi[i] == '\x1b') {
+            while (i < ansi.size() && !std::isalpha((unsigned char)ansi[i])) i++;
+            continue;
+        }
+        n++;
+    }
+    return n;
+}
+
+// The words inside a tag's brackets: "Poison 3/turn x2".
+std::string wordsOf(const std::string& tag) {
+    std::string out;
+    bool in = false;
+    for (size_t i = 0; i < tag.size(); i++) {
+        if (tag[i] == '\x1b') {
+            while (i < tag.size() && !std::isalpha((unsigned char)tag[i])) i++;
+            continue;
+        }
+        if (!in) { in = tag[i] == '['; continue; }
+        if (tag[i] == ']') break;
+        out += tag[i];
+    }
+    return out;
+}
+
+// The size of a symbol's pixels at this text size: about a capital's height.
+int iconZoom() { return std::max(1, (int)(Platform::cellH() * 0.075f + 0.5f)); }
+
+// The symbol a tag is drawn with, or -1 when it is drawn as its words.
+int iconOf(const std::string& tag) {
+    return gTagStyle == TAGS_TEXT_ONLY ? -1 : StatusIcons::forTag(wordsOf(tag));
+}
+
+// With the words, the room the symbol takes after the bracket: a pixel's gap,
+// the symbol, and a wider gap before the words.
+int iconSlot(int z) { return std::max(1, z / 2) + 8 * z + 2 * z + 1; }
+
+// How wide a tag is drawn, in pixels.
+int tagWidth(const std::string& tag) {
+    const int cw = std::max(1, Platform::cellW());
+    if (iconOf(tag) < 0) return visibleLen(tag) * cw;
+    const int z = iconZoom();
+    return gTagStyle == TAGS_ICONS_ONLY ? 8 * z : visibleLen(tag) * cw + iconSlot(z);
+}
+
+// The space between two tags: a character's width.
+int tagGap() { return std::max(1, Platform::cellW()); }
+
+// Draws one tag at x, y, and records where it landed for the tip.
+void drawTag(SDL_Renderer* r, const std::string& tag, int x, int y, SDL_Color dim, bool you) {
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    const std::string words = wordsOf(tag);
+    const int icon = iconOf(tag);
+    if (icon < 0) {
+        Console::drawAnsiPx(r, x, y, tag, dim, false);
+    } else {
+        const SDL_Color c = Console::ansiColorAt(tag, dim);
+        const int z = iconZoom();
+        const int iy = y + (ch - 8 * z) / 2;
+        if (gTagStyle == TAGS_ICONS_ONLY) {
+            StatusIcons::draw(r, icon, x, iy, z, c);
+        } else {
+            Console::drawTextPx(r, x, y, "[", c, false);
+            StatusIcons::draw(r, icon, x + cw + std::max(1, z / 2), iy, z, c);
+            Console::drawTextPx(r, x + cw + iconSlot(z), y, words + "]", c, false);
+        }
+    }
+    // A symbol on its own always gets a tip, even one that needs no
+    // explaining: the tip is where its words are.
+    const std::string text = describeTag(words, you);
+    if (!text.empty() || (icon >= 0 && gTagStyle == TAGS_ICONS_ONLY))
+        gTips.push_back(Tip{ SDL_Rect{ x, y, tagWidth(tag), ch }, words, text });
+}
+
+// One row of tags: where each starts, and the tag.
+using TagRow = std::vector<std::pair<int, std::string>>;
+
+// Lays a tag line out from x0 to `right`, breaking between tags onto rows that
+// start at xNext, keeping `reserve` clear at the end of row one (left empty if
+// not even one tag fits next to the bar).
+std::vector<TagRow> tagRows(const std::string& ansi, int x0, int xNext, int right, int reserve = 0) {
+    std::vector<TagRow> rows(1);
+    const int gap = tagGap();
+    int x = x0, edge = right - reserve;
+    for (const std::string& t : splitTags(ansi)) {
+        const int w = tagWidth(t);
+        int at = rows.back().empty() ? x : x + gap;
+        // Over the edge: on to a new row, unless this is a new row with
+        // nothing on it yet, where a tag too wide for any row stays.
+        if (at + w > edge && !(rows.back().empty() && x == xNext)) {
+            rows.push_back({});
+            x = at = xNext;
+            edge = right;
+        }
+        rows.back().push_back({ at, t });
+        x = at + w;
+    }
+    return rows;
+}
+
+// The YOU row's own words, the same for drawing and for measuring.
+std::string hpText(const State& s) { return std::to_string(s.playerHp) + "/" + std::to_string(s.playerMax); }
+std::string statText(const State& s) {
+    auto stat = [](const char* label, int flat, int pct) {
+        std::string t = label;
+        if (flat) t += " +" + std::to_string(flat);
+        if (pct)  t += " +" + std::to_string(pct) + "%";
+        return t;
+    };
+    return stat("ATK", s.playerAtk, s.playerAtkPct) + "   " + stat("DEF", s.playerDef, s.playerDefPct);
+}
+std::string armText(const State& s) {
+    return s.playerArmor > 0 ? "ARM " + std::to_string(s.playerArmor) : s.armorBroken ? "ARM 0" : "";
+}
+
+// Where the knight's tags go in a panel: after the bar, the health, the stats
+// and the armor, to the panel's edge, then on rows under the bar.
+std::vector<TagRow> playerTagRows(const State& s, const SDL_Rect& panel) {
+    const int cw = std::max(1, Platform::cellW());
+    const int padX = std::max(10, cw);
+    const int x = panel.x + padX;
+    const int barW = std::max(120, std::min(360, panel.w / 4));
+    int tx = x + 6 * cw + barW + cw;
+    tx += ((int)hpText(s).size() + 3) * cw;
+    tx += ((int)statText(s).size() + 3) * cw;
+    const std::string arm = armText(s);
+    if (!arm.empty()) tx += ((int)arm.size() + 3) * cw;
+    return tagRows(s.playerTags, tx, x + 6 * cw, panel.x + panel.w - padX);
+}
+
+// The enemy row's own words, the same for drawing and for measuring.
+std::string foeHpText(const State& s) { return std::to_string(s.enemyHp) + "/" + std::to_string(s.enemyMax); }
+std::string foeStatText(const State& s) {
+    return "ATK " + std::to_string(s.enemyAtk) + "   DEF " + std::to_string(s.enemyDef);
+}
+// Where the enemy's bar starts: a name longer than the label column allows
+// pushes it right.
+int foeBarX(const State& s, int x, int cw) {
+    int bx = x + 6 * cw;
+    if ((int)s.enemyName.size() + 1 > 6) bx += ((int)s.enemyName.size() + 1 - 6) * cw;
+    return bx;
+}
+
+// Where the enemy's tags go: after its bar, health, ATK and DEF, then on rows
+// under the bar. Room is kept at the end of the first row for a hovered card's
+// bite ("-12" or LETHAL), so the rows break the same with or without it.
+std::vector<TagRow> enemyTagRows(const State& s, const SDL_Rect& panel) {
+    const int cw = std::max(1, Platform::cellW());
+    const int padX = std::max(10, cw);
+    const int x = panel.x + padX;
+    const int barW = std::max(120, std::min(360, panel.w / 4));
+    const int bx = foeBarX(s, x, cw);
+    int tx = bx + barW + cw;
+    tx += ((int)foeHpText(s).size() + 3) * cw;
+    tx += ((int)foeStatText(s).size() + 3) * cw;
+    return tagRows(s.enemyTags, tx, bx, panel.x + panel.w - padX, 9 * cw);
 }
 
 // Word-wrapped to `width` characters.
@@ -272,14 +440,30 @@ std::vector<std::string> wrapText(const std::string& s, int width) {
     return lines;
 }
 
-// The box for the tag under the mouse, under that tag, kept on the screen.
+// The tip picked with the tip button (Tab, or a controller's Y), in the order
+// the panel draws them. Stays up until you touch anything else.
+int gFocus = -1;
+unsigned gFocusAt = 0;   // Platform::inputSerial() when it was picked
+
+// The box for the tag under the mouse, or the one picked, under that tag,
+// kept on the screen.
 void drawTip() {
-    if (!gActive || gTips.empty()) return;
-    int mx = 0, my = 0;
-    Platform::mousePos(mx, my);
-    const Tip* hit = nullptr;
-    for (const Tip& t : gTips)
-        if (mx >= t.at.x && mx < t.at.x + t.at.w && my >= t.at.y - 2 && my < t.at.y + t.at.h + 2) { hit = &t; break; }
+    const int steps = Platform::takeTipSteps();
+    if (!gActive || gTips.empty()) { gFocus = -1; return; }
+    const int n = (int)gTips.size();
+    if (steps != 0) {
+        gFocus = gFocus < 0 ? (steps > 0 ? steps - 1 : n + steps) : gFocus + steps;
+        gFocus = ((gFocus % n) + n) % n;
+        gFocusAt = Platform::inputSerial();
+    }
+    if (gFocus >= n || Platform::inputSerial() != gFocusAt) gFocus = -1;
+    const Tip* hit = gFocus >= 0 ? &gTips[(size_t)gFocus] : nullptr;
+    if (!hit && !Platform::pointerHidden()) {
+        int mx = 0, my = 0;
+        Platform::mousePos(mx, my);
+        for (const Tip& t : gTips)
+            if (mx >= t.at.x && mx < t.at.x + t.at.w && my >= t.at.y - 2 && my < t.at.y + t.at.h + 2) { hit = &t; break; }
+    }
     if (!hit) return;
 
     SDL_Renderer* r = Platform::renderer();
@@ -352,9 +536,8 @@ void draw() {
     int x = panel.x + padX;
     int y = panel.y + std::max(4, ch / 3);
 
-    // Advance by what was actually drawn, not a fixed column count: the
-    // numbers grow ("ATK +0   DEF +0" is 15 cells) and a fixed step made ARM
-    // print on top of them.
+    // Advance by what actually got drawn, not a fixed column count: the numbers
+    // grow ("ATK +0   DEF +0" is 15 cells) and a fixed step printed ARM on top.
     auto put = [&](int& cx, const std::string& t, SDL_Color col, bool bold = false) {
         Console::drawTextPx(r, cx, y, t, col, bold);
         cx += ((int)t.size() + 3) * cw;
@@ -375,25 +558,22 @@ void draw() {
     SDL_Rect pb{ x + 6 * cw, y + 1, barW, barH };
     bar(r, pb, pf, gPlayerLag, hpColor(gState.playerHp, gState.playerMax));
     int tx = pb.x + pb.w + cw;
-    put(tx, std::to_string(gState.playerHp) + "/" + std::to_string(gState.playerMax),
-        hpColor(gState.playerHp, gState.playerMax));
+    put(tx, hpText(gState), hpColor(gState.playerHp, gState.playerMax));
     // Flat bonus, then the gear percentage; a zero part is left out rather than
     // printed as "+0".
-    auto stat = [](const char* label, int flat, int pct) {
-        std::string s = label;
-        if (flat) s += " +" + std::to_string(flat);
-        if (pct)  s += " +" + std::to_string(pct) + "%";
-        return s;
-    };
-    put(tx, stat("ATK", gState.playerAtk, gState.playerAtkPct) + "   "
-          + stat("DEF", gState.playerDef, gState.playerDefPct), dim);
+    put(tx, statText(gState), dim);
     if (gState.playerArmor > 0)
-        put(tx, "ARM " + std::to_string(gState.playerArmor), armor);
+        put(tx, armText(gState), armor);
     else if (gState.armorBroken)
-        put(tx, "ARM 0", SDL_Color{ 226, 96, 88, 255 });
+        put(tx, armText(gState), SDL_Color{ 226, 96, 88, 255 });
+    // The tags run to the panel's edge and break onto rows under the bar: in
+    // the False Moon's fight, what it has taken back alone ran out of the box.
     if (!gState.playerTags.empty()) {
-        Console::drawAnsiPx(r, tx, y, gState.playerTags, dim, false);
-        recordTags(gState.playerTags, tx, y, true);
+        const auto rows = playerTagRows(gState, panel);
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (i > 0) y += ch + 4;
+            for (const auto& t : rows[i]) drawTag(r, t.second, t.first, y, dim, true);
+        }
     }
 
     // --- your raised dead, when one is standing -----------------------------
@@ -419,26 +599,26 @@ void draw() {
     // --- row 3: the enemy -------------------------------------------------
     y += ch + 4;
     Console::drawTextPx(r, x, y, gState.enemyName, ink, true);
-    SDL_Rect eb{ x + 6 * cw, y + 1, barW, barH };
-    // Give the name room when it is longer than the label column allows.
-    if ((int)gState.enemyName.size() + 1 > 6) {
-        int shift = ((int)gState.enemyName.size() + 1 - 6) * cw;
-        eb.x += shift;
-    }
+    SDL_Rect eb{ foeBarX(gState, x, cw), y + 1, barW, barH };
     const float pv = (gPreview > 0 && gState.enemyMax > 0)
                    ? std::min(ef, (float)gPreview / gState.enemyMax) : 0.0f;
     bar(r, eb, ef, gEnemyLag, hpColor(gState.enemyHp, gState.enemyMax), pv);
     tx = eb.x + eb.w + cw;
-    put(tx, std::to_string(gState.enemyHp) + "/" + std::to_string(gState.enemyMax),
-        hpColor(gState.enemyHp, gState.enemyMax));
+    put(tx, foeHpText(gState), hpColor(gState.enemyHp, gState.enemyMax));
     if (gPreview > 0)
         put(tx, gPreview >= gState.enemyHp ? "LETHAL" : ("-" + std::to_string(gPreview)),
             SDL_Color{ 255, 236, 170, 255 }, true);
-    put(tx, "ATK " + std::to_string(gState.enemyAtk)
-          + "   DEF " + std::to_string(gState.enemyDef), dim);
+    put(tx, foeStatText(gState), dim);
+    // Its tags wrap the way the knight's do: with the symbols in them they
+    // are wider, and a well-covered enemy ran them out of the panel.
     if (!gState.enemyTags.empty()) {
-        Console::drawAnsiPx(r, tx, y, gState.enemyTags, dim, false);
-        recordTags(gState.enemyTags, tx, y, false);
+        const auto rows = enemyTagRows(gState, panel);
+        // The first row moves right with a pointed-at card's bite.
+        const int shift = rows[0].empty() ? 0 : tx - rows[0][0].first;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            if (i > 0) y += ch + 4;
+            for (const auto& t : rows[i]) drawTag(r, t.second, t.first + (i == 0 ? shift : 0), y, dim, false);
+        }
     }
 
     // --- the summoned add, when one is standing ----------------------------
@@ -485,12 +665,23 @@ void draw() {
 
 } // namespace
 
-// Five rows hold the three fixed lines (turn, you, the enemy) with the
-// panel margins. Each optional line below them needs a row of its own, or
-// the curse notice would push out through the border.
+// Five rows for the three fixed lines (turn, you, the enemy) plus margins.
+// Each optional line needs a row of its own or the curse notice pokes out
+// through the border.
 int rowsNeeded() {
+    // The tags may need rows of their own under the bars.
+    const SDL_Rect band = Console::hudRegion();
+    const SDL_Rect panel{ band.x, band.y, band.w, band.h };
+    int tagExtra = 0;
+    if (!gState.playerTags.empty()) tagExtra += (int)playerTagRows(gState, panel).size() - 1;
+    if (!gState.enemyTags.empty())  tagExtra += (int)enemyTagRows(gState, panel).size() - 1;
     return 5 + (gState.addActive ? 1 : 0) + (gState.allyActive ? 1 : 0)
-             + (gState.notice.empty() ? 0 : 1);
+             + (gState.notice.empty() ? 0 : 1) + tagExtra;
+}
+
+void setTagStyle(int style) {
+    gTagStyle = std::max(0, std::min(2, style));
+    if (gActive) Console::setHudRows(rowsNeeded());
 }
 
 void set(const State& s) {

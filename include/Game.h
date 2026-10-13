@@ -403,6 +403,7 @@ private:
     // The Card Ledger: every card held in any run, by name (progress.dat).
     std::set<std::string> cardsHeld;
     void noteCardsHeld();                  // the deck's cards go in; all of them earns A Full Ledger
+    void noteLorekeeper();                 // every enemy met and every Lore Book page earns Lorekeeper
     std::vector<Card> allCards() const;    // every card in the game: the starters, then the pool
     CardBar::Card printedWidget(const Card& c) const;   // a card at its printed numbers
     void writeWinSave() const;

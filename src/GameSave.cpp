@@ -263,6 +263,7 @@ void Game::loadProgress() {
     // Saves from before the record still put it out if they hold the crimson one.
     Achievements::setFalseMoonBeaten(moonOut != 0 || Achievements::has(Achievements::FALSE_MOON));
     seedMetFromProgress();
+    noteLorekeeper();
 }
 
 void Game::saveProgress() const {
@@ -294,6 +295,7 @@ void Game::earn(int achievement) {
         // the crimson one with it, whichever road it fell on.
         if (Achievements::crimsonDue()) Achievements::earn(Achievements::FALSE_MOON);
         saveProgress();
+        noteLorekeeper();   // a boss, the clear and the true form all open Lore Book pages
     }
 }
 

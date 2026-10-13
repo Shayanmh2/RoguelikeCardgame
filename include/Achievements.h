@@ -34,6 +34,7 @@ enum Id {
     GRAVE_MISTAKE,
     FALSE_MOON,
     EVERY_CARD,
+    LOREKEEPER,
     COUNT
 };
 

@@ -39,8 +39,10 @@ void setPacePercent(int pct);
 // Keys get queued by frame() so a blocking read never misses one. Controllers
 // feed the same queue: d-pad/left stick are the arrows, A is Enter, B is
 // Escape, X is DETAILS (a card's "+", the one thing only the mouse could do),
-// R2 is TO_ACTIONS and L2 TO_CARDS. `pad` means a controller sent it.
-enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR, DETAILS, TO_ACTIONS, TO_CARDS };
+// R2 is TO_ACTIONS and L2 TO_CARDS. `pad` means a controller sent it. PgUp
+// and PgDn scroll whatever has a slider.
+enum class Key { NONE, UP, DOWN, LEFT, RIGHT, ENTER, ESCAPE, CHAR, DETAILS, TO_ACTIONS, TO_CARDS,
+                 PAGE_UP, PAGE_DOWN };
 struct KeyEvent { Key key = Key::NONE; char ch = 0; bool pad = false; };
 
 KeyEvent pollKey();               // NONE if nothing queued

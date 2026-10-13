@@ -65,6 +65,62 @@ inline void glowRound(SDL_Renderer* r, SDL_Rect q, int rad, SDL_Color c,
     }
 }
 
+// A slider down the side of a list or a page that runs past what fits. `pos`
+// goes 0..maxPos in whatever the caller scrolls by (rows, lines), and the
+// thumb is as tall as the share that shows, `view` out of `whole`.
+inline SDL_Rect scrollThumb(const SDL_Rect& track, int pos, int maxPos, int view, int whole) {
+    int h = whole > 0 ? (int)((long long)track.h * view / whole) : track.h;
+    h = std::min(track.h, std::max(h, track.w * 3));   // never a sliver you can't grab
+    const int travel = track.h - h;
+    const int y = track.y + (maxPos > 0 ? travel * std::max(0, std::min(pos, maxPos)) / maxPos : 0);
+    return SDL_Rect{ track.x, y, track.w, h };
+}
+
+// The pos that puts the thumb's top at `top`, for a drag or a click on the track.
+inline int scrollPosAt(const SDL_Rect& track, int maxPos, int view, int whole, int top) {
+    const int travel = track.h - scrollThumb(track, 0, maxPos, view, whole).h;
+    if (travel <= 0 || maxPos <= 0) return 0;
+    const int at = std::max(0, std::min(travel, top - track.y));
+    return (at * maxPos + travel / 2) / travel;
+}
+
+inline void drawScroll(SDL_Renderer* r, const SDL_Rect& track, int pos, int maxPos, int view, int whole,
+                       SDL_Color groove, SDL_Color thumb) {
+    if (maxPos <= 0 || track.h <= 0) return;
+    fillRound(r, track, track.w / 2, groove);
+    fillRound(r, scrollThumb(track, pos, maxPos, view, whole), track.w / 2, thumb);
+}
+
+// Holding the thumb. `grab` is where on it the pointer took hold, so it
+// doesn't jump to put its top under the pointer.
+struct ScrollGrip { bool held = false; int grab = 0; };
+
+// A click at (x, y). On the thumb it takes hold; anywhere else on the track
+// it jumps there first, then takes hold. True if the click was the slider's.
+// The bar is thin, so a click just beside it counts too.
+inline bool scrollPress(ScrollGrip& g, const SDL_Rect& track, int& pos, int maxPos, int view, int whole,
+                        int x, int y) {
+    if (maxPos <= 0 || track.h <= 0) return false;
+    if (x < track.x - track.w || x >= track.x + track.w * 2 || y < track.y || y >= track.y + track.h) return false;
+    SDL_Rect t = scrollThumb(track, pos, maxPos, view, whole);
+    if (y < t.y || y >= t.y + t.h) {
+        pos = scrollPosAt(track, maxPos, view, whole, y - t.h / 2);
+        t = scrollThumb(track, pos, maxPos, view, whole);
+    }
+    g.held = true;
+    g.grab = y - t.y;
+    return true;
+}
+
+// Every frame: a held thumb follows the pointer until the button comes up,
+// even off the bar, the same as the settings sliders.
+inline void scrollDrag(ScrollGrip& g, const SDL_Rect& track, int& pos, int maxPos, int view, int whole,
+                       int y, bool down) {
+    if (!g.held) return;
+    if (!down || maxPos <= 0) { g.held = false; return; }
+    pos = scrollPosAt(track, maxPos, view, whole, y - g.grab);
+}
+
 } // namespace DrawUtil
 
 #endif
