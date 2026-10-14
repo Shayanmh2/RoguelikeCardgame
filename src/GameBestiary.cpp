@@ -14,6 +14,9 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <ctime>
+#include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -184,9 +187,21 @@ struct JournalView {
     // true form is page 2 of the Shadow Knight).
     std::vector<int> phase2;         // its table index, or -1
     std::vector<std::string> text2;
-    int page = 0;                    // 0 the first, 1 the second
+    std::vector<std::vector<std::string>> record;   // its record page's lines, once met
+    int page = 0;                    // which of its pages is open
     int first = 0;                   // a long entry's first line on show
 };
+
+// An entry's pages: its words, its second phase's once that is met, and its
+// record once you've met it. Enter or a click turns them.
+int pagesOf(const JournalView& v, size_t si) {
+    if (si >= v.ids.size() || !v.met[si]) return 1;
+    return 2 + (v.phase2[si] >= 0 && !v.text2[si].empty() ? 1 : 0);
+}
+bool onRecord(const JournalView& v, size_t si) { return pagesOf(v, si) > 1 && v.page == pagesOf(v, si) - 1; }
+bool onSecond(const JournalView& v, size_t si) {
+    return v.page == 1 && v.phase2[si] >= 0 && !v.text2[si].empty() && !onRecord(v, si);
+}
 
 // Second phases are rows in the table so they save like everything else,
 // they just read as a page of the entry they belong to.
@@ -195,7 +210,12 @@ const char* phaseOf(const char* key) {
 }
 const JournalView* gView = nullptr;
 
-struct JournalLayout { SDL_Rect book, left, right, pic; std::vector<SDL_Rect> tabs, rows; int pad = 12, capacity = 1; };
+struct JournalLayout {
+    SDL_Rect book, left, right, pic;
+    std::vector<SDL_Rect> tabs, rows;
+    int pad = 12, capacity = 1;
+    SDL_Rect listTrack{ 0, 0, 0, 0 };   // the list's slider, when it has more than fit
+};
 
 JournalLayout layoutBook(const std::vector<std::string>& tabs, int rows) {
     JournalLayout L;
@@ -219,10 +239,14 @@ JournalLayout layoutBook(const std::vector<std::string>& tabs, int rows) {
     const int listTop = L.left.y + L.pad + Console::bigCellH() + ch + L.pad + 6;
     const int room = L.left.y + L.left.h - L.pad / 2 - listTop;
     L.capacity = std::max(1, room / (ch + 6));
+    const bool more = rows > L.capacity;
     rows = std::min(rows, L.capacity);
     const int rowH = std::max(ch + 6, std::min(ch * 2 + 8, room / std::max(1, rows)));
+    const int trackW = std::max(6, cw * 2 / 3);
+    const int rowW = L.left.w - L.pad - (more ? trackW + L.pad / 2 : 0);
     for (int i = 0; i < rows; ++i)
-        L.rows.push_back(SDL_Rect{ L.left.x + L.pad / 2, listTop + i * rowH, L.left.w - L.pad, rowH - 4 });
+        L.rows.push_back(SDL_Rect{ L.left.x + L.pad / 2, listTop + i * rowH, rowW, rowH - 4 });
+    if (more) L.listTrack = SDL_Rect{ L.left.x + L.left.w - L.pad / 2 - trackW, listTop, trackW, rows * rowH - 4 };
     const int side = std::min(L.right.w - 2 * L.pad, L.right.h * 40 / 100);
     L.pic = SDL_Rect{ L.right.x + (L.right.w - side) / 2, L.right.y + L.pad, side, side };
     return L;
@@ -278,6 +302,51 @@ std::vector<std::string> wrapTo(const std::string& text, int cols) {
         start = nl + 1;
     }
     return out;
+}
+
+// Words in a box that scroll under a slider when they run past it. The Lore
+// Book's pages and the Card Ledger's text use it; the bestiary has its own
+// below because its facts line stays pinned at the bottom.
+struct TextBlock {
+    std::vector<std::string> lines;
+    int x = 0, top = 0, bottom = 0, lineH = 1;
+    int maxFirst = 0, whole = 0;   // the furthest line it can start on, and its height
+    SDL_Rect track{ 0, 0, 0, 0 };
+};
+
+TextBlock layoutBlock(const std::string& text, int x, int top, int right, int bottom, int trackRight) {
+    TextBlock b;
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    b.lineH = ch * 4 / 3;
+    b.x = x; b.top = top; b.bottom = bottom;
+    b.lines = wrapTo(text, std::max(12, (right - x) / cw));
+    auto from = [&](size_t i) {   // the last line only needs its glyph
+        int h = 0;
+        for (size_t j = i; j < b.lines.size(); ++j) h += b.lines[j].empty() ? b.lineH / 2 : b.lineH;
+        return h - b.lineH + ch;
+    };
+    b.whole = from(0);
+    if (top + b.whole <= bottom) return b;
+    while (b.maxFirst + 1 < (int)b.lines.size() && top + from((size_t)b.maxFirst) > bottom) ++b.maxFirst;
+    const int trackW = std::max(6, cw * 2 / 3);
+    b.track = SDL_Rect{ trackRight - trackW, top, trackW, bottom - top };
+    return b;
+}
+
+// Draws it from line `first` with its slider, and says where the words ended.
+int drawBlock(SDL_Renderer* r, const TextBlock& b, int first, SDL_Color ink, bool italic, SDL_Color groove,
+              SDL_Color thumb) {
+    const int ch = std::max(1, Platform::cellH());
+    first = std::max(0, std::min(first, b.maxFirst));
+    int y = b.top;
+    for (size_t i = (size_t)first; i < b.lines.size(); ++i) {
+        if (y + ch > b.bottom) break;
+        if (b.lines[i].empty()) { y += b.lineH / 2; continue; }
+        Console::drawTextPx(r, b.x, y, b.lines[i], ink, false, italic);
+        y += b.lineH;
+    }
+    DrawUtil::drawScroll(r, b.track, first, b.maxFirst, b.bottom - b.top, b.whole, groove, thumb);
+    return y;
 }
 
 // An entry's words on the right page. They go under the name with the facts
@@ -360,7 +429,7 @@ void drawJournal() {
     bool scrolls = false;
     if (v.sel >= 0 && v.sel < (int)v.ids.size()) {
         const size_t si = (size_t)v.sel;
-        const bool second = v.page == 1 && v.phase2[si] >= 0;
+        const bool second = onSecond(v, si), record = onRecord(v, si);
         const Beast& b = BESTIARY[second ? v.phase2[si] : v.ids[si]];
         const bool met = v.met[si];
         const int gw = L.pic.w * 2 / 3, gh = std::max(6, L.pic.h / 18);
@@ -381,8 +450,8 @@ void drawJournal() {
         x = L.right.x + L.pad * 2;
         y = L.pic.y + L.pic.h + L.pad;
         Console::drawTextBigPx(r, x, y, met ? b.name : "???", met ? t.ink : t.faint, true);
-        if (v.phase2[si] >= 0 && !v.text2[si].empty()) {
-            const std::string pager = second ? "<  2 / 2  >" : "<  1 / 2  >";
+        if (pagesOf(v, si) > 1) {
+            const std::string pager = "<  " + std::to_string(v.page + 1) + " / " + std::to_string(pagesOf(v, si)) + "  >";
             Console::drawTextPx(r, L.right.x + L.right.w - L.pad * 2 - (int)pager.size() * cw,
                                 y + (Console::bigCellH() - ch) / 2, pager, t.accent, true);
         }
@@ -390,8 +459,24 @@ void drawJournal() {
         std::string tag = met ? upper(kindName(b)) : std::string("NOT MET");
         tag += std::string("    ") + upper(AREA_NAME[b.area]);
         Console::drawTextPx(r, x, y, tag, met && b.kind == BOSS ? GOLD : met && b.kind == SHADE ? MOON_RED : t.faint, true);
+        if (record) {
+            // Where the words would start, under the tag: a label and its count on each line.
+            y += ch + L.pad;
+            const int lineH = ch * 4 / 3, valueX = x + 16 * cw;
+            for (const std::string& ln : v.record[si]) {
+                if (ln.empty()) { y += lineH / 2; continue; }
+                const size_t bar = ln.find('|');
+                if (ln[0] == '#') Console::drawTextPx(r, x, y, ln.substr(1), t.accent, true);
+                else if (bar == std::string::npos) Console::drawTextPx(r, x, y, ln, t.ink, false);
+                else {
+                    Console::drawTextPx(r, x, y, ln.substr(0, bar), t.faint, false);
+                    Console::drawTextPx(r, valueX, y, ln.substr(bar + 1), t.ink, false);
+                }
+                y += lineH;
+            }
+        }
         // The words, then the facts in the area's accent.
-        const EntryText e = layoutEntry(L, second ? v.text2[si] : v.text[si]);
+        const EntryText e = layoutEntry(L, record ? std::string() : second ? v.text2[si] : v.text[si]);
         const int first = std::min(v.first, e.maxFirst);
         int ly = e.top;
         for (size_t i = (size_t)first; i < e.lore.size(); ++i) {
@@ -409,10 +494,9 @@ void drawJournal() {
         scrolls = e.maxFirst > 0;
     }
 
-    const bool paged = v.sel >= 0 && v.sel < (int)v.ids.size() && v.phase2[(size_t)v.sel] >= 0
-                    && !v.text2[(size_t)v.sel].empty();
+    const bool paged = v.sel >= 0 && v.sel < (int)v.ids.size() && pagesOf(v, (size_t)v.sel) > 1;
     const std::string hint = std::string("up and down to choose     left and right for another area")
-                           + (paged ? "     Enter for its other phase" : "")
+                           + (paged ? "     Enter to turn the page" : "")
                            + (scrolls ? "     PgUp and PgDn to scroll" : "") + "     Esc to close";
     Console::drawTextPx(r, (W - (int)hint.size() * cw) / 2, L.book.y + L.book.h + 10, hint,
                         SDL_Color{ 120, 116, 132, 255 }, false);
@@ -428,11 +512,28 @@ const Theme NIGHT = { { 30, 30, 58, 255 }, { 80, 82, 132, 255 }, { 28, 28, 40, 2
 
 struct LoreView {
     int tab = 0, sel = 0, top = 0;
+    int first = 0;                              // the open page's first line on show
     std::vector<const Game::LoreEntry*> rows;   // the open tab's entries
 };
 const LoreView* gLore = nullptr;
 
 std::vector<std::string> loreTabs() { return std::vector<std::string>(LORE_TAB, LORE_TAB + LORE_TABS); }
+
+// The open page's words, where drawLore puts them. A cutscene's page keeps
+// room at the bottom for "Enter to watch it again".
+TextBlock lorePage(const JournalLayout& L, const LoreView& v) {
+    if (v.sel < 0 || v.sel >= (int)v.rows.size()) return TextBlock{};
+    const Game::LoreEntry& e = *v.rows[(size_t)v.sel];
+    const int ch = std::max(1, Platform::cellH());
+    std::string text;
+    if (!e.seen) text = v.tab == 3 ? "Not seen yet." : v.tab == 2 ? "Not found yet."
+                      : v.tab == 1 ? "Not heard yet." : "Not reached yet.";
+    else for (const std::string& l : e.lines) text += (text.empty() ? "" : "\n\n") + l;
+    const int top = L.right.y + L.pad * 2 + Console::bigCellH() + L.pad;
+    const int bottom = L.right.y + L.right.h - L.pad - (e.cutscene >= 0 && e.seen ? ch * 2 : 0);
+    return layoutBlock(text, L.right.x + L.pad * 2, top, L.right.x + L.right.w - L.pad * 2, bottom,
+                       L.right.x + L.right.w - L.pad);
+}
 
 void drawLore() {
     if (!gLore) return;
@@ -466,47 +567,27 @@ void drawLore() {
         Console::drawTextPx(r, row.x + 14, row.y + (row.h - ch) / 2, e.seen ? e.title : "???",
                             e.seen ? t.ink : t.faint, on);
     }
-    // More above or below the part of the list shown.
-    if (v.top > 0)
-        Console::drawTextPx(r, L.left.x + L.left.w - L.pad - cw, L.rows.front().y - ch, "^", t.faint, true);
-    if (v.top + (int)L.rows.size() < (int)v.rows.size())
-        Console::drawTextPx(r, L.left.x + L.left.w - L.pad - cw, L.rows.back().y + L.rows.back().h, "v", t.faint, true);
+    // More than fit: a slider down the right of the list.
+    DrawUtil::drawScroll(r, L.listTrack, v.top, std::max(0, (int)v.rows.size() - L.capacity), L.capacity,
+                         (int)v.rows.size(), dark(t.page), t.faint);
 
-    // The right page: the chosen one's words, or what it shows.
+    // The right page: the chosen one's words, or what it shows. A long one
+    // scrolls under a slider instead of dropping to the small text.
+    bool scrolls = false;
     if (v.sel >= 0 && v.sel < (int)v.rows.size()) {
         const Game::LoreEntry& e = *v.rows[(size_t)v.sel];
         x = L.right.x + L.pad * 2;
         y = L.right.y + L.pad * 2;
         Console::drawTextBigPx(r, x, y, e.seen ? e.title : "???", e.seen ? t.ink : t.faint, true);
-        y += Console::bigCellH() + L.pad;
-        std::string text;
-        if (!e.seen) text = v.tab == 3 ? "Not seen yet." : v.tab == 2 ? "Not found yet."
-                          : v.tab == 1 ? "Not heard yet." : "Not reached yet.";
-        else for (const std::string& l : e.lines) text += (text.empty() ? "" : "\n\n") + l;
+        const TextBlock b = lorePage(L, v);
+        y = drawBlock(r, b, v.first, t.ink, v.tab == 2 && e.seen, dark(t.page), t.faint);   // letters lean
+        scrolls = b.maxFirst > 0;
         const int bottom = L.right.y + L.right.h - L.pad;
-        // Too long for the page at the grid's size, it goes down to the card face's.
-        int cols = std::max(16, (L.right.w - L.pad * 4) / cw);
-        int lineH = ch * 4 / 3;
-        std::vector<std::string> lines = wrapTo(text, cols);
-        bool small = false;
-        if (y + (int)lines.size() * lineH > bottom - (e.cutscene >= 0 ? ch * 2 : 0)) {
-            small = true;
-            const int scw = std::max(1, Console::smallCellW()), sch = std::max(1, Console::smallCellH());
-            cols = std::max(16, (L.right.w - L.pad * 4) / scw);
-            lineH = sch * 5 / 4;
-            lines = wrapTo(text, cols);
-        }
-        for (const std::string& ln : lines) {
-            if (y + lineH > bottom) break;
-            if (ln.empty()) { y += lineH / 2; continue; }
-            if (small) Console::drawTextSmallPx(r, x, y, ln, t.ink);
-            else       Console::drawTextPx(r, x, y, ln, t.ink, false, v.tab == 2 && e.seen);   // letters lean
-            y += lineH;
-        }
         if (e.cutscene >= 0 && e.seen)
             Console::drawTextPx(r, x, std::min(bottom - ch, y + L.pad), "Enter to watch it again", t.accent, true);
     }
-    const std::string hint = "up and down to choose     left and right for another part     Esc to close";
+    const std::string hint = std::string("up and down to choose     left and right for another part")
+                           + (scrolls ? "     PgUp and PgDn to scroll" : "") + "     Esc to close";
     Console::drawTextPx(r, (W - (int)hint.size() * cw) / 2, L.book.y + L.book.h + 10, hint,
                         SDL_Color{ 120, 116, 132, 255 }, false);
 }
@@ -519,6 +600,7 @@ const char* const LEDGER_TAB[LEDGER_TABS] = { "Starter", "Uncommon", "Rare", "Su
 
 struct CardLedgerView {
     int tab = 0, sel = 0, top = 0;
+    int first = 0;                        // the open card's first line of text on show
     std::vector<Card> rows;               // the open rarity's cards, by name
     std::vector<bool> held;
     std::vector<CardBar::Card> faces;     // each at its printed numbers
@@ -527,6 +609,17 @@ struct CardLedgerView {
 const CardLedgerView* gLedger = nullptr;
 
 std::vector<std::string> ledgerTabs() { return std::vector<std::string>(LEDGER_TAB, LEDGER_TAB + LEDGER_TABS); }
+
+// The open card's full text, beside its face, where drawCardLedger puts it.
+TextBlock ledgerPage(const JournalLayout& L, const CardLedgerView& v) {
+    if (v.sel < 0 || v.sel >= (int)v.rows.size() || !v.held[(size_t)v.sel]) return TextBlock{};
+    const int ch = std::max(1, Platform::cellH());
+    const int cardW = std::min(L.right.w * 2 / 5, (L.right.h - L.pad * 4) * 100 / 136);
+    const int tx = L.right.x + L.pad * 2 + cardW + L.pad * 2;
+    return layoutBlock(v.rows[(size_t)v.sel].getDescription(), tx, L.right.y + L.pad * 2 + ch * 2,
+                       L.right.x + L.right.w - L.pad * 2, L.right.y + L.right.h - L.pad,
+                       L.right.x + L.right.w - L.pad);
+}
 
 void drawCardLedger() {
     if (!gLedger) return;
@@ -559,12 +652,11 @@ void drawCardLedger() {
         Console::drawTextPx(r, row.x + 14, row.y + (row.h - ch) / 2, v.held[at] ? v.rows[at].getName() : "???",
                             v.held[at] ? v.faces[at].nameColor : t.faint, on);
     }
-    if (v.top > 0)
-        Console::drawTextPx(r, L.left.x + L.left.w - L.pad - cw, L.rows.front().y - ch, "^", t.faint, true);
-    if (v.top + (int)L.rows.size() < (int)v.rows.size())
-        Console::drawTextPx(r, L.left.x + L.left.w - L.pad - cw, L.rows.back().y + L.rows.back().h, "v", t.faint, true);
+    DrawUtil::drawScroll(r, L.listTrack, v.top, std::max(0, (int)v.rows.size() - L.capacity), L.capacity,
+                         (int)v.rows.size(), dark(t.page), t.faint);
 
     // The right page: the card as it is printed, and beside it its full text.
+    bool scrolls = false;
     if (v.sel >= 0 && v.sel < (int)v.rows.size()) {
         x = L.right.x + L.pad * 2;
         y = L.right.y + L.pad * 2;
@@ -578,31 +670,244 @@ void drawCardLedger() {
             const SDL_Rect at{ x, y, cardW, cardW * 136 / 100 };
             CardBar::drawCardAt(r, face, at);
             const int tx = at.x + at.w + L.pad * 2;
-            const int bottom = L.right.y + L.right.h - L.pad;
-            int ty = y;
-            Console::drawTextPx(r, tx, ty, face.typeLabel + (face.elemTag.empty() ? "" : "  " + face.elemTag),
+            Console::drawTextPx(r, tx, y, face.typeLabel + (face.elemTag.empty() ? "" : "  " + face.elemTag),
                                 t.faint, true);
-            ty += ch * 2;
-            int cols = std::max(12, (L.right.x + L.right.w - L.pad * 2 - tx) / cw);
-            int lineH = ch * 4 / 3;
-            std::vector<std::string> lines = wrapTo(c.getDescription(), cols);
-            bool small = false;
-            if (ty + (int)lines.size() * lineH > bottom) {
-                small = true;
-                const int scw = std::max(1, Console::smallCellW()), sch = std::max(1, Console::smallCellH());
-                cols = std::max(12, (L.right.x + L.right.w - L.pad * 2 - tx) / scw);
-                lineH = sch * 5 / 4;
-                lines = wrapTo(c.getDescription(), cols);
-            }
-            for (const std::string& ln : lines) {
-                if (ty + lineH > bottom) break;
-                if (small) Console::drawTextSmallPx(r, tx, ty, ln, t.ink);
-                else       Console::drawTextPx(r, tx, ty, ln, t.ink, false);
-                ty += lineH;
-            }
+            const TextBlock b = ledgerPage(L, v);
+            drawBlock(r, b, v.first, t.ink, false, dark(t.page), t.faint);
+            scrolls = b.maxFirst > 0;
+            (void)c;
         }
     }
-    const std::string hint = "up and down to choose     left and right for another rarity     Esc to close";
+    const std::string hint = std::string("up and down to choose     left and right for another rarity")
+                           + (scrolls ? "     PgUp and PgDn to scroll" : "") + "     Esc to close";
+    Console::drawTextPx(r, (W - (int)hint.size() * cw) / 2, L.book.y + L.book.h + 10, hint,
+                        SDL_Color{ 120, 116, 132, 255 }, false);
+}
+
+// --- the Chronicle -------------------------------------------------------------
+// Every run you've finished, newest first, and the best on each road. One
+// record a block in chronicle.dat, read back here.
+struct RunRecord {
+    std::string when, road, by, weapon, armor;
+    int result = 0, at = 0, length = 0, area = 0;
+    std::vector<std::string> relics, keepsakes;
+    struct Held { std::string name; int rarity = 0, count = 1; };
+    std::vector<Held> deck;
+    int won = 0, bosses = 0, shades = 0, dealt = 0, taken = 0, biggest = 0, cards = 0, turns = 0;
+    int rests = 0, forges = 0, sits = 0, seconds = 0, mostCount = 0;
+    std::string most;
+};
+
+std::vector<std::string> splitBar(const std::string& s) {
+    std::vector<std::string> out;
+    std::stringstream in(s);
+    for (std::string p; std::getline(in, p, '|'); ) if (!p.empty()) out.push_back(p);
+    return out;
+}
+
+// Newest first.
+std::vector<RunRecord> readChronicle(const std::string& path) {
+    std::vector<RunRecord> all;
+    std::ifstream in(path);
+    RunRecord rec;
+    for (std::string line; std::getline(in, line); ) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        const size_t sp = line.find(' ');
+        const std::string tag = line.substr(0, sp), rest = sp == std::string::npos ? std::string() : line.substr(sp + 1);
+        std::istringstream v(rest);
+        if (tag == "RUN") rec = RunRecord{};
+        else if (tag == "WHEN") rec.when = rest;
+        else if (tag == "ROAD") rec.road = rest;
+        else if (tag == "RESULT") v >> rec.result;
+        else if (tag == "FAR") v >> rec.at >> rec.length >> rec.area;
+        else if (tag == "BY") rec.by = rest;
+        else if (tag == "WEAPON") rec.weapon = rest;
+        else if (tag == "ARMOR") rec.armor = rest;
+        else if (tag == "RELICS") rec.relics = splitBar(rest);
+        else if (tag == "KEEPS") rec.keepsakes = splitBar(rest);
+        else if (tag == "DECK") {
+            for (const std::string& p : splitBar(rest)) {
+                const size_t a = p.rfind('='), b = a == std::string::npos ? a : p.rfind('=', a - 1);
+                if (b == std::string::npos) continue;
+                rec.deck.push_back(RunRecord::Held{ p.substr(0, b), std::atoi(p.c_str() + b + 1), std::atoi(p.c_str() + a + 1) });
+            }
+        }
+        else if (tag == "NUMBERS") v >> rec.won >> rec.bosses >> rec.shades >> rec.dealt >> rec.taken >> rec.biggest
+                                      >> rec.cards >> rec.turns >> rec.rests >> rec.forges >> rec.sits >> rec.seconds;
+        else if (tag == "MOST") { v >> rec.mostCount; std::getline(v, rec.most); if (!rec.most.empty() && rec.most[0] == ' ') rec.most.erase(0, 1); }
+        else if (tag == "END") all.push_back(rec);
+    }
+    std::reverse(all.begin(), all.end());
+    return all;
+}
+
+const char* resultWord(const RunRecord& r) {
+    return r.result == 3 ? "the long night ends" : r.result == 2 ? "cleared the road"
+         : r.result == 4 ? "ended early" : "died";
+}
+// Better: the true ending, then a clear, then how far it got.
+int runScore(const RunRecord& r) { return (r.result == 3 ? 2 : r.result == 2 ? 1 : 0) * 1000 + r.at; }
+
+const int CHRON_TABS = 2;
+const char* const CHRON_TAB[CHRON_TABS] = { "Recent", "Best runs" };
+struct ChronView {
+    int tab = 0, sel = 0, top = 0;
+    int scroll = 0;                // the open run's page, in pixels
+    std::vector<RunRecord> all;    // newest first
+    std::vector<int> rows;         // the open tab's, as places in `all`
+};
+const ChronView* gChron = nullptr;
+
+std::vector<std::string> chronTabs() { return std::vector<std::string>(CHRON_TAB, CHRON_TAB + CHRON_TABS); }
+
+std::string withCommas(int n) {
+    std::string s = std::to_string(n);
+    for (int i = (int)s.size() - 3; i > 0; i -= 3) s.insert((size_t)i, ",");
+    return s;
+}
+std::string timeWords(int seconds) {
+    const int h = seconds / 3600, m = (seconds % 3600) / 60;
+    if (h > 0) return std::to_string(h) + (h == 1 ? " hour " : " hours ") + std::to_string(m) + (m == 1 ? " minute" : " minutes");
+    return std::to_string(std::max(1, m)) + (m == 1 ? " minute" : " minutes");
+}
+std::string joinComma(const std::vector<std::string>& v, const char* none) {
+    std::string s;
+    for (const std::string& x : v) s += (s.empty() ? "" : ", ") + x;
+    return s.empty() ? std::string(none) : s;
+}
+
+SDL_Rect chronBox(const JournalLayout& L) {
+    return SDL_Rect{ L.right.x + L.pad * 2, L.right.y + L.pad, L.right.w - L.pad * 4, L.right.h - L.pad * 2 };
+}
+
+// The open run's page: drawn (draw) or only measured. Says how tall it is.
+int chronPage(SDL_Renderer* r, const JournalLayout& L, const RunRecord& rec, int scroll, bool draw, const Theme& t) {
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    const SDL_Rect box = chronBox(L);
+    const int lineH = ch * 4 / 3, valueX = box.x + 13 * cw, cols = std::max(12, (box.x + box.w - valueX) / cw);
+    int y = box.y + L.pad - scroll;
+    auto text = [&](int x, const std::string& s, SDL_Color c, bool bold) { if (draw) Console::drawTextPx(r, x, y, s, c, bold); };
+    // A label and its value, the value wrapping under itself.
+    auto row = [&](const std::string& label, const std::string& value) {
+        text(box.x, label, t.faint, false);
+        const std::vector<std::string> lines = wrapTo(value, cols);
+        for (size_t i = 0; i < lines.size(); ++i) {
+            if (draw) Console::drawTextPx(r, valueX, y, lines[i], t.ink, false);
+            y += lineH;
+        }
+        if (lines.empty()) y += lineH;
+    };
+    if (draw) Console::drawTextBigPx(r, box.x, y, rec.road + " road", t.ink, true);
+    y += Console::bigCellH() + 4;
+    text(box.x, rec.when + "     " + timeWords(rec.seconds), t.faint, false);
+    y += lineH + L.pad / 2;
+    std::string result = rec.result == 1 && !rec.by.empty() ? "died to the " + rec.by : std::string(resultWord(rec));
+    result[0] = (char)std::toupper((unsigned char)result[0]);
+    row("Result", result);
+    static const char* const AREA_WORD[AREAS] = { "the Dungeon", "the Dark Dungeon", "the Wicked Forest", "the Dark Lake",
+                                                  "the Mountain", "the Ruined Church" };
+    row("How far", rec.area == CHURCH ? std::string("In the ruined church")
+                   : "Encounter " + std::to_string(rec.at) + " of " + std::to_string(rec.length) + ", "
+                     + AREA_WORD[std::max(0, std::min(AREAS - 1, rec.area))]);
+    row("Gear", rec.weapon + ", " + rec.armor);
+    row("Relics", joinComma(rec.relics, "none"));
+    row("Keepsakes", joinComma(rec.keepsakes, "none"));
+    y += lineH / 2;
+
+    // The deck, as a grid of tiles in their rarity's colour.
+    int deckSize = 0;
+    for (const RunRecord::Held& h : rec.deck) deckSize += h.count;
+    text(box.x, "THE DECK, " + std::to_string(deckSize) + " CARDS", t.accent, true);
+    y += lineH;
+    static const SDL_Color RARITY[5] = { { 200, 200, 208, 255 }, { 135, 215, 135, 255 }, { 175, 215, 255, 255 },
+                                         { 255, 175, 215, 255 }, { 255, 215, 0, 255 } };
+    const int perRow = box.w >= 40 * cw ? 3 : 2, gap = 8;
+    const int tileW = (box.w - gap * (perRow - 1)) / perRow, tileH = ch + 12;
+    for (size_t i = 0; i < rec.deck.size(); ++i) {
+        const int col = (int)i % perRow;
+        const SDL_Rect tile{ box.x + col * (tileW + gap), y, tileW, tileH };
+        if (draw) {
+            DrawUtil::fillRound(r, tile, 4, lift(t.page, 10));
+            const RunRecord::Held& h = rec.deck[i];
+            std::string name = h.name + (h.count > 1 ? "  x" + std::to_string(h.count) : "");
+            const int fit = std::max(4, (tileW - 16) / cw);
+            if ((int)name.size() > fit) name = name.substr(0, (size_t)fit - 1) + ".";
+            Console::drawTextPx(r, tile.x + 8, tile.y + (tileH - ch) / 2, name,
+                                RARITY[std::max(0, std::min(4, h.rarity))], false);
+        }
+        if (col == perRow - 1 || i + 1 == rec.deck.size()) y += tileH + gap;
+    }
+    y += lineH / 2;
+
+    text(box.x, "THE RUN IN NUMBERS", t.accent, true);
+    y += lineH;
+    row("Won", std::to_string(rec.won) + (rec.won == 1 ? " fight, " : " fights, ") + std::to_string(rec.bosses)
+               + (rec.bosses == 1 ? " boss, " : " bosses, ") + std::to_string(rec.shades)
+               + (rec.shades == 1 ? " Moon Shade" : " Moon Shades"));
+    row("Damage", withCommas(rec.dealt) + " dealt, " + withCommas(rec.taken) + " taken");
+    row("Biggest hit", withCommas(rec.biggest));
+    row("Cards", withCommas(rec.cards) + " played" + (rec.most.empty() ? std::string()
+               : ", " + rec.most + " the most (" + std::to_string(rec.mostCount) + ")"));
+    row("Rest sites", std::to_string(rec.rests) + (rec.rests == 1 ? " rest, " : " rests, ") + std::to_string(rec.forges)
+                      + (rec.forges == 1 ? " forge, " : " forges, ") + std::to_string(rec.sits)
+                      + (rec.sits == 1 ? " fire sat by" : " fires sat by"));
+    row("Turns", withCommas(rec.turns));
+    return y + scroll - box.y;
+}
+
+void drawChronicle() {
+    if (!gChron) return;
+    const ChronView& v = *gChron;
+    SDL_Renderer* r = Platform::renderer();
+    const Theme& t = NIGHT;
+    const int W = Platform::screenW();
+    const int cw = std::max(1, Platform::cellW()), ch = std::max(1, Platform::cellH());
+    const JournalLayout L = layoutBook(chronTabs(), (int)v.rows.size());
+    drawBookFrame(r, L, chronTabs(), { &NIGHT, &NIGHT }, v.tab, t);
+
+    int x = L.left.x + L.pad, y = L.left.y + L.pad;
+    Console::drawTextBigPx(r, x, y, CHRON_TAB[v.tab], t.ink, true);
+    Console::drawTextPx(r, x, y + Console::bigCellH() + 4,
+                        v.tab == 0 ? std::to_string(v.all.size()) + (v.all.size() == 1 ? " run kept" : " runs kept")
+                                   : std::string("the best on each road"), t.faint, false);
+    for (size_t i = 0; i < L.rows.size(); ++i) {
+        const size_t at = (size_t)v.top + i;
+        if (at >= v.rows.size()) break;
+        const RunRecord& rec = v.all[(size_t)v.rows[at]];
+        const SDL_Rect& row = L.rows[i];
+        const bool on = (int)at == v.sel;
+        if (on) {
+            DrawUtil::fillRound(r, row, 5, lift(t.page, 14));
+            DrawUtil::frameRound(r, row, 5, LIME);
+        }
+        std::string road = rec.road;
+        road.resize(std::max(road.size(), (size_t)17), ' ');
+        const std::string how = rec.result == 3 ? "true ending" : rec.result == 2 ? "cleared"
+                              : rec.area == CHURCH ? "the church" : "encounter " + std::to_string(rec.at);
+        Console::drawTextPx(r, row.x + 14, row.y + (row.h - ch) / 2, road + how,
+                            rec.result >= 2 && rec.result <= 3 ? GOLD : t.ink, on);
+    }
+    DrawUtil::drawScroll(r, L.listTrack, v.top, std::max(0, (int)v.rows.size() - L.capacity), L.capacity,
+                         (int)v.rows.size(), dark(t.page), t.faint);
+
+    bool scrolls = false;
+    const SDL_Rect box = chronBox(L);
+    if (v.sel >= 0 && v.sel < (int)v.rows.size()) {
+        const RunRecord& rec = v.all[(size_t)v.rows[(size_t)v.sel]];
+        const int whole = chronPage(r, L, rec, 0, false, t);
+        const int maxScroll = std::max(0, whole - box.h);
+        SDL_RenderSetClipRect(r, &box);
+        chronPage(r, L, rec, std::min(v.scroll, maxScroll), true, t);
+        SDL_RenderSetClipRect(r, nullptr);
+        const int trackW = std::max(6, cw * 2 / 3);
+        const SDL_Rect track{ L.right.x + L.right.w - L.pad - trackW, box.y, trackW, box.h };
+        DrawUtil::drawScroll(r, track, std::min(v.scroll, maxScroll), maxScroll, box.h, whole, dark(t.page), t.faint);
+        scrolls = maxScroll > 0;
+    } else {
+        Console::drawTextPx(r, box.x, box.y + L.pad, "No runs yet. Every run you finish is kept here.", t.ink, false);
+    }
+    const std::string hint = std::string("up and down to choose     left and right for the other list")
+                           + (scrolls ? "     PgUp and PgDn to scroll" : "") + "     Esc to close";
     Console::drawTextPx(r, (W - (int)hint.size() * cw) / 2, L.book.y + L.book.h + 10, hint,
                         SDL_Color{ 120, 116, 132, 255 }, false);
 }
@@ -644,9 +949,65 @@ void Game::noteLorekeeper() {
     if (Achievements::has(Achievements::LOREKEEPER)) return;
     for (int i = 0; i < COUNT; ++i)
         if (!hasMet(i)) return;
-    for (const LoreEntry& e : loreEntries())
+    for (const LoreEntry& e : loreEntries(true))
         if (!e.seen) return;
     earn(Achievements::LOREKEEPER);
+}
+
+// The true form keeps the Shadow Knight's name in the fight, so it is picked
+// out by the phase instead.
+int Game::recordIdNow() const {
+    return trueFormPhase ? bestiaryIndexOf("Moonstruck Shadow Knight") : bestiaryIndexOf(enemy.getName());
+}
+
+void Game::recordFight(int outcome) {
+    const int id = recordIdNow();
+    if (id < 0 || id >= 128) return;
+    BeastRecord& rec = beastRecords[id];
+    if (outcome == 0) rec.fought++;
+    else if (outcome == 1) { rec.won++; if (rec.fastest == 0 || turnNumber < rec.fastest) rec.fastest = turnNumber; }
+    else rec.lost++;
+    // The Chronicle's damage dealt: what stuck on it by the end of the fight.
+    if (outcome != 0) runTally.dealt += std::max(0, enemy.getMaxHealth() - enemy.getHealth());
+    saveProgress();
+}
+
+// Its record page: two columns, and the true form's under its own heading on
+// the Shadow Knight's.
+std::vector<std::string> Game::recordLines(int id, int id2) const {
+    auto times = [](int n) {
+        return n == 1 ? std::string("once") : n == 2 ? std::string("twice") : std::to_string(n) + " times";
+    };
+    std::vector<std::string> out;
+    auto block = [&](int i) {
+        const BeastRecord& rec = beastRecords[i];
+        if (rec.fought == 0) { out.push_back("No fights on record yet."); return; }
+        out.push_back("Fought|" + times(rec.fought));
+        out.push_back("Beaten|" + (rec.won ? times(rec.won) : std::string("not yet")));
+        out.push_back("Beaten by it|" + (rec.lost ? times(rec.lost) : std::string("never")));
+        if (rec.fastest > 0) out.push_back("Fastest win|" + std::to_string(rec.fastest) + (rec.fastest == 1 ? " turn" : " turns"));
+    };
+    if (id >= 0 && id < 128) block(id);
+    if (id2 >= 0 && id2 < 128 && hasMet(id2)) {
+        out.push_back("");
+        out.push_back("#Its true form");
+        block(id2);
+    }
+    return out;
+}
+
+void Game::loreProgress(int& have, int& need) const {
+    have = need = 0;
+    for (int i = 0; i < COUNT; ++i) { ++need; have += hasMet(i) ? 1 : 0; }
+    for (const LoreEntry& e : loreEntries(true)) { ++need; have += e.seen ? 1 : 0; }
+}
+
+// Floors, so it only says 100% once every last thing is in.
+int Game::galleryPercent() const {
+    int have = 0, need = 0;
+    loreProgress(have, need);
+    for (const Card& c : allCards()) { ++need; have += cardsHeld.count(c.getBaseName()) ? 1 : 0; }
+    return need > 0 ? have * 100 / need : 100;
 }
 
 // Saves from before the bestiary existed have no MET record, so fill it in
@@ -664,6 +1025,12 @@ void Game::seedMetFromProgress() {
         if (!std::strcmp(b.key, "Moonstruck Shadow Knight")) met = A::has(A::TRUE_FORM);
         if (met) metMask[i / 64] |= 1ULL << (i % 64);
     }
+}
+
+// An enemy's sprite as a card icon, for the quick road's forks.
+int Game::bestiaryIcon(const std::string& enemyName) const {
+    const int id = bestiaryIndexOf(enemyName);
+    return id < 0 ? -1 : ICON0 + id * 2;
 }
 
 void Game::drawCardIcon(SDL_Renderer* r, int icon, const SDL_Rect& dst) {
@@ -691,7 +1058,7 @@ void Game::showBestiary() {
     int selFor[AREAS] = { 0, 0, 0, 0, 0, 0 };   // where you were in each area
     auto open = [&](int area) {
         v.area = area;
-        v.ids.clear(); v.met.clear(); v.text.clear(); v.phase2.clear(); v.text2.clear();
+        v.ids.clear(); v.met.clear(); v.text.clear(); v.phase2.clear(); v.text2.clear(); v.record.clear();
         v.metCount = 0;
         v.page = 0;
         v.first = 0;
@@ -707,6 +1074,7 @@ void Game::showBestiary() {
             v.phase2.push_back(second);
             // Not there to turn to until it has been met: the second phase is a secret too.
             v.text2.push_back(second >= 0 && hasMet(second) ? bestiaryEntryText(second) : std::string());
+            v.record.push_back(hasMet(i) ? recordLines(i, second) : std::vector<std::string>{});
         }
         v.sel = std::min(selFor[area], (int)v.ids.size() - 1);
     };
@@ -714,7 +1082,7 @@ void Game::showBestiary() {
     gView = &v;
     Platform::setModalRenderer(&drawJournal);
     Platform::flushKeys();
-    int lastMx = -1, lastMy = -1;
+    int lastMx = -1, lastMy = -1, lastRow = -1;
     Platform::mousePos(lastMx, lastMy);
     auto turn = [&](int d) {
         const int to = (v.area + d + v.areas) % v.areas;
@@ -732,8 +1100,8 @@ void Game::showBestiary() {
     };
     auto flip = [&]() {
         const size_t si = (size_t)v.sel;
-        if (si >= v.ids.size() || v.phase2[si] < 0 || v.text2[si].empty()) return;
-        v.page = 1 - v.page;
+        if (si >= v.ids.size() || pagesOf(v, si) <= 1) return;
+        v.page = (v.page + 1) % pagesOf(v, si);
         v.first = 0;
         Audio::menuHover();
     };
@@ -741,17 +1109,25 @@ void Game::showBestiary() {
     while (true) {
         const JournalLayout L = layoutJournal(v.areas, (int)v.ids.size());
         const size_t cur = (size_t)std::max(0, v.sel);
-        const EntryText e = layoutEntry(L, v.page == 1 && v.phase2[cur] >= 0 ? v.text2[cur] : v.text[cur]);
+        const EntryText e = layoutEntry(L, onRecord(v, cur) ? std::string() : onSecond(v, cur) ? v.text2[cur] : v.text[cur]);
         const int view = e.loreBottom - e.top;
         v.first = std::min(v.first, e.maxFirst);   // the window may have grown
         int mx, my;
         Platform::mousePos(mx, my);
         DrawUtil::scrollDrag(grip, e.track, v.first, e.maxFirst, view, e.whole, my, Platform::mouseDown());
+        // The highlight follows the pointer onto another row, not the pointer
+        // twitching on the row it was already on: after the wheel or the keys moved
+        // the highlight, a nudge of the mouse used to snap it straight back.
         if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !grip.held) {
             lastMx = mx; lastMy = my;
+            int row = -1;
             for (size_t i = 0; i < L.rows.size(); ++i) {
                 const SDL_Rect& q = L.rows[i];
-                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) choose((int)i);
+                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) row = (int)i;
+            }
+            if (row != lastRow) {
+                lastRow = row;
+                if (row >= 0) choose(row);
             }
         }
         const Platform::KeyEvent k = Platform::pollKey();
@@ -799,13 +1175,17 @@ void Game::showGallery() {
             CardBar::Action{ "Bestiary",  "every enemy you have met", false },
             CardBar::Action{ "Lore Book", "the story so far, every fire, the letters and the cutscenes", false },
             CardBar::Action{ "Card Ledger", "every card in the game, and the ones you have held", false },
+            CardBar::Action{ "Chronicle", "every run you have finished, how far it got and what you had", false },
             CardBar::Action{ "Back", false } };
         UIHelper::clearScreen();
         CardBar::setNextHighlight(last);
+        // Short of 100% is the hint that there is more out there than you've seen.
+        CardBar::setNextCorner(std::to_string(galleryPercent()) + "% found");
         const int c = CardBar::pick("Gallery", {}, acts, 0);
         if (c == 0)      showBestiary();
         else if (c == 1) showLoreBook();
         else if (c == 2) showCardLedger();
+        else if (c == 3) showChronicle();
         else return;
         last = c;
     }
@@ -822,6 +1202,7 @@ void Game::showLoreBook() {
             if (e.tab == tab) v.rows.push_back(&e);
         v.sel = std::min(selFor[tab], (int)v.rows.size() - 1);
         v.top = topFor[tab];
+        v.first = 0;
     };
     // The list scrolls to keep the chosen one in view.
     auto keepInView = [&]() {
@@ -838,6 +1219,7 @@ void Game::showLoreBook() {
     auto choose = [&](int i) {
         if (i < 0 || i >= (int)v.rows.size() || i == v.sel) return;
         v.sel = i;
+        v.first = 0;
         keepInView();
         Audio::menuHover();
     };
@@ -845,17 +1227,41 @@ void Game::showLoreBook() {
     gLore = &v;
     Platform::setModalRenderer(&drawLore);
     Platform::flushKeys();
-    int lastMx = -1, lastMy = -1;
+    int lastMx = -1, lastMy = -1, lastRow = -1;
     Platform::mousePos(lastMx, lastMy);
+    DrawUtil::ScrollGrip listGrip, pageGrip;   // the two sliders, while one is held
     while (true) {
         const JournalLayout L = layoutBook(loreTabs(), (int)v.rows.size());
+        const TextBlock page = lorePage(L, v);
+        const int maxTop = std::max(0, (int)v.rows.size() - L.capacity);
+        // Moving the list keeps the highlight on a row you can see.
+        auto selInView = [&]() {
+            const int s = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
+            if (s != v.sel) { v.sel = s; v.first = 0; }
+        };
+        v.first = std::min(v.first, page.maxFirst);
         int mx, my;
         Platform::mousePos(mx, my);
-        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden()) {
+        DrawUtil::scrollDrag(pageGrip, page.track, v.first, page.maxFirst, page.bottom - page.top, page.whole, my,
+                             Platform::mouseDown());
+        if (listGrip.held) {
+            DrawUtil::scrollDrag(listGrip, L.listTrack, v.top, maxTop, L.capacity, (int)v.rows.size(), my,
+                                 Platform::mouseDown());
+            selInView();
+        }
+        // The highlight follows the pointer onto another row, not the pointer
+        // twitching on the row it was already on: after the wheel or the keys moved
+        // the highlight, a nudge of the mouse used to snap it straight back.
+        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !listGrip.held && !pageGrip.held) {
             lastMx = mx; lastMy = my;
+            int row = -1;
             for (size_t i = 0; i < L.rows.size(); ++i) {
                 const SDL_Rect& q = L.rows[i];
-                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) choose(v.top + (int)i);
+                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) row = (int)i;
+            }
+            if (row != lastRow) {
+                lastRow = row;
+                if (row >= 0) choose(v.top + row);
             }
         }
         const Platform::KeyEvent k = Platform::pollKey();
@@ -866,11 +1272,30 @@ void Game::showLoreBook() {
         else if (k.key == Platform::Key::LEFT || k.key == Platform::Key::TO_CARDS)    turn(-1);
         else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::TO_ACTIONS) turn(1);
         else if (k.key == Platform::Key::ENTER) watch = true;
+        else if (k.key == Platform::Key::PAGE_UP)
+            v.first = std::max(0, v.first - std::max(1, (page.bottom - page.top) / page.lineH - 1));
+        else if (k.key == Platform::Key::PAGE_DOWN)
+            v.first = std::min(page.maxFirst, v.first + std::max(1, (page.bottom - page.top) / page.lineH - 1));
         else if (k.key == Platform::Key::ESCAPE) break;
+        // Over the page, or from a pad's right stick, the wheel scrolls a long
+        // page. Anywhere else it moves through the list.
         const int wheel = Platform::takeWheel();
-        if (wheel) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
+        const bool overPage = mx >= L.right.x && mx < L.right.x + L.right.w && my >= L.right.y && my < L.right.y + L.right.h;
+        if (wheel && page.maxFirst > 0 && (overPage || Platform::pointerHidden()))
+            v.first = std::max(0, std::min(page.maxFirst, v.first - wheel));
+        else if (wheel) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
+            if (DrawUtil::scrollPress(pageGrip, page.track, v.first, page.maxFirst, page.bottom - page.top, page.whole,
+                                      cx, cy)) {
+                Platform::frame();
+                continue;
+            }
+            if (DrawUtil::scrollPress(listGrip, L.listTrack, v.top, maxTop, L.capacity, n, cx, cy)) {
+                selInView();
+                Platform::frame();
+                continue;
+            }
             for (size_t a = 0; a < L.tabs.size(); ++a) {
                 const SDL_Rect& q = L.tabs[a];
                 if (cx >= q.x && cx < q.x + q.w && cy >= q.y && cy < q.y + q.h) turn((int)a - v.tab);
@@ -944,6 +1369,7 @@ void Game::showCardLedger() {
         }
         v.sel = std::min(selFor[tab], (int)v.rows.size() - 1);
         v.top = topFor[tab];
+        v.first = 0;
     };
     auto keepInView = [&]() {
         const JournalLayout L = layoutBook(ledgerTabs(), (int)v.rows.size());
@@ -959,6 +1385,7 @@ void Game::showCardLedger() {
     auto choose = [&](int i) {
         if (i < 0 || i >= (int)v.rows.size() || i == v.sel) return;
         v.sel = i;
+        v.first = 0;
         keepInView();
         Audio::menuHover();
     };
@@ -966,17 +1393,40 @@ void Game::showCardLedger() {
     gLedger = &v;
     Platform::setModalRenderer(&drawCardLedger);
     Platform::flushKeys();
-    int lastMx = -1, lastMy = -1;
+    int lastMx = -1, lastMy = -1, lastRow = -1;
     Platform::mousePos(lastMx, lastMy);
+    DrawUtil::ScrollGrip listGrip, pageGrip;   // the two sliders, while one is held
     while (true) {
         const JournalLayout L = layoutBook(ledgerTabs(), (int)v.rows.size());
+        const TextBlock page = ledgerPage(L, v);
+        const int maxTop = std::max(0, (int)v.rows.size() - L.capacity);
+        auto selInView = [&]() {
+            const int s = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
+            if (s != v.sel) { v.sel = s; v.first = 0; }
+        };
+        v.first = std::min(v.first, page.maxFirst);
         int mx, my;
         Platform::mousePos(mx, my);
-        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden()) {
+        DrawUtil::scrollDrag(pageGrip, page.track, v.first, page.maxFirst, page.bottom - page.top, page.whole, my,
+                             Platform::mouseDown());
+        if (listGrip.held) {
+            DrawUtil::scrollDrag(listGrip, L.listTrack, v.top, maxTop, L.capacity, (int)v.rows.size(), my,
+                                 Platform::mouseDown());
+            selInView();
+        }
+        // The highlight follows the pointer onto another row, not the pointer
+        // twitching on the row it was already on: after the wheel or the keys moved
+        // the highlight, a nudge of the mouse used to snap it straight back.
+        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !listGrip.held && !pageGrip.held) {
             lastMx = mx; lastMy = my;
+            int row = -1;
             for (size_t i = 0; i < L.rows.size(); ++i) {
                 const SDL_Rect& q = L.rows[i];
-                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) choose(v.top + (int)i);
+                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) row = (int)i;
+            }
+            if (row != lastRow) {
+                lastRow = row;
+                if (row >= 0) choose(v.top + row);
             }
         }
         const Platform::KeyEvent k = Platform::pollKey();
@@ -985,11 +1435,28 @@ void Game::showCardLedger() {
         else if (k.key == Platform::Key::DOWN) choose((v.sel + 1) % n);
         else if (k.key == Platform::Key::LEFT || k.key == Platform::Key::TO_CARDS)    turn(-1);
         else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::TO_ACTIONS) turn(1);
+        else if (k.key == Platform::Key::PAGE_UP)
+            v.first = std::max(0, v.first - std::max(1, (page.bottom - page.top) / page.lineH - 1));
+        else if (k.key == Platform::Key::PAGE_DOWN)
+            v.first = std::min(page.maxFirst, v.first + std::max(1, (page.bottom - page.top) / page.lineH - 1));
         else if (k.key == Platform::Key::ESCAPE) break;
         const int wheel = Platform::takeWheel();
-        if (wheel) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
+        const bool overPage = mx >= L.right.x && mx < L.right.x + L.right.w && my >= L.right.y && my < L.right.y + L.right.h;
+        if (wheel && page.maxFirst > 0 && (overPage || Platform::pointerHidden()))
+            v.first = std::max(0, std::min(page.maxFirst, v.first - wheel));
+        else if (wheel) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
         int cx, cy;
         if (Platform::takeClick(cx, cy)) {
+            if (DrawUtil::scrollPress(pageGrip, page.track, v.first, page.maxFirst, page.bottom - page.top, page.whole,
+                                      cx, cy)) {
+                Platform::frame();
+                continue;
+            }
+            if (DrawUtil::scrollPress(listGrip, L.listTrack, v.top, maxTop, L.capacity, n, cx, cy)) {
+                selInView();
+                Platform::frame();
+                continue;
+            }
             for (size_t a = 0; a < L.tabs.size(); ++a) {
                 const SDL_Rect& q = L.tabs[a];
                 if (cx >= q.x && cx < q.x + q.w && cy >= q.y && cy < q.y + q.h) turn((int)a - v.tab);
@@ -1003,5 +1470,219 @@ void Game::showCardLedger() {
     }
     Platform::setModalRenderer(nullptr);
     gLedger = nullptr;
+    Audio::menuSelect(true);
+}
+
+// --- the Chronicle: writing a run down, and the book ---------------------------
+// In its own file next to the progress file, so it can never touch your progress.
+std::string Game::chroniclePath() const { return Audio::saveDir() + "chronicle.dat"; }
+
+void Game::tallySeconds() {
+    const unsigned now = SDL_GetTicks();
+    runTally.seconds += (int)((now - runClock) / 1000);
+    runClock = now;
+}
+
+// At the end of a run that really ended: how far, what ended it, what you
+// carried, and the numbers. The last fifty are kept.
+void Game::writeChronicle() {
+    tallySeconds();
+    std::vector<std::vector<std::string>> blocks;
+    {
+        std::ifstream in(chroniclePath());
+        std::vector<std::string> cur;
+        for (std::string line; std::getline(in, line); ) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            cur.push_back(line);
+            if (line == "END") { blocks.push_back(cur); cur.clear(); }
+        }
+    }
+    while (blocks.size() >= 50) blocks.erase(blocks.begin());
+
+    std::time_t now = std::time(nullptr);
+    std::tm when{};
+#ifdef _WIN32
+    localtime_s(&when, &now);
+#else
+    localtime_r(&now, &when);
+#endif
+    char stamp[32];
+    std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M", &when);
+    std::string by = trueFormPhase ? std::string("Shadow Knight's true form") : enemy.getName();
+    const size_t paren = by.find(" (");
+    if (paren != std::string::npos) by.resize(paren);
+    std::vector<std::string> b;
+    b.push_back("RUN");
+    b.push_back(std::string("WHEN ") + stamp);
+    b.push_back(std::string("ROAD ") + modeName());
+    b.push_back("RESULT " + std::to_string(runResult == 0 ? 4 : runResult));
+    b.push_back("FAR " + std::to_string(currentRun.getCurrentEncounter()) + " " + std::to_string(currentRun.getLength())
+                + " " + std::to_string(currentRun.getAreaIndex()));
+    if (runResult == 1) b.push_back("BY " + by);
+    b.push_back("WEAPON " + (wornWeapon == 0 ? std::string("Wooden Sword") : weaponTierAt(wornWeapon - 1).name));
+    b.push_back("ARMOR " + (wornArmor == 0 ? std::string("Leather Armor") : armorTierAt(wornArmor - 1).name));
+    std::string relics, keeps, deck;
+    for (int i = 0; i < Relic::COUNT; ++i)
+        if (hasRelic(i)) relics += (relics.empty() ? "" : "|") + std::string(Relic::INFO[i].name);
+    for (int z = 0; z < KEEPSAKE_COUNT; ++z)
+        if (hasKeepsake(z)) keeps += (keeps.empty() ? "" : "|") + std::string(keepsakeName(z));
+    // The deck by name, copies counted, in the order you'd read it.
+    std::vector<std::pair<std::string, std::pair<int, int>>> held;
+    for (const Card& c : playerDeck.getAllCardsOrdered()) {
+        if (isGraveDirt(c)) continue;
+        auto it = std::find_if(held.begin(), held.end(), [&](const auto& h) { return h.first == c.getName(); });
+        if (it != held.end()) it->second.second++;
+        else held.push_back({ c.getName(), { rarityOf(c), 1 } });
+    }
+    for (const auto& h : held)
+        deck += (deck.empty() ? "" : "|") + h.first + "=" + std::to_string(h.second.first) + "=" + std::to_string(h.second.second);
+    b.push_back("RELICS " + relics);
+    b.push_back("KEEPS " + keeps);
+    b.push_back("DECK " + deck);
+    int cards = 0, most = 0;
+    std::string mostName;
+    for (const auto& p : runTally.played) {
+        cards += p.second;
+        if (p.second > most) { most = p.second; mostName = p.first; }
+    }
+    int shades = 0;
+    for (int z = 0; z < 5; ++z) shades += (moonZonesBeaten >> z) & 1;
+    const int bosses = currentRun.areaBossesCleared() + (runResult >= 2 ? 1 : 0) + (runResult == 3 ? 1 : 0);
+    std::ostringstream n;
+    n << "NUMBERS " << currentRun.getEncountersWon() << " " << bosses << " " << shades << " " << runTally.dealt << " "
+      << runTally.taken << " " << runTally.biggest << " " << cards << " " << runTally.turns << " " << runTally.rests << " "
+      << runTally.forges << " " << runTally.sits << " " << runTally.seconds;
+    b.push_back(n.str());
+    if (most > 0) b.push_back("MOST " + std::to_string(most) + " " + mostName);
+    b.push_back("END");
+    blocks.push_back(b);
+
+    std::ofstream out(chroniclePath(), std::ios::trunc);
+    for (const auto& block : blocks)
+        for (const std::string& line : block) out << line << "\n";
+}
+
+void Game::showChronicle() {
+    ChronView v;
+    v.all = readChronicle(chroniclePath());
+    int selFor[CHRON_TABS] = { 0, 0 }, topFor[CHRON_TABS] = { 0, 0 };
+    auto open = [&](int tab) {
+        v.tab = tab;
+        v.rows.clear();
+        if (tab == 0) {
+            for (int i = 0; i < (int)v.all.size(); ++i) v.rows.push_back(i);
+        } else {
+            // The best on each road, in the order the roads open.
+            static const char* const ROADS[5] = { "Normal", "Quick", "Randomized", "Hard", "Randomized Hard" };
+            for (const char* road : ROADS) {
+                int best = -1;
+                for (int i = 0; i < (int)v.all.size(); ++i)
+                    if (v.all[(size_t)i].road == road && (best < 0 || runScore(v.all[(size_t)i]) > runScore(v.all[(size_t)best])))
+                        best = i;
+                if (best >= 0) v.rows.push_back(best);
+            }
+        }
+        v.sel = std::max(0, std::min(selFor[tab], (int)v.rows.size() - 1));
+        v.top = topFor[tab];
+        v.scroll = 0;
+    };
+    auto keepInView = [&]() {
+        const JournalLayout L = layoutBook(chronTabs(), (int)v.rows.size());
+        if (v.sel < v.top) v.top = v.sel;
+        if (v.sel >= v.top + L.capacity) v.top = v.sel - L.capacity + 1;
+        v.top = std::max(0, std::min(v.top, std::max(0, (int)v.rows.size() - L.capacity)));
+    };
+    auto turn = [&](int d) {
+        selFor[v.tab] = v.sel; topFor[v.tab] = v.top;
+        open((v.tab + d + CHRON_TABS) % CHRON_TABS);
+        Audio::menuHover();
+    };
+    auto choose = [&](int i) {
+        if (i < 0 || i >= (int)v.rows.size() || i == v.sel) return;
+        v.sel = i;
+        v.scroll = 0;
+        keepInView();
+        Audio::menuHover();
+    };
+    open(0);
+    gChron = &v;
+    Platform::setModalRenderer(&drawChronicle);
+    Platform::flushKeys();
+    int lastMx = -1, lastMy = -1, lastRow = -1;
+    Platform::mousePos(lastMx, lastMy);
+    DrawUtil::ScrollGrip listGrip, pageGrip;
+    while (true) {
+        const JournalLayout L = layoutBook(chronTabs(), (int)v.rows.size());
+        const SDL_Rect box = chronBox(L);
+        const int whole = v.sel >= 0 && v.sel < (int)v.rows.size()
+                        ? chronPage(nullptr, L, v.all[(size_t)v.rows[(size_t)v.sel]], 0, false, NIGHT) : 0;
+        const int maxScroll = std::max(0, whole - box.h);
+        const int trackW = std::max(6, Platform::cellW() * 2 / 3);
+        const SDL_Rect track{ L.right.x + L.right.w - L.pad - trackW, box.y, trackW, box.h };
+        const int n = (int)v.rows.size();
+        const int maxTop = std::max(0, n - L.capacity);
+        const int step = std::max(1, Platform::cellH() * 4 / 3);
+        auto selInView = [&]() {
+            const int s = std::max(v.top, std::min(v.sel, v.top + L.capacity - 1));
+            if (s != v.sel) { v.sel = s; v.scroll = 0; }
+        };
+        v.scroll = std::min(v.scroll, maxScroll);
+        int mx, my;
+        Platform::mousePos(mx, my);
+        DrawUtil::scrollDrag(pageGrip, track, v.scroll, maxScroll, box.h, whole, my, Platform::mouseDown());
+        if (listGrip.held) {
+            DrawUtil::scrollDrag(listGrip, L.listTrack, v.top, maxTop, L.capacity, n, my, Platform::mouseDown());
+            selInView();
+        }
+        // The highlight follows the pointer onto another row, not the pointer
+        // twitching on the row it was already on: after the wheel or the keys moved
+        // the highlight, a nudge of the mouse used to snap it straight back.
+        if ((mx != lastMx || my != lastMy) && !Platform::pointerHidden() && !listGrip.held && !pageGrip.held) {
+            lastMx = mx; lastMy = my;
+            int row = -1;
+            for (size_t i = 0; i < L.rows.size(); ++i) {
+                const SDL_Rect& q = L.rows[i];
+                if (mx >= q.x && mx < q.x + q.w && my >= q.y && my < q.y + q.h) row = (int)i;
+            }
+            if (row != lastRow) {
+                lastRow = row;
+                if (row >= 0) choose(v.top + row);
+            }
+        }
+        const Platform::KeyEvent k = Platform::pollKey();
+        if (k.key == Platform::Key::UP && n > 0)        choose((v.sel - 1 + n) % n);
+        else if (k.key == Platform::Key::DOWN && n > 0) choose((v.sel + 1) % n);
+        else if (k.key == Platform::Key::LEFT || k.key == Platform::Key::TO_CARDS)    turn(-1);
+        else if (k.key == Platform::Key::RIGHT || k.key == Platform::Key::TO_ACTIONS) turn(1);
+        else if (k.key == Platform::Key::PAGE_UP)   v.scroll = std::max(0, v.scroll - (box.h - step));
+        else if (k.key == Platform::Key::PAGE_DOWN) v.scroll = std::min(maxScroll, v.scroll + (box.h - step));
+        else if (k.key == Platform::Key::ESCAPE) break;
+        // Over the run, or from a pad's right stick, the wheel reads down it.
+        const int wheel = Platform::takeWheel();
+        const bool overPage = mx >= L.right.x && mx < L.right.x + L.right.w && my >= L.right.y && my < L.right.y + L.right.h;
+        if (wheel && maxScroll > 0 && (overPage || Platform::pointerHidden()))
+            v.scroll = std::max(0, std::min(maxScroll, v.scroll - wheel * step * 2));
+        else if (wheel && n > 0) choose(std::max(0, std::min(n - 1, v.sel - wheel)));
+        int cx, cy;
+        if (Platform::takeClick(cx, cy)) {
+            if (DrawUtil::scrollPress(pageGrip, track, v.scroll, maxScroll, box.h, whole, cx, cy)) { Platform::frame(); continue; }
+            if (DrawUtil::scrollPress(listGrip, L.listTrack, v.top, maxTop, L.capacity, n, cx, cy)) {
+                selInView();
+                Platform::frame();
+                continue;
+            }
+            for (size_t a = 0; a < L.tabs.size(); ++a) {
+                const SDL_Rect& q = L.tabs[a];
+                if (cx >= q.x && cx < q.x + q.w && cy >= q.y && cy < q.y + q.h) turn((int)a - v.tab);
+            }
+            for (size_t i = 0; i < L.rows.size(); ++i) {
+                const SDL_Rect& q = L.rows[i];
+                if (cx >= q.x && cx < q.x + q.w && cy >= q.y && cy < q.y + q.h) choose(v.top + (int)i);
+            }
+        }
+        Platform::frame();
+    }
+    Platform::setModalRenderer(nullptr);
+    gChron = nullptr;
     Audio::menuSelect(true);
 }
